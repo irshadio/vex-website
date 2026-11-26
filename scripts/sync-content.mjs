@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
-const lang = path.resolve(process.env.VEX_LANG_DIR ?? path.join(root, '..', '..', 'VEX'));
+const lang = path.resolve(process.env.VEX_LANG_DIR ?? path.join(root, '..', 'VEX'));
 const docs = path.join(root, 'content', 'docs');
 
 const read = (p) => fs.readFileSync(path.join(lang, p), 'utf8');
