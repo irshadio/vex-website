@@ -107,12 +107,12 @@ export function Playground({ examples }: { examples: PlaygroundExample[] }) {
     setCheck(r);
     if (!r.ok) {
       setTerminal({ kind: 'session', events: [{ out: r.messages }], error: true, note: null });
-    } else if (example && source === example.code) {
-      setTerminal({ kind: 'session', events: example.session, error: false, note: 'Recorded when this example was verified.' });
     } else if (runUrl && readsInput(source)) {
       setTerminal({ kind: 'input', lines: [] });
     } else if (runUrl) {
       await runOnService([]);
+    } else if (example && source === example.code) {
+      setTerminal({ kind: 'session', events: example.session, error: false, note: 'Recorded when this example was verified.' });
     } else {
       setTerminal({
         kind: 'session',
