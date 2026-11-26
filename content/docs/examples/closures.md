@@ -1,0 +1,89 @@
+---
+title: "Closures"
+description: "Closures, trailing blocks, functions returning functions, filter and map."
+---
+
+Closures, trailing blocks, functions returning functions, `filter` and `map`.
+
+```vex title="closures.vx"
+/// A button that runs [onTap] when tapped.
+struct Button {
+    title: string
+    onTap: fn()
+
+    fn tap() {
+        println("[{title}] tapped")
+        onTap()
+    }
+}
+
+/// Runs [action] [times] times.
+fn repeat(times: int, action: fn()) {
+    for i in 0..times {
+        action()
+    }
+}
+
+/// Returns a function that adds [n] to its argument.
+fn adder(n: int) -> fn(int) -> int => fn(x) => x + n
+
+/// Returns a counter: each call returns the next number.
+fn makeCounter() -> fn() -> int {
+    var count = 0
+    return fn() -> int {
+        count += 1
+        return count
+    }
+}
+
+fn main() {
+    // Closures stored in variables.
+    let double = fn(x: int) -> int => x * 2
+    let greet = fn(name: string) {
+        println("Hello, {name}!")
+    }
+    greet("Vex")
+    println("double(21) = {double(21)}")
+
+    // Closures that capture variables share them with the code around them.
+    var taps = 0
+    let add = Button(title: "Add") { taps += 1 }
+    add.tap()
+    add.tap()
+    repeat(3) { taps += 10 }
+    println("taps = {taps}")
+
+    // Functions that return functions.
+    let addFive = adder(5)
+    println("addFive(10) = {addFive(10)}")
+    let next = makeCounter()
+    println("counter: {next()} {next()} {next()}")
+
+    // filter and map take closures.
+    let scores = [42, 7, 19, 88, 3, 56]
+    let passed = scores.filter(fn(s) => s >= 40)
+    let labels = passed.map(fn(s) => "{s} pts")
+    println("passed: {passed}")
+    println("labels: {labels}")
+}
+```
+
+Run it with:
+
+```sh
+vex run closures.vx
+```
+
+Output:
+
+```text
+Hello, Vex!
+double(21) = 42
+[Add] tapped
+[Add] tapped
+taps = 32
+addFive(10) = 15
+counter: 1 2 3
+passed: [42, 88, 56]
+labels: ["42 pts", "88 pts", "56 pts"]
+```

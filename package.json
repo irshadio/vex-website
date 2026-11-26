@@ -1,17 +1,46 @@
 {
   "name": "vex-website",
-  "type": "module",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "private": true,
   "scripts": {
-    "dev": "astro dev",
-    "start": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview",
-    "astro": "astro"
+    "build": "next build",
+    "dev": "next dev",
+    "start": "serve out",
+    "types:check": "next typegen && tsc --noEmit",
+    "lint": "eslint",
+    "sync": "node scripts/sync-content.mjs",
+    "bench": "node benchmarks/run.mjs"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.43.1",
-    "astro": "^7.3.6",
-    "sharp": "^0.35.3"
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/outfit": "^5.3.0",
+    "@radix-ui/react-slot": "^1.5.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cn": "^0.5.2",
+    "fumadocs-core": "16.19.7",
+    "fumadocs-mdx": "15.6.4",
+    "fumadocs-ui": "npm:@fumadocs/base-ui@16.19.7",
+    "lucide-react": "^1.71.0",
+    "motion": "^14.14.0",
+    "next": "16.4.6",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "shiki": "^4.6.0",
+    "tailwind-merge": "^3.7.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/mdx": "^2.0.14",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "16.4.6",
+    "postcss": "^8.5.32",
+    "serve": "^14.2.7",
+    "tailwindcss": "^4.3.5",
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   }
 }

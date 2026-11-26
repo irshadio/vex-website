@@ -1,0 +1,638 @@
+[
+  {
+    "number": 1,
+    "title": "Core language",
+    "version": "v0.1",
+    "goal": "`vex run hello.vx` compiles and runs native programs with structs, lists, methods and string interpolation.",
+    "sections": [
+      {
+        "title": "Project setup",
+        "tasks": [
+          {
+            "id": "V-001",
+            "text": "Repo layout, `go.mod`, `.gitignore`, git init",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-002",
+            "text": "`vex` CLI skeleton: `version`, `help`; `run`, `build`, `emit-c` added with V-045",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-003",
+            "text": "Error type with file:line:col, a source snippet, a caret and an optional hint",
+            "status": "done",
+            "size": "S"
+          }
+        ]
+      },
+      {
+        "title": "Lexer",
+        "tasks": [
+          {
+            "id": "V-010",
+            "text": "Tokens: identifiers, keywords, int/float/string/bool literals, operators",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-011",
+            "text": "Automatic statement end at newline (Go-style rules)",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-012",
+            "text": "Comments `//`, `///` and `/* */`, string escapes, `1_000` digit separators",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-013",
+            "text": "String interpolation tokens: `\"Hi {name}, {count + 1}\"` with nesting",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-014",
+            "text": "Lexer unit tests",
+            "status": "done",
+            "size": "S"
+          }
+        ]
+      },
+      {
+        "title": "Parser and AST",
+        "tasks": [
+          {
+            "id": "V-020",
+            "text": "AST node types for declarations, statements and expressions",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-021",
+            "text": "Top level: `fn`, `struct` with fields, default values, methods and `static fn`",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-022",
+            "text": "Functions: typed parameters, default values, `-> Type`, one-line `=> expr` bodies",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-023",
+            "text": "Statements: `let`, `var`, assignment and `+= -= *= /= %=`, `if/else if/else` without parentheses, `while`, `return`, `break`, `continue`",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-024",
+            "text": "Loops: `for x in list`, `for i, x in list`, `for i in a..b`, `for i in a..=b`",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-025",
+            "text": "Expressions with a Pratt parser: precedence, unary, call, index, member access, list literals `[1, 2]`",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-026",
+            "text": "Call syntax shared by functions, constructors and future widgets: positional plus named arguments `User(name: \"Ann\")`, trailing blocks `f(x) { ... }`",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-027",
+            "text": "Helpful messages for common mistakes, e.g. `else` on a new line, `;` or `()` around `if` conditions",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-028",
+            "text": "Parser unit tests",
+            "status": "done",
+            "size": "S"
+          }
+        ]
+      },
+      {
+        "title": "Type checker",
+        "tasks": [
+          {
+            "id": "V-030",
+            "text": "Types: `int`, `float`, `bool`, `string`, `[T]` lists, structs",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-031",
+            "text": "Scopes, name resolution, shadowing rules",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-032",
+            "text": "Type inference for `let x = ...`; annotation for empty lists (`let xs: [int] = []`)",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-033",
+            "text": "`let` (immutable) vs `var` (mutable) enforcement",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-034",
+            "text": "Named and default arguments: matching, missing or unknown names, duplicates",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-035",
+            "text": "Structs: constructor `User(...)` from fields, field defaults, methods with implicit `self` (fields used without `self.`), `static fn` called as `User.guest()`",
+            "status": "done",
+            "size": "L"
+          },
+          {
+            "id": "V-036",
+            "text": "Missing-return detection on all paths",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-037",
+            "text": "Built-in functions: `print`, `println`, `input`, `panic`, `assert`, `int()`, `float()`, `str()`",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-038",
+            "text": "Built-in members: lists `.len`, `.push()`, `.pop()`, `.contains()`; strings `.len`, `.upper()`, `.lower()`, `.contains()`, `.split()`",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-039",
+            "text": "Clear type errors with hints, e.g. int + string suggests `\"{count} items\"`, int/float mix suggests `float()`",
+            "status": "done",
+            "size": "S"
+          }
+        ]
+      },
+      {
+        "title": "C code generation and runtime",
+        "tasks": [
+          {
+            "id": "V-040",
+            "text": "C runtime: lists, strings, allocation, printing",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-041",
+            "text": "Runtime safety: bounds checks, divide by zero, bad number parsing, empty `pop()`, all with file and line",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-042",
+            "text": "Codegen: functions, defaults, named arguments, structs, methods, all statements and expressions",
+            "status": "done",
+            "size": "L"
+          },
+          {
+            "id": "V-043",
+            "text": "String interpolation codegen for every printable type",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-044",
+            "text": "Printing lists and structs: `[1, 2]`, `User(name: \"Ann\", age: 30)`",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-045",
+            "text": "Call clang with `-fwrapv -O2`; respect the `$CC` environment variable",
+            "status": "done",
+            "size": "S"
+          }
+        ]
+      },
+      {
+        "title": "Tests, examples, docs",
+        "tasks": [
+          {
+            "id": "V-050",
+            "text": "Golden tests: `examples/*.vx` + `*.out`, run by `go test`",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-051",
+            "text": "Error tests: `tests/errors/*.vx` with an expected message",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-052",
+            "text": "Examples: hello, fibonacci, structs/methods, prime sieve, sorting, input",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-053",
+            "text": "`README.md`: install, CLI, language tour",
+            "status": "done",
+            "size": "M"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "number": 2,
+    "title": "Language for apps",
+    "version": "v0.2",
+    "goal": "the language features real apps need before any UI work.",
+    "sections": [
+      {
+        "title": "Done",
+        "tasks": [
+          {
+            "id": "V-100",
+            "text": "Enums with data plus `match` (exhaustive)",
+            "status": "done",
+            "size": "L"
+          },
+          {
+            "id": "V-101",
+            "text": "Optionals `User?` with `if let`, `??` and `?.`; no null crashes",
+            "status": "done",
+            "size": "L"
+          },
+          {
+            "id": "V-102",
+            "text": "Errors: `throws` / `throws(E)`, `throw`, `try`, `catch`, `try?`",
+            "status": "done",
+            "size": "L"
+          },
+          {
+            "id": "V-103",
+            "text": "Closures / lambdas, needed for UI event handlers",
+            "status": "done",
+            "size": "L"
+          },
+          {
+            "id": "V-104",
+            "text": "Generics for functions and structs",
+            "status": "done",
+            "size": "XL"
+          },
+          {
+            "id": "V-106",
+            "text": "Maps `[string: int]`",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-117",
+            "text": "Interfaces: a struct declares which interfaces it implements",
+            "status": "done",
+            "size": "L"
+          },
+          {
+            "id": "V-105",
+            "text": "Modules: a folder is a module; `import \"vex:math\"`, `import \"models\"`, `as`; `pub` visibility; `package.toml`; first `vex:math` and `vex:strings`",
+            "status": "done",
+            "size": "L"
+          },
+          {
+            "id": "V-107",
+            "text": "Memory management: tracing GC, stage 1 mark and sweep",
+            "status": "done",
+            "size": "XL"
+          },
+          {
+            "id": "V-113",
+            "text": "Hardening: fuzzing, sanitizers, Linux and macOS CI, feature-combination tests",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-114",
+            "text": "Hardening 2: random program generator with known output, stack overflow errors, independent review",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-120",
+            "text": "Integer overflow stops the program by default; `&+` `&-` `&*` wrap; benchmarked against Go",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-110",
+            "text": "C interop: `extern fn` with `as \"c_name\"`, string conversion, `[c]` sources, libs and flags in `package.toml`",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-127",
+            "text": "Standard library: float math in `vex:math` through C (`sqrt`, `sin`, …) and `vex:time`",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-129",
+            "text": "Standard library: files, processes and environment (`vex:fs`, `vex:os`); `vex run` passes arguments",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-131",
+            "text": "Strings: `replace`, `trim`, `trimStart`, `trimEnd`, `startsWith`, `endsWith`, `indexOf`, `substring`, `chars`, `lines`",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-108",
+            "text": "Standard library: strings, math, time and files, delivered by V-127, V-129 and V-131",
+            "status": "done",
+            "size": "L"
+          },
+          {
+            "id": "V-118",
+            "text": "Builder blocks: a trailing `{ }` for a list parameter builds the list, one element per line, with `let`, `if`, `for` and `...`; `Column { }` without `()`",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-133",
+            "text": "Collection `if`, `for` and spread `...`/`...?` inside list and map literals, as in Dart",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-119",
+            "text": "Setters `set name(v: T)` and `didSet` blocks on fields with `oldValue`",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-134",
+            "text": "Getters `get name -> T`, read like fields",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-125",
+            "text": "Generics: generic enums such as `Result<T>`, methods with their own type parameters, generic functions as values (`first<int>` or from the expected type)",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-126",
+            "text": "Interfaces: generic interfaces such as `Ordered<T>`, interfaces that extend others, enums that implement interfaces, getters and setters in interfaces, met by accessors or fields",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-130",
+            "text": "C interop: sized numbers (`int32`, `uint8`, `float32`...) in extern signatures, `extern type` pointer handles, `fn` callbacks with a kept context, `export fn`, Objective-C `.m` sources and Apple frameworks",
+            "status": "done",
+            "size": "M"
+          }
+        ]
+      },
+      {
+        "title": "Needed by the UI framework (Phase 3 starts after these)",
+        "tasks": [
+          {
+            "id": "V-135",
+            "text": "`async`/`await` with an event loop: `async fn`, `Future<T>`, `await`, `all`/`any`, `run`, `time.sleep`, and `vex_poll` for platform run loops; each task runs on its own stack",
+            "status": "done",
+            "size": "XL"
+          },
+          {
+            "id": "V-148",
+            "text": "Streams: `Stream<T>`, `async*` functions with `yield`, `for await`, and awaiting inside closures, for UI events and HTTP bodies",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-147",
+            "text": "Isolates: `isolate.run` and `isolate.spawn` run code in parallel on threads with their own heaps; `Channel<T>` carries deep-copied messages between them; `while let`",
+            "status": "done",
+            "size": "XL"
+          }
+        ]
+      },
+      {
+        "title": "Modern language features",
+        "tasks": [
+          {
+            "id": "V-136",
+            "text": "Records in the Dart 3 style: `(int, string)`, `({int x, int y})`, `.$1` and named fields, value equality, and `let`/`var`/`for` destructuring",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-137",
+            "text": "Destructuring and richer patterns: `let (a, b) = pair`, struct and list patterns, guards in `match` arms, ranges, `if case`",
+            "status": "done",
+            "size": "L"
+          },
+          {
+            "id": "V-138",
+            "text": "Constants: top-level `const` values computed at compile time",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-139",
+            "text": "Extensions: add methods to existing types, built-in ones included",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-140",
+            "text": "Type aliases for long types",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-141",
+            "text": "Multi-line and raw strings",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-142",
+            "text": "Operator overloading for structs: arithmetic, `==`, ordering and indexing",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-143",
+            "text": "Tear-offs: methods and constructors as values, as in `names.map(user.greet)`",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-144",
+            "text": "Sealed interfaces: a closed set of structs that `match` checks exhaustively, with type patterns",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-145",
+            "text": "Null-aware elements in collections and `?[ ]` indexing",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-146",
+            "text": "Extension types: zero-cost wrappers that make `UserId` and `int` different types",
+            "status": "todo",
+            "size": "M"
+          }
+        ]
+      },
+      {
+        "title": "Tools and packages",
+        "tasks": [
+          {
+            "id": "V-121",
+            "text": "Package manager: `vex get` from public git repos, `package.lock` with hashes",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-122",
+            "text": "`vex doc`: API docs from `///` comments",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-124",
+            "text": "Benchmark suite in the repo (`bench/`): Vex programs with Go equivalents and a script that compares them",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-123",
+            "text": "Stack traces: runtime errors list the chain of calls with their lines",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-128",
+            "text": "Modules, next steps: warn about unused imports, `pub` names whose types are private, and errors sorted with the root module first",
+            "status": "todo",
+            "size": "S"
+          }
+        ]
+      },
+      {
+        "title": "Runtime and libraries",
+        "tasks": [
+          {
+            "id": "V-109",
+            "text": "JSON encode/decode built in, no codegen step",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-132",
+            "text": "Bytes: a type for binary data, and reading and writing binary files",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-115",
+            "text": "Print values through one growing buffer; deeply nested values print in quadratic time today",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-116",
+            "text": "Unicode-aware strings: `upper`/`lower` beyond A–Z, and counting visible characters (grapheme clusters)",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-111",
+            "text": "GC stage 2: precise roots and object layouts",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-112",
+            "text": "GC stage 3: generational collection, returning memory to the OS",
+            "status": "todo",
+            "size": "XL"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "number": 6,
+    "title": "Developer experience",
+    "version": "v0.6",
+    "goal": null,
+    "sections": [
+      {
+        "title": null,
+        "tasks": [
+          {
+            "id": "V-500",
+            "text": "Hot reload on the simulator: reload code as a dynamic library, keep state",
+            "status": "todo",
+            "size": "XL"
+          },
+          {
+            "id": "V-501",
+            "text": "VS Code extension: syntax highlighting, then an LSP (errors, go-to-definition, autocomplete)",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-502",
+            "text": "`vex fmt` code formatter",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-503",
+            "text": "`vex new myapp` project template",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-505",
+            "text": "`vex repl`: type a line, see its result (compiled behind the scenes)",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-504",
+            "text": "Debugging: line info in the generated C (`#line`) so lldb shows `.vx` lines",
+            "status": "todo",
+            "size": "M"
+          }
+        ]
+      }
+    ]
+  }
+]

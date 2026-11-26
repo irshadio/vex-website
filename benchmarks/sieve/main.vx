@@ -1,0 +1,16 @@
+fn main() {
+    let limit = 20000000
+    var isPrime = [for i in 0..limit i >= 2]
+    var count = 0
+    for n in 2..limit {
+        if isPrime[n] {
+            count += 1
+            var m = n * n
+            while m < limit {
+                isPrime[m] = false
+                m += n
+            }
+        }
+    }
+    println(count)
+}

@@ -1,0 +1,190 @@
+---
+title: Overview
+description: What Vex is, what works today, how the compiler turns source into a native binary, and where to find everything in these docs.
+---
+
+Vex is a compiled, statically typed programming language. You write `.vx` files, and the `vex` command turns them into native executables through C. It is a general-purpose language: today you can use it for command-line programs, tools and libraries on macOS and Linux.
+
+<Callout type="warn" title="Early development">
+Vex is at version 0.1 (`0.1.0-dev`). The core language, the compiler and a first standard library work on macOS and Linux. The package manager, more platforms and editor support are planned and not built yet. Expect breaking changes between versions.
+</Callout>
+
+## A first look
+
+```vex title="taste.vx"
+struct User {
+    name: string
+    age: int = 18
+
+    fn greet() {
+        println("Hi, I'm {name}")
+    }
+
+    fn isAdult() -> bool => age >= 18
+}
+
+fn main() {
+    let users = [
+        User(name: "Ann", age: 30),
+        User(name: "Sam", age: 15),
+    ]
+
+    for i, user in users {
+        user.greet()
+        println("{i}: adult = {user.isAdult()}")
+    }
+}
+```
+
+```text title="Output"
+Hi, I'm Ann
+0: adult = true
+Hi, I'm Sam
+1: adult = false
+```
+
+A few things to notice:
+
+- `let` names can't be reassigned and `var` names can. Types are inferred.
+- A new line ends a statement, so there are no semicolons. Conditions need no parentheses, and braces are always required.
+- Structs are created with named arguments, and fields can have defaults: `User(name: "Sam")` would get `age: 18`.
+- Strings interpolate with `{expr}`.
+- Methods use fields directly, with no `self.` in front.
+
+## Design goals
+
+Vex aims to be readable at first sight for anyone who knows Dart, Swift, Kotlin, Go or TypeScript, and to be fast and predictable once compiled.
+
+| Goal | What it means in practice |
+|---|---|
+| Familiar | `let` and `var`, `fn`, `name: Type`, `if` and `for` without parentheses. |
+| Low noise | No semicolons, no `self.` inside methods, types inferred where they are obvious. |
+| One way to create things | `User(name: "Ann")` builds a struct, and every type is created the same way. There's no `new`. |
+| Safe by default | No null: optionals (`T?`) must be checked. Numbers never convert silently. Integer overflow, out-of-range indexes and division by zero stop the program with the source line instead of producing wrong results. |
+| Visible failure | A function that can fail is marked `throws`, and every call to it needs `try`. |
+| Native speed | Ahead-of-time compilation to machine code, with no virtual machine. Generics are specialized per type, and errors are returned like values, not unwound. |
+| Helpful errors | Diagnostics point at the exact spot and suggest a fix. |
+
+## Current status
+
+What exists today, as of version 0.1:
+
+| Area | State |
+|---|---|
+| Platforms | macOS and Linux, on arm64 and x86-64 CPUs. Windows isn't supported yet. |
+| Compiler | Lexer, parser, type checker and C code generator, written in Go. Needs a C compiler (`clang` or `gcc`) on your machine. |
+| Language | Variables, constants, functions, closures, structs, enums, `match` and patterns, optionals, errors, generics, interfaces, extensions, records, lists, maps, operator overloading, getters, setters and `didSet`, type aliases, multi-line and raw strings. |
+| Concurrency | `async`/`await` with a built-in event loop, and isolates (parallel threads with separate heaps) with channels. |
+| Projects | Folders as modules, `pub` visibility, `package.toml`, and building your own C and Objective-C code into a project. |
+| Standard library | `vex:math`, `vex:strings`, `vex:time`, `vex:os`, `vex:fs` and `vex:isolate`. |
+| Memory | Automatic, with a tracing garbage collector built into every program. |
+| Tools | `vex run`, `build`, `check`, `emit-c`, `ast`, `tokens`, `version` and `help`. |
+
+What is planned and not built:
+
+| Planned | Notes |
+|---|---|
+| More platforms | Cross-compiling the C output for iOS (`arm64-apple-ios`) and Android (the NDK). |
+| Package manager | `vex get`, `package:` imports and `package.lock`. See [Packages](/docs/projects/packages). |
+| Language features | Streams (`async*`, `for await`), sealed interfaces, extension types, JSON, a bytes type, Unicode-aware `upper` and `lower`. |
+| Tools | Formatter, language server and editor extension, `vex new`, `vex doc`, stack traces in runtime errors, debugger line information. |
+
+## How it works
+
+```text
+main.vx ─► lexer ─► parser ─► type checker ─► C code ─► clang or gcc ─► native binary
+```
+
+The compiler reads your source files, checks them, and writes one C file that contains your program and the Vex runtime (the garbage collector, strings, lists, maps, the event loop and runtime error reporting). It then runs the system C compiler on that file to produce an executable. The result is a standalone binary with no dependency on Vex.
+
+Going through C has practical benefits: the C compiler's optimizer does the low-level work, the same output can later be cross-compiled for phones, and Vex code can call C functions directly with no glue code. You can see the generated C for any program with `vex emit-c`.
+
+Read more in [The compiler](/docs/internals/compiler) and [Generated C](/docs/tools/generated-c).
+
+## Get started
+
+<Cards>
+  <Card title="Install" href="/docs/install" description="Download the compiler or build it from source, and set up your PATH." />
+  <Card title="Your first program" href="/docs/first-program" description="Write, check, run and build a program, then grow it into a project with modules." />
+  <Card title="Language tour" href="/docs/tour" description="Every major feature of Vex in one page, with runnable examples." />
+  <Card title="Examples" href="/docs/examples" description="Small, complete programs, each with its expected output." />
+</Cards>
+
+## Language guide
+
+<Cards>
+  <Card title="Language guide" href="/docs/language" description="Principles, how the guide is organized, and the full keyword list." />
+  <Card title="Basics" href="/docs/language/basics" description="Variables, scope, type inference, comments and program structure." />
+  <Card title="Types" href="/docs/language/types" description="Built-in types, conversions, type aliases and inference rules." />
+  <Card title="Strings" href="/docs/language/strings" description="Literals, escapes, multi-line and raw strings, interpolation and Unicode." />
+  <Card title="Operators" href="/docs/language/operators" description="Arithmetic, comparison, logic, ranges, optional operators and precedence." />
+  <Card title="Control flow" href="/docs/language/control-flow" description="if, for, while, break and continue, guard." />
+  <Card title="Functions" href="/docs/language/functions" description="Parameters, named and default arguments, return types and one-line bodies." />
+  <Card title="Closures" href="/docs/language/closures" description="Function values, capture, trailing blocks and higher-order functions." />
+  <Card title="Constants" href="/docs/language/constants" description="const values worked out when the program is compiled." />
+  <Card title="Lists" href="/docs/language/lists" description="Creating, changing and looping over lists, and collection if, for and spread." />
+  <Card title="Maps" href="/docs/language/maps" description="Ordered hash maps with optional lookups." />
+  <Card title="Records" href="/docs/language/records" description="Lightweight groups of values with structural types." />
+  <Card title="Structs" href="/docs/language/structs" description="Fields, defaults, methods, properties, operators and reference semantics." />
+  <Card title="Enums" href="/docs/language/enums" description="Cases that carry values, methods and match." />
+  <Card title="Patterns" href="/docs/language/patterns" description="Matching and taking values apart, with exhaustiveness checks." />
+  <Card title="Optionals" href="/docs/language/optionals" description="T?, nil, if let, guard let, ?. and ??." />
+  <Card title="Errors" href="/docs/language/errors" description="throws, try, catch, try? and typed errors." />
+  <Card title="Generics" href="/docs/language/generics" description="Generic functions, structs, enums and methods, with constraints." />
+  <Card title="Interfaces" href="/docs/language/interfaces" description="Contracts with default methods and properties, used as types and constraints." />
+  <Card title="Extensions" href="/docs/language/extensions" description="Adding methods and getters to existing types, built-in ones included." />
+  <Card title="Memory" href="/docs/language/memory" description="Values and references, garbage collection and cycles." />
+</Cards>
+
+## Concurrency
+
+<Cards>
+  <Card title="Concurrency overview" href="/docs/concurrency" description="async and isolates, and when to use which." />
+  <Card title="Async" href="/docs/concurrency/async" description="async functions, await, futures and the event loop." />
+  <Card title="Isolates" href="/docs/concurrency/isolates" description="Parallel work on other cores, with channels and copied messages." />
+</Cards>
+
+## Projects and modules
+
+<Cards>
+  <Card title="Modules" href="/docs/projects/modules" description="Folders as modules, pub, imports and package.toml." />
+  <Card title="Packages" href="/docs/projects/packages" description="What works now and what the package manager will add." />
+  <Card title="C interop" href="/docs/projects/c-interop" description="Calling C, exporting Vex functions to C, and building C code into a project." />
+</Cards>
+
+## Standard library
+
+<Cards>
+  <Card title="Standard library" href="/docs/stdlib" description="Overview of the built-ins and the vex: modules." />
+  <Card title="Built-ins" href="/docs/stdlib/built-ins" description="Every built-in function and every member of int, float, string, lists and maps." />
+  <Card title="vex:math" href="/docs/stdlib/math" description="Integer and float math." />
+  <Card title="vex:strings" href="/docs/stdlib/strings" description="Repeating, joining and padding strings." />
+  <Card title="vex:time" href="/docs/stdlib/time" description="Measuring time, the date, and sleeping." />
+  <Card title="vex:os" href="/docs/stdlib/os" description="Arguments, environment, exit and running commands." />
+  <Card title="vex:fs" href="/docs/stdlib/fs" description="Reading, writing and listing files and folders." />
+  <Card title="vex:isolate" href="/docs/stdlib/isolate" description="Starting isolates and counting cores." />
+</Cards>
+
+## Tools
+
+<Cards>
+  <Card title="The vex command" href="/docs/tools/cli" description="Every subcommand, flag, exit code and environment variable." />
+  <Card title="Compile errors" href="/docs/tools/compile-errors" description="How to read diagnostics, with a catalog of common errors and fixes." />
+  <Card title="Runtime errors" href="/docs/tools/runtime-errors" description="What stops a running program, and what the output looks like." />
+  <Card title="Generated C" href="/docs/tools/generated-c" description="What vex emit-c produces and how Vex maps to C." />
+</Cards>
+
+## Design notes
+
+<Cards>
+  <Card title="The compiler" href="/docs/internals/compiler" description="The pipeline, the source layout, and how to build and test the compiler." />
+  <Card title="Memory management" href="/docs/internals/memory" description="The garbage collector's design and its next stages." />
+  <Card title="Package system" href="/docs/internals/packages" description="The design of packages, versions and the package index." />
+</Cards>
+
+## See also
+
+- [Install](/docs/install)
+- [Your first program](/docs/first-program)
+- [Language tour](/docs/tour)
+- [Examples](/docs/examples)

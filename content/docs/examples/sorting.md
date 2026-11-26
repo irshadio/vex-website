@@ -1,0 +1,74 @@
+---
+title: "Sorting"
+description: "Bubble sort and insertion sort, in place."
+---
+
+Bubble sort and insertion sort, in place.
+
+```vex title="sorting.vx"
+/// Sorts [xs] in place by repeatedly swapping neighbours that are out of order.
+fn bubbleSort(xs: [int]) {
+    for i in 0..xs.len {
+        var swapped = false
+        for j in 0..xs.len - 1 - i {
+            if xs[j] > xs[j + 1] {
+                let tmp = xs[j]
+                xs[j] = xs[j + 1]
+                xs[j + 1] = tmp
+                swapped = true
+            }
+        }
+        if !swapped {
+            break
+        }
+    }
+}
+
+/// Sorts [words] in place by inserting each word into the sorted part before it.
+fn insertionSort(words: [string]) {
+    for i in 1..words.len {
+        let word = words[i]
+        var j = i - 1
+        while j >= 0 && words[j] > word {
+            words[j + 1] = words[j]
+            j -= 1
+        }
+        words[j + 1] = word
+    }
+}
+
+/// Returns a new sorted list, leaving [xs] unchanged.
+fn sorted(xs: [int]) -> [int] {
+    var copy: [int] = []
+    for x in xs {
+        copy.push(x)
+    }
+    bubbleSort(copy)
+    return copy
+}
+
+fn main() {
+    let numbers = [42, 7, 19, 88, 3, 56, -4, 19]
+    let ordered = sorted(numbers)
+    println("Original: {numbers}")
+    println("Sorted:   {ordered}")
+
+    var words = "pear,apple,fig,banana,cherry".split(",")
+    insertionSort(words)
+    println("Words:    {words}")
+}
+```
+
+Run it with:
+
+```sh
+vex run sorting.vx
+```
+
+Output:
+
+```text
+Original: [42, 7, 19, 88, 3, 56, -4, 19]
+Sorted:   [-4, 3, 7, 19, 19, 42, 56, 88]
+Words:    ["apple", "banana", "cherry", "fig", "pear"]
+```

@@ -1,0 +1,412 @@
+{
+  "date": "2026-11-26",
+  "machine": {
+    "cpu": "Apple M3",
+    "cores": 8,
+    "memory": "16 GB",
+    "os": "macOS 26.4"
+  },
+  "method": "Mean wall-clock time of 20 runs after 2 warm-up runs, measured with hyperfine. Peak memory is the largest resident set size across the timed runs. Every program prints the same result, which is checked before timing.",
+  "languages": [
+    {
+      "id": "vex",
+      "name": "Vex",
+      "kind": "native",
+      "note": null,
+      "version": "vex 0.1.0-dev"
+    },
+    {
+      "id": "c",
+      "name": "C",
+      "kind": "native",
+      "note": null,
+      "version": "Apple clang version 21.0.0 (clang-2100.0.123.102)"
+    },
+    {
+      "id": "rust",
+      "name": "Rust",
+      "kind": "native",
+      "note": null,
+      "version": "rustc 1.94.1 (e408947bf 2026-03-25)"
+    },
+    {
+      "id": "go",
+      "name": "Go",
+      "kind": "native",
+      "note": null,
+      "version": "go version go1.23.2 darwin/arm64"
+    },
+    {
+      "id": "swift",
+      "name": "Swift",
+      "kind": "native",
+      "note": null,
+      "version": "swift-driver version: 1.148.6 Apple Swift version 6.3 (swiftlang-6.3.0.123.5 clang-2100.0.123.102)"
+    },
+    {
+      "id": "dart",
+      "name": "Dart",
+      "kind": "native",
+      "note": "AOT",
+      "version": "Dart SDK version: 3.7.2 (stable) (Tue Mar 11 04:27:50 2025 -0700) on \"macos_arm64\""
+    },
+    {
+      "id": "kotlin",
+      "name": "Kotlin",
+      "kind": "jvm",
+      "note": "JVM",
+      "version": "info: kotlinc-jvm 2.4.21 (JRE 11.0.26+0)"
+    },
+    {
+      "id": "node",
+      "name": "JavaScript",
+      "kind": "jit",
+      "note": "Node.js",
+      "version": "v24.22.1"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "fib",
+      "title": "Recursive calls",
+      "detail": "fib(38), about 126 million function calls"
+    },
+    {
+      "id": "sieve",
+      "title": "Loops and arrays",
+      "detail": "Sieve of Eratosthenes over 20 million booleans"
+    },
+    {
+      "id": "trees",
+      "title": "Allocation and GC",
+      "detail": "Binary trees, depth 18, about 67 million short-lived objects"
+    },
+    {
+      "id": "hello",
+      "title": "Start-up",
+      "detail": "Print \"Hello, world!\" and exit"
+    }
+  ],
+  "results": [
+    {
+      "benchmark": "fib",
+      "language": "vex",
+      "mean": 0.12938544795,
+      "min": 0.127955,
+      "stddev": 0.001856995211759706,
+      "runs": 20,
+      "memory": 1458176,
+      "size": 53280
+    },
+    {
+      "benchmark": "fib",
+      "language": "c",
+      "mean": 0.10704587905,
+      "min": 0.104559334,
+      "stddev": 0.001961088612774533,
+      "runs": 20,
+      "memory": 1359872,
+      "size": 33440
+    },
+    {
+      "benchmark": "fib",
+      "language": "rust",
+      "mean": 0.10772640824999999,
+      "min": 0.10505033300000001,
+      "stddev": 0.0024806983867993997,
+      "runs": 20,
+      "memory": 1556480,
+      "size": 441288
+    },
+    {
+      "benchmark": "fib",
+      "language": "go",
+      "mean": 0.11635854379999999,
+      "min": 0.112873291,
+      "stddev": 0.002572404253143855,
+      "runs": 20,
+      "memory": 3932160,
+      "size": 2242690
+    },
+    {
+      "benchmark": "fib",
+      "language": "swift",
+      "mean": 0.13158322925000002,
+      "min": 0.12907158300000002,
+      "stddev": 0.0028598834466469327,
+      "runs": 20,
+      "memory": 1884160,
+      "size": 50680
+    },
+    {
+      "benchmark": "fib",
+      "language": "dart",
+      "mean": 0.1940900355,
+      "min": 0.19282179200000002,
+      "stddev": 0.0004956564500596532,
+      "runs": 20,
+      "memory": 14696448,
+      "size": 5380672
+    },
+    {
+      "benchmark": "fib",
+      "language": "kotlin",
+      "mean": 0.1427031373,
+      "min": 0.14167237500000002,
+      "stddev": 0.000720869841903959,
+      "runs": 20,
+      "memory": 37568512,
+      "size": null
+    },
+    {
+      "benchmark": "fib",
+      "language": "node",
+      "mean": 0.28851864185,
+      "min": 0.28144391700000004,
+      "stddev": 0.0045826613098900616,
+      "runs": 20,
+      "memory": 47382528,
+      "size": null
+    },
+    {
+      "benchmark": "sieve",
+      "language": "vex",
+      "mean": 0.05559404780000001,
+      "min": 0.052605666,
+      "stddev": 0.0021340937779145363,
+      "runs": 20,
+      "memory": 21528576,
+      "size": 53504
+    },
+    {
+      "benchmark": "sieve",
+      "language": "c",
+      "mean": 0.048735945850000004,
+      "min": 0.04546775,
+      "stddev": 0.0031267181337396813,
+      "runs": 20,
+      "memory": 21397504,
+      "size": 33504
+    },
+    {
+      "benchmark": "sieve",
+      "language": "rust",
+      "mean": 0.0500023125,
+      "min": 0.04622575,
+      "stddev": 0.002737128215056306,
+      "runs": 20,
+      "memory": 21626880,
+      "size": 440808
+    },
+    {
+      "benchmark": "sieve",
+      "language": "go",
+      "mean": 0.04961451875,
+      "min": 0.044699958000000005,
+      "stddev": 0.002568542070841066,
+      "runs": 20,
+      "memory": 24592384,
+      "size": 2242674
+    },
+    {
+      "benchmark": "sieve",
+      "language": "swift",
+      "mean": 0.05696766034999999,
+      "min": 0.052108625000000006,
+      "stddev": 0.00289105491388308,
+      "runs": 20,
+      "memory": 21954560,
+      "size": 51928
+    },
+    {
+      "benchmark": "sieve",
+      "language": "dart",
+      "mean": 0.20195480215,
+      "min": 0.20033345800000002,
+      "stddev": 0.0010120709211249275,
+      "runs": 20,
+      "memory": 174718976,
+      "size": 5380672
+    },
+    {
+      "benchmark": "sieve",
+      "language": "kotlin",
+      "mean": 0.09395602504999999,
+      "min": 0.09120254200000001,
+      "stddev": 0.0014023841316875333,
+      "runs": 20,
+      "memory": 57868288,
+      "size": null
+    },
+    {
+      "benchmark": "sieve",
+      "language": "node",
+      "mean": 0.0987847606,
+      "min": 0.09604175000000001,
+      "stddev": 0.0015151122343705454,
+      "runs": 20,
+      "memory": 68059136,
+      "size": null
+    },
+    {
+      "benchmark": "trees",
+      "language": "vex",
+      "mean": 0.45293469775000006,
+      "min": 0.44965654200000005,
+      "stddev": 0.0028205626155741,
+      "runs": 20,
+      "memory": 34144256,
+      "size": 53440
+    },
+    {
+      "benchmark": "trees",
+      "language": "c",
+      "mean": 0.9810928875500002,
+      "min": 0.966972708,
+      "stddev": 0.006759192099497348,
+      "runs": 20,
+      "memory": 18284544,
+      "size": 33568
+    },
+    {
+      "benchmark": "trees",
+      "language": "rust",
+      "mean": 1.0937521815000002,
+      "min": 1.077280875,
+      "stddev": 0.01167205939824019,
+      "runs": 20,
+      "memory": 18497536,
+      "size": 441672
+    },
+    {
+      "benchmark": "trees",
+      "language": "go",
+      "mean": 1.2617086104000002,
+      "min": 1.176802375,
+      "stddev": 0.041246895417022755,
+      "runs": 20,
+      "memory": 47448064,
+      "size": 2242786
+    },
+    {
+      "benchmark": "trees",
+      "language": "swift",
+      "mean": 2.1146199584,
+      "min": 2.070103709,
+      "stddev": 0.028116428147556608,
+      "runs": 20,
+      "memory": 35667968,
+      "size": 52264
+    },
+    {
+      "benchmark": "trees",
+      "language": "dart",
+      "mean": 0.34871944375,
+      "min": 0.343593291,
+      "stddev": 0.0031730439658555288,
+      "runs": 20,
+      "memory": 82198528,
+      "size": 5380672
+    },
+    {
+      "benchmark": "trees",
+      "language": "kotlin",
+      "mean": 0.2827308916,
+      "min": 0.27458891700000004,
+      "stddev": 0.004918507757727346,
+      "runs": 20,
+      "memory": 459767808,
+      "size": null
+    },
+    {
+      "benchmark": "trees",
+      "language": "node",
+      "mean": 0.45572076260000005,
+      "min": 0.44592425,
+      "stddev": 0.008032416956027936,
+      "runs": 20,
+      "memory": 207765504,
+      "size": null
+    },
+    {
+      "benchmark": "hello",
+      "language": "vex",
+      "mean": 0.0015509313000000003,
+      "min": 0.001280833,
+      "stddev": 0.00019820954890086454,
+      "runs": 20,
+      "memory": 1409024,
+      "size": 52448
+    },
+    {
+      "benchmark": "hello",
+      "language": "c",
+      "mean": 0.0014729500000000002,
+      "min": 0.0012265000000000002,
+      "stddev": 0.0002836477020740602,
+      "runs": 20,
+      "memory": 1359872,
+      "size": 33424
+    },
+    {
+      "benchmark": "hello",
+      "language": "rust",
+      "mean": 0.0016830354,
+      "min": 0.001445834,
+      "stddev": 0.000270638937403868,
+      "runs": 20,
+      "memory": 1540096,
+      "size": 440776
+    },
+    {
+      "benchmark": "hello",
+      "language": "go",
+      "mean": 0.0022563687500000004,
+      "min": 0.002003167,
+      "stddev": 0.00026206830881116616,
+      "runs": 20,
+      "memory": 3932160,
+      "size": 2242674
+    },
+    {
+      "benchmark": "hello",
+      "language": "swift",
+      "mean": 0.0022286812500000005,
+      "min": 0.0018314170000000001,
+      "stddev": 0.0002966193341119885,
+      "runs": 20,
+      "memory": 1654784,
+      "size": 50648
+    },
+    {
+      "benchmark": "hello",
+      "language": "dart",
+      "mean": 0.009777254200000002,
+      "min": 0.009077041000000001,
+      "stddev": 0.0005674967413069063,
+      "runs": 20,
+      "memory": 14663680,
+      "size": 5380672
+    },
+    {
+      "benchmark": "hello",
+      "language": "kotlin",
+      "mean": 0.0447284271,
+      "min": 0.043959792000000004,
+      "stddev": 0.0004696492625478921,
+      "runs": 20,
+      "memory": 37552128,
+      "size": null
+    },
+    {
+      "benchmark": "hello",
+      "language": "node",
+      "mean": 0.028240183349999996,
+      "min": 0.027273167,
+      "stddev": 0.0005936225789611188,
+      "runs": 20,
+      "memory": 44367872,
+      "size": null
+    }
+  ]
+}
