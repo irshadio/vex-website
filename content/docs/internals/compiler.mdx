@@ -1,0 +1,273 @@
+---
+title: The compiler
+description: How the Vex compiler turns source files into a native binary, how its source code is organized, and how to build and test it.
+---
+
+The Vex compiler is a Go program, the `vex` command. It reads `.vx` files, checks them, writes one C file that holds the program and the Vex runtime, and runs the system C compiler on it. This page follows a program through each stage and maps the stages to the compiler's source code in the [language repository](https://github.com/irshadio/vex-lang).
+
+## The pipeline
+
+```text
+ .vx files
+    │
+ modules   find the files of the program, read package.toml, resolve imports
+    │
+ lexer     source text → tokens, with automatic statement ends
+    │
+ parser    tokens → syntax tree, one per file
+    │
+ types     check the whole program, infer every type, specialize generics
+    │
+ codegen   checked program → one C file (runtime + program)
+    │
+ cc        clang or gcc → native executable
+```
+
+Each stage either succeeds or returns a list of diagnostics, and the `vex` command stops at the first stage that fails. Nothing reaches the C compiler unless the type checker accepted the whole program, so C that doesn't compile is a compiler bug, and `vex` reports it as one.
+
+### Loading modules
+
+`compiler/modules` works out which files make up the program. For a single file, the program is that file plus whatever it imports. For a folder, it reads `package.toml`, takes every `.vx` file in the folder as the root module, and follows imports from there.
+
+- A folder is one module: all `.vx` files in it share their names.
+- `import "vex:name"` loads a standard library module. The standard library is embedded in the `vex` binary with Go's `embed`, so it needs no installation.
+- Any other import names a folder relative to the importing file.
+- The project file parser accepts `[package]`, `[c]`, `[dependencies]` and `[dev-dependencies]`. It reads `name`, `version` and `vex` in `[package]`, and `sources`, `libs`, `frameworks` and `flags` in `[c]`. Dependencies are accepted and ignored until the package manager exists. C flags are checked against an allow list, so a project file can't make the C compiler load plugins or write files.
+
+### Lexing
+
+`compiler/lexer` turns source text into tokens. Besides the usual work (identifiers, keywords, numbers with `_` separators, string escapes, nested block comments), it does two things that shape the language:
+
+- **Automatic statement ends.** At a line break, the lexer inserts an end-of-statement token when the last token can end a statement: a name, a literal, `)`, `]`, `}`, `?`, `return`, `break`, `continue` or `throws`. So a line that ends with an operator or `,` continues, and a line that starts with `.member`, `?.` or `??` continues the previous one. This is the same approach as Go.
+- **String interpolation.** `"Hi {name}"` becomes a sequence of string-part and expression tokens, with nesting, so the parser sees interpolated expressions as ordinary code. Multi-line `"""` strings have their indentation removed here.
+
+You can see the tokens of any file with `vex tokens`:
+
+```vex title="sq.vx"
+fn square(x: int) -> int => x * x
+
+fn main() {
+    println(square(7))
+}
+```
+
+```sh
+vex tokens sq.vx
+```
+
+```text
+1:1      'fn'               fn
+1:4      identifier         square
+1:10     '('                (
+1:11     identifier         x
+1:12     ':'                :
+1:14     identifier         int
+1:17     ')'                )
+1:19     '->'               ->
+1:22     identifier         int
+1:26     '=>'               =>
+1:29     identifier         x
+1:31     '*'                *
+1:33     identifier         x
+1:34     end of statement   newline
+3:1      'fn'               fn
+...
+```
+
+### Parsing
+
+`compiler/parser` builds a syntax tree (defined in `compiler/ast`) for each file. Declarations and statements use recursive descent; expressions use a Pratt parser, which handles precedence and the many postfix forms (calls, indexing, `.member`, `?.`, trailing blocks).
+
+The parser also recognizes habits from other languages and turns them into warnings or targeted errors, such as a `;` at the end of a line, parentheses around an `if` condition, or `else` on a new line. Warnings don't stop the build:
+
+```text
+warning: the if condition doesn't need parentheses
+ --> warn.vx:3:8
+  |
+3 |     if (n > 2) {
+  |        ^ write if n > 2 {
+```
+
+`vex ast` prints the tree:
+
+```sh
+vex ast sq.vx
+```
+
+```text
+file
+  fn square
+    param x: int
+    -> int
+    =>
+      *
+        x
+        x
+  fn main
+    block
+      call
+        println
+        call
+          square
+          7
+```
+
+### Type checking
+
+`compiler/types` is the largest part of the compiler, about two thirds of its Go code. It checks the whole program at once, across all modules, in three passes:
+
+1. **Register.** Record every declaration of every module by name, so that declarations can appear in any order and modules can import each other.
+2. **Collect.** Declare the types in dependency order (interfaces and C handle types, then aliases, structs, enums, extensions, constants and functions), then resolve the members and signatures of each: fields, parameters, results, and the interfaces each struct and enum lists. This pass also checks that `main` exists and that no struct contains itself through non-optional fields, which would make it impossible to create.
+3. **Bodies.** Check every function body: infer the type of every expression, resolve every name, check mutability, optionals, `try`, exhaustiveness of `match`, missing returns, and visibility across modules.
+
+Along the way it produces the information code generation needs: the type of every expression, which function each call goes to, how each argument binds to a parameter, which variables closures capture, and a concrete copy of every generic function, struct and enum for each set of type arguments it is used with. Generic code is checked once against its constraints, then specialized, so a generic function compiles to code as fast as one written for a single type.
+
+`match` coverage is checked with a usefulness algorithm over nested patterns, which finds both missing cases and arms that can never run.
+
+The checker stops after 30 errors, and removes duplicates before reporting.
+
+### Code generation
+
+`compiler/codegen` walks the checked program and writes C. The output is one C file:
+
+1. The runtime, `compiler/codegen/runtime/vexrt.h`, copied in whole. It is embedded in the compiler like the standard library.
+2. Type declarations for every struct, enum, optional, record and closure environment.
+3. Prototypes, interface method tables, and the encoders that copy values between isolates.
+4. The program's functions, with a C `main` that starts the runtime, calls the Vex `main`, and then runs the event loop.
+
+Some of the main translations:
+
+| Vex | C |
+|---|---|
+| `int`, `float`, `bool` | `int64_t`, `double`, `bool` |
+| `string` | a `vx_str` value: a pointer and a length |
+| Struct | a pointer to a heap-allocated C struct |
+| Record | a C struct passed by value |
+| Optional | a C struct with a flag, or a nullable pointer for reference types |
+| Closure | a function pointer plus a pointer to its captured variables |
+| Interface value | a pointer to the struct, whose header points to its method tables |
+| `throws` | an extra hidden parameter for the error; callers check it after each call |
+| Integer `+ - *` | checked operations that stop the program on overflow |
+
+The generated C uses GNU statement expressions, which is why it needs `clang` or `gcc`. See [Generated C](/docs/tools/generated-c) for real output and more detail.
+
+### Building
+
+`compiler/cc` runs the C compiler. It uses `$CC` if set, otherwise the first of `clang`, `cc` and `gcc` on the `PATH`, with these flags:
+
+```text
+-std=gnu11 -fwrapv -O3 -w -pthread
+```
+
+Flags in the `VEX_CFLAGS` environment variable come next, so they can override the defaults (for example `-g` to debug a program, or sanitizer flags). Then come the `[c]` flags, sources, libraries and frameworks from `package.toml`, and finally `-lm`.
+
+## Diagnostics
+
+`compiler/diag` holds the diagnostic type shared by every stage: a file, a line and column (columns count characters, not bytes), the length to underline, a message and an optional hint. The `vex` command sorts diagnostics by position, prints them with the source line, and colors them when standard error is a terminal and `NO_COLOR` isn't set.
+
+See [Compile errors](/docs/tools/compile-errors) for how to read them.
+
+## The runtime
+
+The runtime is about 2,600 lines of C in a single header. It is compiled into every program, so a Vex binary has no dependencies beyond the C library. It contains:
+
+- The garbage collector and allocator (see [Memory management](/docs/internals/memory)).
+- Strings, lists and insertion-ordered hash maps.
+- Printing of every value, including cycle detection for structs that refer to themselves.
+- Runtime errors that print the Vex file and line and exit with code 1, and a stack overflow handler that turns a crash into `error: stack overflow`.
+- The async event loop, with a small stack per task switched by assembly routines for arm64 and x86-64.
+- Isolates: threads with their own heap, collector and event loop, and the channels between them.
+- C helpers behind `vex:fs`, `vex:os` and `vex:time`.
+
+## Source layout
+
+| Path | What it holds | Go lines (without tests) |
+|---|---|---|
+| `cmd/vex` | The `vex` command: subcommands, flags, error printing | about 400 |
+| `compiler/modules` | Loading files, imports and `package.toml`; the embedded standard library in `std/` | about 700 |
+| `compiler/lexer` | Tokens, automatic statement ends, interpolation, multi-line strings | about 1,000 |
+| `compiler/parser` | The syntax tree builder | about 2,400 |
+| `compiler/ast` | Syntax tree types, printing, walking and cloning | about 1,600 |
+| `compiler/types` | The type checker, generics, interfaces, patterns, constants, modules | about 11,000 |
+| `compiler/codegen` | C code generation; the runtime in `runtime/vexrt.h` | about 3,900 |
+| `compiler/diag` | Diagnostics and their formatting | about 200 |
+| `compiler/cc` | Running the C compiler | about 100 |
+| `compiler/modules/std` | The standard library, written in Vex | (Vex) |
+| `examples` | Sample programs with expected output | |
+| `tests` | Golden tests, error tests, fuzzers, random program generators | |
+
+The standard library modules are ordinary Vex code. Most wrap C helpers from the runtime with `extern fn`, for example `vex:time`:
+
+```vex
+pub extern fn nanos() -> int as "vx_time_ns"
+pub extern fn unix() -> int as "vx_time_unix"
+pub extern fn sleep(ms: int) -> Future<void> as "vx_sleep"
+```
+
+## Building the compiler
+
+You need Go 1.23 or newer and a C compiler. The compiler has no Go dependencies outside the standard library.
+
+```sh
+git clone https://github.com/irshadio/vex-lang.git
+cd vex-lang
+./build.sh
+```
+
+`build.sh` runs `go build` with the version stamped in, and writes `bin/vex`. You can also build directly with `go build -o bin/vex ./cmd/vex`, in which case `vex version` shows `0.1.0-dev` without a commit.
+
+## Testing the compiler
+
+```sh
+go test ./...
+```
+
+This runs the unit tests of each package and the golden tests in `tests/`:
+
+- **Programs with expected output.** Every `examples/*.vx` and `tests/run/*.vx` program (and project folder) is compiled and run, and its output must match its `.out` file, with `.in` as keyboard input when present. Each program also runs with the garbage collector forced to collect on every allocation (`VEX_GC_STRESS=1`), to catch objects freed too early.
+- **Programs that must fail.** Each program in `tests/errors` must fail with exactly the errors listed in its `// error:` comments, with line and column.
+
+After an intended change to a program's output, refresh the `.out` files with:
+
+```sh
+go test ./tests -update
+```
+
+Deeper checks, which CI runs on every pull request on Linux with both clang and gcc:
+
+```sh
+# Random programs: the compiler must report errors, never crash.
+go test ./tests -run '^$' -fuzz FuzzCompiler -fuzztime 5m
+
+# Programs that pass the type checker must produce C that compiles.
+go test ./tests -run '^$' -fuzz FuzzGeneratedC -fuzztime 5m
+
+# Random valid programs whose exact output is known in advance.
+go test ./tests -run TestGeneratedPrograms -programs 200
+
+# Every test program under AddressSanitizer and UndefinedBehaviorSanitizer.
+ASAN_OPTIONS=detect_stack_use_after_return=0 \
+VEX_CFLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all" \
+go test ./compiler/codegen ./tests
+```
+
+CI also runs the async and isolate tests under ThreadSanitizer, and checks formatting with `gofmt` and `go vet`.
+
+## Planned
+
+<Callout type="warn" title="Planned">
+None of these exist yet:
+
+- `#line` directives in the generated C, so debuggers such as lldb show `.vx` lines.
+- Stack traces in runtime errors.
+- Cross-compiling the C output for iOS (`arm64-apple-ios`) and Android (the NDK).
+- `vex fmt`, a language server, `vex doc`, `vex new` and `vex repl`.
+- Longer term: rewriting the compiler in Vex, and an LLVM or custom backend instead of C.
+</Callout>
+
+## See also
+
+- [Generated C](/docs/tools/generated-c)
+- [The vex command](/docs/tools/cli)
+- [Compile errors](/docs/tools/compile-errors)
+- [Memory management](/docs/internals/memory)

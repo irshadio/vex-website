@@ -1,0 +1,413 @@
+---
+title: Operators
+description: Arithmetic, integer overflow and division rules, wrapping operators, comparison, logical operators, assignment, ranges, ?? and ?., and the full precedence table.
+---
+
+Vex has a small set of operators, and each one works only on the types it makes sense for. Numbers don't convert silently, integer overflow stops the program instead of producing a wrong number, and comparisons can't be chained by accident. This page lists every operator, its exact behaviour and the order in which operators combine.
+
+## Arithmetic
+
+| Operator | Meaning | Works on |
+|---|---|---|
+| `a + b` | Addition | `int`, `float`; also joins two `string`s |
+| `a - b` | Subtraction | `int`, `float` |
+| `a * b` | Multiplication | `int`, `float` |
+| `a / b` | Division | `int` (truncating), `float` |
+| `a % b` | Remainder | `int` only |
+| `-a` | Negation | `int`, `float` |
+| `a &+ b`, `a &- b`, `a &* b` | Wrapping addition, subtraction, multiplication | `int` only |
+
+Both operands must have the same type. An `int` and a `float` don't mix, but a whole-number literal adapts to a float, so `price * 2` works when `price` is a `float`:
+
+```vex title="arith.vx"
+fn main() {
+    let price = 2.5
+    let count = 4
+    println(price * 2, 1 + 2.5, float(count) * price, count * 3)
+}
+```
+
+```text title="Output"
+5.0 3.5 10.0 12
+```
+
+Structs can define `+`, `-`, `*`, `/`, `%`, unary `-`, `==`, `<` and indexing for themselves. See [Structs](/docs/language/structs).
+
+## Integer arithmetic
+
+`int` is 64 bits wide. Integer arithmetic is checked: every result is either exact or the program stops with a message naming the operation.
+
+### Division and remainder
+
+`/` on integers truncates toward zero, and `%` gives a remainder with the same sign as the left operand, as in C, Go, Swift and Java:
+
+```vex title="divide.vx"
+fn main() {
+    println(7 / 2, -7 / 2, 7 / -2)
+    println(7 % 3, -7 % 3, 7 % -3)
+}
+```
+
+```text title="Output"
+3 -3 -3
+1 -1 1
+```
+
+For a floor division or a remainder that's never negative, adjust the result yourself: `((a % n) + n) % n`.
+
+### Overflow
+
+When a result doesn't fit in an `int`, the program stops with the operands in the message:
+
+```vex title="intoverflow.vx"
+fn main() {
+    var big = 9223372036854775807
+    println(big * 2)
+}
+```
+
+```text title="Output"
+error: integer overflow: 9223372036854775807 * 2 doesn't fit in an int; use &* to wrap around
+ --> intoverflow.vx:3
+```
+
+Every case that can overflow is checked:
+
+| Expression | Result |
+|---|---|
+| `9223372036854775807 + 1` | `integer overflow: 9223372036854775807 + 1 doesn't fit in an int; use &+ to wrap around` |
+| `-9223372036854775808 - 1` | `integer overflow: -9223372036854775808 - 1 doesn't fit in an int; use &- to wrap around` |
+| `9223372036854775807 * 2` | `integer overflow: 9223372036854775807 * 2 doesn't fit in an int; use &* to wrap around` |
+| `-x` where `x` is `-9223372036854775808` | `integer overflow: -(-9223372036854775808) doesn't fit in an int` |
+| `-9223372036854775808 / -1` | `integer overflow: -9223372036854775808 / -1 doesn't fit in an int` |
+| `-9223372036854775808 % -1` | `0`, which is exact, so no error |
+
+The checks are cheap: one flag test after each operation, with the failure path kept out of the way. A [constant](/docs/language/constants) that overflows is caught at compile time instead: `this constant overflows int`.
+
+### Division by zero
+
+Integer division or remainder by zero stops the program:
+
+```vex title="divzero.vx"
+fn main() {
+    var zero = 0
+    println(10 % 3)
+    println(10 / zero)
+}
+```
+
+```text title="Output"
+1
+error: division by zero
+ --> divzero.vx:4
+```
+
+For `%`, the message is `division by zero in %`. Float division by zero doesn't stop the program; it gives `inf`, `-inf` or `nan` (see [Floats](/docs/language/types#float-arithmetic)).
+
+### Wrapping operators
+
+`&+`, `&-` and `&*` do two's complement arithmetic that wraps around instead of stopping. They exist for code that wants modular arithmetic, such as hashes and random number generators, and for tight loops where you have proved the values stay in range and want the checks gone. They work only on `int`.
+
+```vex title="wrap.vx"
+fn nextRandom(seed: int) -> int => seed &* 6364136223846793005 &+ 1442695040888963407
+
+fn main() {
+    let max = 9223372036854775807
+    println(max &+ 1, -max &- 2, max &* 2)
+    var h = 0
+    h &+= max
+    h &+= 1
+    println(h)
+    var seed = 42
+    for i in 0..3 {
+        seed = nextRandom(seed)
+        print("{(seed % 100 + 100) % 100} ")
+    }
+    println()
+}
+```
+
+```text title="Output"
+-9223372036854775808 9223372036854775807 -2
+-9223372036854775808
+77 20 75 
+```
+
+`&+` and `&-` have the same precedence as `+` and `-`, and `&*` the same as `*`.
+
+## Comparison
+
+| Operator | Meaning |
+|---|---|
+| `a == b`, `a != b` | Equal, not equal |
+| `a < b`, `a <= b`, `a > b`, `a >= b` | Ordering |
+
+Which types can be compared:
+
+| Type | `==` `!=` | `<` `<=` `>` `>=` |
+|---|---|---|
+| `int`, `float` | yes | yes |
+| `string` | yes, by text | yes, code point by code point |
+| `bool` | yes | no |
+| enum whose cases carry no values | yes | yes, in declaration order |
+| enum whose cases carry values | no | no |
+| record | yes, if every field can be compared | no |
+| struct | if it defines `operator ==` | if it defines `operator <` |
+| optional | only with `nil` | no |
+| list, map, function, interface value | no | no |
+
+Both sides must have the same type. `1 < 2.5` works because the literal `1` adapts, but an `int` variable compared with a `float` is an error (`can't compare int with float`). An optional is compared only with `nil`, which keeps you from forgetting the `nil` case:
+
+```vex title="optcompare.vx"
+fn main() {
+    let a: int? = 5
+    println(a == nil)
+    println(a == 5)
+}
+```
+
+```text title="Output"
+error: can't compare int? with int
+ --> optcompare.vx:4:13
+  |
+4 |     println(a == 5)
+  |             ^^^^^^
+```
+
+Write `a ?? 0 == 5`, or unwrap with `if let`. Floats compare by IEEE 754 rules: `nan` isn't equal to anything, and `-0.0 == 0.0`.
+
+### Comparisons don't chain
+
+`a < b < c` is an error rather than a surprise:
+
+```vex title="chain.vx"
+fn main() {
+    let x = 5
+    println(1 < x < 10)
+}
+```
+
+```text title="Output"
+error: comparisons can't be chained
+ --> chain.vx:3:19
+  |
+3 |     println(1 < x < 10)
+  |                   ^ use a < b && b < c
+```
+
+The same applies to `a == b == c`. Mixing the two levels is allowed, since they have different precedence: `1 < 2 == true` is `(1 < 2) == true`.
+
+## Logical operators
+
+| Operator | Meaning |
+|---|---|
+| `!a` | Not |
+| `a && b` | And |
+| `a \|\| b` | Or |
+
+The operands must be `bool`. `&&` and `||` short-circuit: the right side runs only when it can change the result.
+
+```vex title="logic.vx"
+fn check(label: string, v: bool) -> bool {
+    println("checked {label}")
+    return v
+}
+
+fn main() {
+    println(check("a", false) && check("b", true))
+    println(check("c", true) || check("d", true))
+    println(!true || true, true || false && false)
+}
+```
+
+```text title="Output"
+checked a
+false
+checked c
+true
+true true
+```
+
+`&&` binds tighter than `||`, so `true || false && false` is `true || (false && false)`. A single `&` or `|` is an error with a hint to write `&&` or `||`: `unexpected character '|'`, `use || for logical or`.
+
+## Assignment
+
+`=` assigns to a `var`, a list element, a map entry or a struct field. Compound assignment operators combine an operation with assignment:
+
+| Operator | Same as | Works on |
+|---|---|---|
+| `a += b` | `a = a + b` | `int`, `float`, `string` |
+| `a -= b`, `a *= b`, `a /= b` | `a = a - b` and so on | `int`, `float` |
+| `a %= b` | `a = a % b` | `int` |
+| `a &+= b`, `a &-= b`, `a &*= b` | `a = a &+ b` and so on | `int` |
+
+```vex title="assign.vx"
+fn main() {
+    var x = 10
+    x += 5
+    x -= 3
+    x *= 2
+    x /= 4
+    x %= 4
+    var s = "ab"
+    s += "c"
+    var xs = [1, 2, 3]
+    xs[1] += 10
+    println(x, s, xs)
+}
+```
+
+```text title="Output"
+2 abc [1, 12, 3]
+```
+
+- Assignment is a statement, not an expression. `let y = (x = 3)` and `if x = 1` don't compile; in a condition, the compiler reports `use == to compare in a condition`.
+- There is no `++` or `--`. Write `x += 1`.
+- A map entry can't use a compound operator, because the key may be missing: `m["a"] += 1` gives `the key may be missing, so '+=' can't be used on a map entry`. Write `m["a"] = (m["a"] ?? 0) + 1`. See [Maps](/docs/language/maps).
+- Only a variable, element or field can be assigned to: `can't assign to this expression`.
+
+## Ranges
+
+`a..b` is the integers from `a` up to but not including `b`. `a..=b` includes `b`. Ranges appear in two places: `for` loops and [patterns](/docs/language/patterns).
+
+```vex title="ranges.vx"
+fn main() {
+    for i in 0..3 { print("{i} ") }
+    for i in 1..=3 { print("{i} ") }
+    for i in 5..2 { print("never ") }
+    let n = 4
+    for i in n - 2..n { print("{i} ") }
+    println()
+    let grade = match 85 {
+        90..=100 => "A"
+        80..90 => "B"
+        _ => "C"
+    }
+    println(grade)
+}
+```
+
+```text title="Output"
+0 1 2 1 2 3 2 3 
+B
+```
+
+- Bounds must be `int` in a `for` loop: `range bounds must be int, found float`. In patterns, ranges also match floats.
+- A range whose end is before its start is empty: the loop body doesn't run.
+- Both bounds are evaluated once, before the loop starts.
+- There's no step: count with a `while` loop, or multiply the loop variable.
+- A range isn't a value. `let r = 0..3` gives `ranges can only be used in for loops`, and ranges can't index lists.
+
+## Optional operators
+
+`??` gives a fallback for `nil`, and `?.` reads a member only when the value isn't `nil`. Both are covered in full on the [Optionals](/docs/language/optionals) page.
+
+```vex title="optional.vx"
+fn fallback() -> int {
+    println("fallback ran")
+    return 0
+}
+
+fn main() {
+    let some: int? = 7
+    let none: int? = nil
+    println(some ?? fallback())
+    println(none ?? fallback())
+    println(none ?? some ?? 0)
+    let words: [string]? = nil
+    println(words?.len ?? 0)
+}
+```
+
+```text title="Output"
+7
+fallback ran
+0
+7
+0
+```
+
+- `a ?? b` runs `b` only when `a` is `nil`.
+- `??` groups to the right: `a ?? b ?? c` is `a ?? (b ?? c)`, and tries each in turn.
+- `??` binds tighter than comparisons and looser than arithmetic: `a ?? 0 > 5` is `(a ?? 0) > 5`, and `a ?? 1 + 2` is `a ?? (1 + 2)`.
+- `x?.name` is `nil` when `x` is `nil`, and otherwise the member wrapped in an optional. A call through `?.`, such as `user?.greet()`, runs only when `user` isn't `nil`.
+
+## Precedence
+
+From highest (binds tightest) to lowest:
+
+| Level | Operators | Grouping |
+|---|---|---|
+| 1 | Postfix: call `f(x)`, index `a[i]`, member `a.b`, optional member `a?.b` | left to right |
+| 2 | Prefix: `-a`, `!a`, `await a`, `try a` | right to left |
+| 3 | `*` `/` `%` `&*` | left to right |
+| 4 | `+` `-` `&+` `&-` | left to right |
+| 5 | `??` | right to left |
+| 6 | `<` `<=` `>` `>=` | don't chain |
+| 7 | `==` `!=` | don't chain |
+| 8 | `&&` | left to right |
+| 9 | `\|\|` | left to right |
+
+Assignment (`=`, `+=` and the rest) isn't an expression and so has no precedence: it's always the whole statement.
+
+```vex title="precedence.vx"
+fn main() {
+    let a: int? = nil
+    let x = 2
+    println(2 + 3 * 4, (2 + 3) * 4, 10 - 4 - 3, 100 / 10 / 5)
+    println(-x * 3, 7 - 2 - 1, 2 * 3 % 4)
+    println(a ?? 1 + 1, (a ?? 1) + 1)
+    println(1 + 2 == 3 && 4 > 3 || false)
+}
+```
+
+```text title="Output"
+14 20 3 2
+-6 4 2
+2 2
+true
+```
+
+`try` is special: it covers arithmetic after it but not `??` or comparisons. `try a() + b()` handles errors from both calls, and `try? parse(s) ?? 0` gives `0` when parsing fails. See [Errors](/docs/language/errors).
+
+When an expression mixes levels in a way that isn't obvious, add parentheses. They never change the meaning of an already-correct expression and cost nothing.
+
+## Operators Vex doesn't have
+
+| Operator | In Vex |
+|---|---|
+| `x++`, `x--` | `x += 1`, `x -= 1` |
+| `c ? a : b` | `match c { true => a, false => b }`; the compiler suggests it |
+| `a ** b` | `math.pow(a, b)` for `int`, `math.powf(a, b)` for `float`, from [`vex:math`](/docs/stdlib/math) |
+| `&`, `\|`, `^`, `~`, `<<`, `>>` | No bitwise operators yet. Use `/`, `%` and `*` by powers of two, or a C function through [C interop](/docs/projects/c-interop) |
+| `===` | `==`; structs compare by identity only if you write `operator ==` yourself |
+| `a % b` on floats | not supported |
+| `cond = x` in a condition | `==` |
+
+## Rules and edge cases
+
+- Arithmetic operands must have the same type: `can't use '*' with int and float`.
+- `+` on a string and anything else: `can't use '+' with string and int`.
+- `%`, `%=` and the wrapping operators reject floats: `'%' can't be used with float`, `&+= can't be used with float`.
+- `!` needs a `bool`: `'!' needs a bool, found int`.
+- Lists and maps have no operators: `[1] + [2]` gives `'+' can't be used with [int]`.
+- Operands run left to right, including for operators that structs define.
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Go | TypeScript |
+|---|---|---|---|---|---|
+| Int overflow | stops the program | traps | wraps | wraps | n/a |
+| Wrapping ops | `&+ &- &*` | `&+ &- &*` | default | default | n/a |
+| `-7 / 2` | `-3` | `-3` | `-3` | `-3` | `-3.5` |
+| `-7 % 3` | `-1` | `-1` | `-1` | `-1` | `-1` |
+| Ternary | `match` | `? :` | `if` expression | none | `? :` |
+| Null fallback | `??` | `??` | `?:` | none | `??` |
+
+## See also
+
+- [Types](/docs/language/types)
+- [Control flow](/docs/language/control-flow)
+- [Optionals](/docs/language/optionals)
+- [Structs](/docs/language/structs)
+- [Runtime errors](/docs/tools/runtime-errors)

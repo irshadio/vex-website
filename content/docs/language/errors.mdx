@@ -1,0 +1,710 @@
+---
+title: Errors
+description: Recoverable errors with throws, throw, try, catch and try?, typed errors with throws(E), how errors propagate to main, and how they differ from panics and runtime errors.
+---
+
+Some failures are part of normal operation: a file is missing, a port number is out of range, a server is down. Vex handles these with errors. A function that can fail is marked `throws`, every call to it is marked `try`, and the compiler checks that every error is either handled or passed on.
+
+```vex title="ports.vx"
+fn parsePort(s: string) throws -> int {
+    if s == "" {
+        throw Error("empty port")
+    }
+    let n = int(s)
+    if n < 1 || n > 65535 {
+        throw Error("port {n} out of range")
+    }
+    return n
+}
+
+fn main() {
+    for s in ["8080", "", "70000"] {
+        let port = try parsePort(s) catch e {
+            println("bad port: {e.message}")
+            -1
+        }
+        println(port)
+    }
+}
+```
+
+```text title="Output"
+8080
+bad port: empty port
+-1
+bad port: port 70000 out of range
+-1
+```
+
+## Declaring and throwing
+
+`throws` goes after the parameters and before the result type. Inside, `throw` stops the function with an error:
+
+```vex
+fn check(n: int) throws {
+    if n < 0 {
+        throw Error("negative: {n}")
+    }
+}
+
+fn parse(s: string) throws -> int {
+    if s == "" {
+        throw Error("empty")
+    }
+    return int(s)
+}
+```
+
+`Error` is a built-in struct with one field, `message: string`. `Error("text")` creates one, and so does `Error(message: "text")`. It prints like any struct:
+
+```vex title="error_value.vx"
+fn main() {
+    let e = Error("disk full")
+    println(e, e.message)
+}
+```
+
+```text title="Output"
+Error(message: "disk full") disk full
+```
+
+A plain `throws` function can only throw `Error`. To throw an enum of your own, use a [typed error](#typed-errors).
+
+`throw` is only allowed in a function that throws:
+
+```vex title="throw_where.vx"
+fn main() {
+    throw Error("x")
+}
+```
+
+```text title="Output"
+error: throw can only be used in a function that throws
+ --> throw_where.vx:2:5
+  |
+2 |     throw Error("x")
+  |     ^^^^^^^^^^^^^^^^ declare fn main(...) throws
+```
+
+Methods, static methods, closures, function types, interface methods and `async` functions can all throw. Getters and setters, `extern fn` and `export fn` can't.
+
+## Calling with try
+
+Every call to a throwing function needs `try`, so each line that may fail is visible when you read the code:
+
+```vex title="needs_try.vx"
+fn f() throws -> int {
+    throw Error("boom")
+}
+
+fn main() {
+    let x = f()
+}
+```
+
+```text title="Output"
+error: f can throw, so the call needs try
+ --> needs_try.vx:6:13
+  |
+6 |     let x = f()
+  |             ^^^ write try before it to pass the error up, try ... catch to handle it, or try? to get nil
+```
+
+There are three ways to call it, as the hint says.
+
+### 1. Pass the error up: `try`
+
+Plain `try` gives the result on success. On failure, the enclosing function stops right there and throws the same error to its caller, so the enclosing function must throw too:
+
+```vex title="propagate.vx"
+fn parsePort(s: string) throws -> int {
+    if s == "" {
+        throw Error("empty port")
+    }
+    return int(s)
+}
+
+fn loadPort(text: string) throws -> int {
+    let port = try parsePort(text)            // stops here on failure
+    println("parsed {port}")
+    return port
+}
+
+fn main() {
+    let a = try loadPort("80") catch e { -1 }
+    let b = try loadPort("") catch e { -1 }
+    println(a, b)
+}
+```
+
+```text title="Output"
+parsed 80
+80 -1
+```
+
+`try` in a function that doesn't throw is an error:
+
+```vex title="cant_pass.vx"
+fn f() throws -> int {
+    throw Error("boom")
+}
+
+fn g() -> int {
+    return try f()
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: the error can't pass up: g doesn't throw
+ --> cant_pass.vx:6:12
+  |
+6 |     return try f()
+  |            ^^^^^^^ handle it with catch, use try?, or declare fn g(...) throws
+```
+
+### 2. Handle it here: `try ... catch`
+
+`try call catch e { ... }` runs the block when the call fails, with the error bound to `e`. When the try gives a value, the block's last line gives the value to use instead:
+
+```vex title="catch.vx"
+fn parsePort(s: string) throws -> int {
+    if s == "" {
+        throw Error("empty port")
+    }
+    return int(s)
+}
+
+fn main() {
+    let port = try parsePort("") catch e {
+        println("using the default because: {e.message}")
+        8080
+    }
+    println(port)
+}
+```
+
+```text title="Output"
+using the default because: empty port
+8080
+```
+
+The block can also leave instead of giving a value, with `return`, `break`, `continue`, `throw` or `panic(...)`. The name after `catch` is optional:
+
+```vex title="catch_leave.vx"
+fn parsePort(s: string) throws -> int {
+    if s == "" {
+        throw Error("empty port")
+    }
+    return int(s)
+}
+
+fn main() {
+    for s in ["1", "", "3"] {
+        let n = try parsePort(s) catch {
+            continue                          // skip bad input
+        }
+        print(n, "")
+    }
+    println()
+}
+```
+
+```text title="Output"
+1 3 
+```
+
+A `catch` block that neither gives a value nor leaves is an error:
+
+```vex title="catch_value.vx"
+fn f() throws -> int {
+    throw Error("x")
+}
+
+fn main() {
+    let v = try f() catch e {
+        println("caught")
+    }
+}
+```
+
+```text title="Output"
+error: the catch block must give a value of type int
+ --> catch_value.vx:8:5
+  |
+8 |     }
+  |     ^ end it with an int value, or with return, break, continue, throw or panic(...)
+```
+
+When the call has no result, or you don't need it, `try ... catch` is a statement:
+
+```vex title="catch_stmt.vx"
+fn check(n: int) throws {
+    if n < 0 {
+        throw Error("negative: {n}")
+    }
+}
+
+fn main() {
+    for n in [1, -2, 3] {
+        try check(n) catch e {
+            println(e.message)
+            continue
+        }
+        println("ok", n)
+    }
+}
+```
+
+```text title="Output"
+ok 1
+negative: -2
+ok 3
+```
+
+To add context and pass the error on, throw a new error from the `catch` block:
+
+```vex title="wrap.vx"
+fn readConfig() throws -> string {
+    throw Error("file not found")
+}
+
+fn start() throws {
+    let text = try readConfig() catch e {
+        throw Error("can't start: {e.message}")
+    }
+    println(text)
+}
+
+fn main() {
+    try start() catch e {
+        println(e.message)
+    }
+}
+```
+
+```text title="Output"
+can't start: file not found
+```
+
+### 3. Turn it into nil: `try?`
+
+`try?` gives an optional: the value on success, `nil` on failure. The error itself is dropped. It pairs well with [`??`](/docs/language/optionals):
+
+```vex title="try_optional.vx"
+fn parsePort(s: string) throws -> int {
+    if s == "" {
+        throw Error("empty port")
+    }
+    return int(s)
+}
+
+fn main() {
+    let a = try? parsePort("22")              // int?
+    let b = try? parsePort("")
+    let c = try? parsePort("") ?? 80          // int
+    println(a, b, c)
+}
+```
+
+```text title="Output"
+22 nil 80
+```
+
+`try?` needs a call that returns a value. To ignore the error of a call with no result, use an empty catch:
+
+```vex title="try_void.vx"
+fn save() throws {
+    throw Error("disk full")
+}
+
+fn main() {
+    let r = try? save()
+}
+```
+
+```text title="Output"
+error: try? needs a call that returns a value
+ --> try_void.vx:6:13
+  |
+6 |     let r = try? save()
+  |             ^^^^^^^^^^^ use try ... catch { } to ignore the error
+```
+
+## What try covers
+
+One `try` covers every throwing call in the expression after it, including nested calls and calls in arguments. Nothing after the failing call runs:
+
+```vex title="coverage.vx"
+fn a() throws -> int {
+    println("a")
+    return 1
+}
+
+fn b(x: int) throws -> int {
+    println("b")
+    throw Error("b failed")
+}
+
+fn c(x: int) -> int {
+    println("c")
+    return x
+}
+
+fn main() {
+    let r = try? c(b(a()))
+    println(r)
+}
+```
+
+```text title="Output"
+a
+b
+nil
+```
+
+`c` never runs, because `b` failed first. Don't write a second `try` inside an expression that already has one. And a `try` with nothing to cover is an error, so the markers stay meaningful:
+
+```vex title="useless_try.vx"
+fn f() -> int {
+    return 1
+}
+
+fn main() {
+    let x = try f()
+}
+```
+
+```text title="Output"
+error: nothing after try can throw
+ --> useless_try.vx:6:13
+  |
+6 |     let x = try f()
+  |             ^^^^^^^ remove try
+```
+
+## Errors that reach main
+
+`fn main() throws` lets errors pass all the way up. An error that reaches the top stops the program, prints `error: ` and the message to standard error, and exits with code 1:
+
+```vex title="main_throws.vx"
+fn load() throws -> int {
+    throw Error("config missing")
+}
+
+fn main() throws {
+    println("starting")
+    let n = try load()
+    println("never printed", n)
+}
+```
+
+```text title="Output"
+starting
+error: config missing
+```
+
+```sh
+$ vex run main_throws.vx; echo "exit code $?"
+starting
+error: config missing
+exit code 1
+```
+
+A `main` without `throws` must handle every error itself, since `try` there has nowhere to pass the error.
+
+## Typed errors
+
+`throws(E)` names an enum of the ways a function can fail. Callers then know every kind of failure, and can `match` on it with the compiler checking that each is handled:
+
+```vex title="typed.vx"
+enum LoadError {
+    notFound(path: string)
+    denied
+}
+
+fn open(path: string) throws(LoadError) -> string {
+    if path == "secret" {
+        throw .denied                         // the enum name can be left out
+    }
+    if path != "app.cfg" {
+        throw .notFound(path: path)
+    }
+    return "port=8080"
+}
+
+fn main() {
+    for path in ["app.cfg", "secret", "x.cfg"] {
+        let text = try open(path) catch e {   // e is a LoadError
+            match e {
+                notFound(p) => "missing {p}"
+                denied => "access denied"
+            }
+        }
+        println(text)
+    }
+}
+```
+
+```text title="Output"
+port=8080
+access denied
+missing x.cfg
+```
+
+- `throws(...)` takes an enum. A struct is rejected: `throws(...) takes an enum, found struct Bad`.
+- A `throws(E)` function can only throw `E`, and a plain `throws` function can only throw `Error`:
+
+```vex title="typed_mismatch.vx"
+enum E { bad }
+
+fn f() throws {
+    throw E.bad
+}
+
+fn g() throws(E) -> int {
+    throw Error("x")
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: f throws Error, not E
+ --> typed_mismatch.vx:4:11
+  |
+4 |     throw E.bad
+  |           ^^^^^ declare it throws(E), or throw Error("...")
+
+error: expected E, found Error
+ --> typed_mismatch.vx:8:11
+  |
+8 |     throw Error("x")
+  |           ^^^^^^^^^^
+
+2 errors
+```
+
+- The `match` on a typed error must be exhaustive like any other.
+
+### Passing typed errors up
+
+A typed error can pass up through a function that throws the same enum. Passing it through a plain `throws` function turns it into an `Error` whose message describes the case:
+
+```vex title="typed_up.vx"
+enum LoadError {
+    notFound(path: string)
+    denied
+}
+
+fn open(path: string) throws(LoadError) -> string {
+    throw .notFound(path: path)
+}
+
+fn load(path: string) throws -> string {
+    return try open(path)                     // LoadError becomes Error
+}
+
+fn main() throws {
+    let a = try load("x.cfg") catch e {
+        println("failed: {e.message}")
+        ""
+    }
+    let b = try open("y.cfg")                 // reaches main as it is
+}
+```
+
+```text title="Output"
+failed: LoadError.notFound(path: "x.cfg")
+error: LoadError.notFound(path: "y.cfg")
+```
+
+Passing it through a function that throws a different enum is an error: you must catch it and decide what it means there.
+
+```vex title="enum_to_enum.vx"
+enum LoadError { notFound(path: string), denied }
+enum NetError { offline }
+
+fn open(p: string) throws(LoadError) -> string {
+    throw .denied
+}
+
+fn fetch() throws(NetError) -> string {
+    return try open("x")
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: this call throws LoadError, but fetch can only throw NetError
+ --> enum_to_enum.vx:9:12
+  |
+9 |     return try open("x")
+  |            ^^^^^^^^^^^^^ catch it here
+```
+
+### What a catch receives
+
+A `catch` receives the enum when every throwing call in the `try` throws the same enum. When the calls throw different types, or plain `Error`, it receives `Error`, with typed errors converted as above:
+
+```vex title="mixed.vx"
+enum E { bad }
+
+fn f() throws(E) -> int {
+    throw .bad
+}
+
+fn g() throws -> int {
+    return 1
+}
+
+fn main() {
+    let r = try f() + g() catch e {           // e is an Error
+        println(e.message)
+        0
+    }
+    let s = try f() catch e {                 // e is an E
+        match e {
+            bad => 5
+        }
+    }
+    println(r, s)
+}
+```
+
+```text title="Output"
+E.bad
+0 5
+```
+
+## Throwing closures and function types
+
+A function type can include `throws`: `fn(int) throws -> int`. A parameter of that type accepts both throwing and non-throwing functions, and calls through it need `try`:
+
+```vex title="closures.vx"
+fn twice(f: fn(int) throws -> int, x: int) throws -> int => try f(try f(x))
+
+fn main() throws {
+    let half = fn(x: int) throws -> int {
+        if x % 2 == 1 {
+            throw Error("odd {x}")
+        }
+        return x / 2
+    }
+    println(try twice(half, 12))
+    println(try twice(half, 6) catch e { println(e.message); -1 })
+    println(try twice(fn(x) => x + 1, 1))     // a closure that doesn't throw works too
+}
+```
+
+```text title="Output"
+3
+odd 3
+-1
+3
+```
+
+A closure that uses `try` without catching must be declared `throws` itself:
+
+```vex title="closure_try.vx"
+fn half(x: int) throws -> int {
+    return x / 2
+}
+
+fn main() {
+    let xs = [2, 4]
+    let r = xs.map(fn(x) => try half(x))
+}
+```
+
+```text title="Output"
+error: the error can't pass up: the closure doesn't throw
+ --> closure_try.vx:7:29
+  |
+7 |     let r = xs.map(fn(x) => try half(x))
+  |                             ^^^^^^^^^^^ handle it with catch, use try?, or declare the closure fn(...) throws
+```
+
+`map` and `filter` take functions that don't throw, so handle the error inside the closure: `xs.map(fn(x) => try? half(x) ?? 0)`.
+
+## Errors, panics and runtime errors
+
+Vex has two kinds of failure, and they are handled differently.
+
+| | Errors | Panics and runtime errors |
+|---|---|---|
+| Meaning | an expected failure the caller should handle | a bug, or a state the program can't continue from |
+| Created by | `throw` | `panic(...)`, `assert(...)`, index out of range, division by zero, integer overflow, bad `int(...)` text, stack overflow |
+| Visible in types | yes: `throws` and `try` | no |
+| Can be caught | yes | no: the program stops |
+| Output | `error: message` if it reaches `main` | `error: message` and the source line |
+| Exit code | 1 | 1 |
+
+A runtime error stops the program even inside a `try ... catch`:
+
+```vex title="not_caught.vx"
+fn get(xs: [int], i: int) throws -> int {
+    return xs[i]
+}
+
+fn main() {
+    let v = try get([1], 5) catch e { -1 }
+    println(v)
+}
+```
+
+```text title="Output"
+error: index 5 is out of range for a list of length 1
+ --> not_caught.vx:2
+```
+
+Use `throw` for conditions a caller can reasonably react to, such as bad input or a missing file. Use `panic` and `assert` for conditions that mean the code is wrong. When an operation can fail on ordinary input, check first (`if i < xs.len`) or write a function that throws or returns an optional. See [Runtime errors](/docs/tools/runtime-errors) for the full list.
+
+```vex title="panic.vx"
+fn main() {
+    let x = 1
+    panic("stop here {x}")
+}
+```
+
+```text title="Output"
+error: stop here 1
+ --> panic.vx:3
+```
+
+## How errors work
+
+Errors are returned to the caller like an extra return value, not by unwinding the stack. A function that doesn't throw pays nothing, and each `try` costs one check after the call. This is also why every call that may fail is marked: there are no hidden exits from a function.
+
+## Rules and edge cases
+
+- `throws` goes before the result type: `fn f() throws -> int`, `fn f() throws(E) -> int`.
+- A plain `throws` function throws `Error`; `throws(E)` throws enum `E` only.
+- Every call to a throwing function needs `try`, `try ... catch` or `try?`.
+- `try` needs an enclosing function that can throw the error; `throw` needs a throwing function.
+- One `try` covers the whole expression after it. A `try` with no throwing call after it is an error.
+- A value-giving `catch` block ends with an expression of the try's type, or leaves with `return`, `break`, `continue`, `throw` or `panic(...)`.
+- `try?` needs a call with a result, and gives `T?`.
+- Typed errors convert to `Error` through plain `throws`, but never to another enum.
+- An error reaching the top of `fn main() throws` prints `error: <message>` and exits with code 1.
+- Panics, failed asserts and runtime errors can't be caught.
+
+## Comparison
+
+| | Vex | Swift | Rust | Go | Kotlin |
+|---|---|---|---|---|---|
+| Mark on the function | `throws` | `throws` | `-> Result<T, E>` | extra `error` result | none |
+| Mark on the call | `try` | `try` | `?` | `if err != nil` | none |
+| Typed errors | `throws(E)` with an enum | `throws(E)` | `E` in `Result` | `errors.As` | no |
+| To optional | `try?` | `try?` | `.ok()` | n/a | `runCatching` |
+| Unwinding | no | no | no | no | yes |
+
+## See also
+
+- [Optionals](/docs/language/optionals)
+- [Enums](/docs/language/enums)
+- [Async](/docs/concurrency/async)
+- [Runtime errors](/docs/tools/runtime-errors)
+- [Example: errors](/docs/examples/errors)

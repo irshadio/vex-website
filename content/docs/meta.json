@@ -3,7 +3,15 @@
     "---Get started---",
     "index",
     "install",
+    "first-program",
+    "tour",
     "---Guides---",
-    "examples"
+    "language",
+    "concurrency",
+    "projects",
+    "stdlib",
+    "tools",
+    "examples",
+    "internals"
   ]
 }

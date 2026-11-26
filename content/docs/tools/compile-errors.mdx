@@ -1,0 +1,1095 @@
+---
+title: Compile errors
+description: How Vex diagnostics are laid out and how to read them, followed by a catalog of the most common compile errors with the program that triggers each one and the fix.
+---
+
+The compiler checks the whole program before it generates any code. When something is wrong, it prints a diagnostic for each problem and builds nothing. This page explains the format, then lists the errors you are most likely to meet, grouped by topic, each with a minimal program, the exact message and the fix.
+
+## Reading a diagnostic
+
+```vex title="cart.vx"
+fn main() {
+    let count = 3
+    println("Items: " + count)
+    let total = count * 2.5
+    let n = cout
+}
+```
+
+```text title="Output"
+error: can't use '+' with string and int
+ --> cart.vx:3:13
+  |
+3 |     println("Items: " + count)
+  |             ^^^^^^^^^^^^^^^^^ put the value inside the string instead: "Items: {count}"
+
+error: can't use '*' with int and float
+ --> cart.vx:4:17
+  |
+4 |     let total = count * 2.5
+  |                 ^^^^^^^^^^^ convert the int with float(...)
+
+error: unknown name 'cout'
+ --> cart.vx:5:13
+  |
+5 |     let n = cout
+  |             ^^^^ did you mean 'count'?
+
+3 errors
+```
+
+Each diagnostic has four parts:
+
+1. **The message**, after `error:`. It says what is wrong in plain words, naming the types and names involved.
+2. **The location**, after `-->`: the file, the line and the column. Columns count characters, not bytes, starting at 1.
+3. **The source line**, with its line number.
+4. **The underline and hint.** The `^` marks cover the exact expression the message is about. The text after them, when there is any, suggests a fix, often with the corrected code.
+
+Diagnostics are sorted by file and position. When there is more than one, a count follows the last. In a terminal, `error` is red, `warning` yellow and the hint cyan; set `NO_COLOR=1` to turn color off.
+
+### How many errors you see
+
+- The compiler reports as many problems as it can in one run, so fix them top to bottom and run again. A later error is sometimes caused by an earlier one.
+- Syntax errors come first. If the parser finds any, it reports them, up to 20, and type checking doesn't run. Fix them and the type errors appear on the next run.
+- Type checking stops after 30 errors.
+- An expression that already has an error doesn't produce more errors further on. In the example above, the type of `total` is unknown after line 4, but using it later wouldn't add another error.
+
+### Warnings
+
+Warnings point out code that works but isn't written the Vex way. They are printed with `warning:` and don't stop the build:
+
+```vex title="style.vx"
+fn main() {
+    let a = 1;
+    if (a > 0) {
+        println(a)
+    }
+}
+```
+
+```text title="Output"
+warning: a ; isn't needed at the end of a line
+ --> style.vx:2:14
+  |
+2 |     let a = 1;
+  |              ^ remove it
+
+warning: the if condition doesn't need parentheses
+ --> style.vx:3:8
+  |
+3 |     if (a > 0) {
+  |        ^ write if a > 0 {
+
+1
+```
+
+The two warnings are the only ones today: a needless `;` at the end of a line, and needless parentheses around an `if` or `while` condition.
+
+### Checking without building
+
+`vex check` runs every check without calling the C compiler, so it is the fastest way to get diagnostics:
+
+```sh
+vex check cart.vx
+```
+
+It prints `cart.vx: no errors` when the program is fine, and exits with status 1 when it isn't. `vex run`, `vex build` and `vex emit-c` print the same diagnostics.
+
+## Syntax
+
+### missing 'let' or 'var'
+
+```vex title="decl.vx"
+fn main() {
+    count := 0
+}
+```
+
+```text title="Output"
+error: missing 'let' or 'var' before 'count'
+ --> decl.vx:2:5
+  |
+2 |     count := 0
+  |     ^^^^^ write let count = ... or var count = ...
+```
+
+Vex declares variables with `let` (can't be reassigned) or `var` (can). There is no `:=`. Write `var count = 0`. Assigning to a name that was never declared, as in `count = 1`, gives `unknown name 'count'` instead.
+
+### use == to compare in a condition
+
+```vex title="compare.vx"
+fn main() {
+    let a = 1
+    if a = 1 {
+        println(a)
+    }
+}
+```
+
+```text title="Output"
+error: use == to compare in a condition
+ --> compare.vx:3:10
+  |
+3 |     if a = 1 {
+  |          ^ = assigns a value; == compares
+```
+
+Assignment is a statement in Vex, not an expression, so it can't be a condition. Write `if a == 1`.
+
+### 'else' must be on the same line as the closing `}`
+
+```vex title="else.vx"
+fn main() {
+    let a = 1
+    if a > 0 {
+        println("yes")
+    }
+    else {
+        println("no")
+    }
+}
+```
+
+```text title="Output"
+error: 'else' must be on the same line as the closing }
+ --> else.vx:6:5
+  |
+6 |     else {
+  |     ^^^^ write } else {
+```
+
+A line break ends a statement, so the `if` is complete at its `}`. Put `else` on the same line: `} else {`.
+
+### single quotes are not used for strings
+
+```vex title="quotes.vx"
+fn main() {
+    let s = 'hi'
+}
+```
+
+```text title="Output"
+error: single quotes are not used for strings
+ --> quotes.vx:2:13
+  |
+2 |     let s = 'hi'
+  |             ^^^^ strings use double quotes: "text"
+```
+
+Strings always use double quotes, and there is no separate character type. Write `"hi"`.
+
+### unterminated string
+
+```vex title="unterminated.vx"
+fn main() {
+    let s = "abc
+}
+```
+
+```text title="Output"
+error: unterminated string
+ --> unterminated.vx:2:13
+  |
+2 |     let s = "abc
+  |             ^^^^ add a closing "
+```
+
+An ordinary string must end on the line it starts. For text over several lines, use a multi-line string; see [Strings](/docs/language/strings).
+
+### parameter needs a type
+
+```vex title="param.vx"
+fn twice(x) -> int {
+    return x * 2
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: parameter 'x' needs a type
+ --> param.vx:1:11
+  |
+1 | fn twice(x) -> int {
+  |           ^ write it as x: int
+```
+
+Function parameters always have a written type, `fn twice(x: int)`. Closure parameters can leave it out when the expected function type supplies it.
+
+### 'let' needs a value
+
+```vex title="novalue.vx"
+fn main() {
+    let total
+}
+```
+
+```text title="Output"
+error: 'let total' needs a value
+ --> novalue.vx:2:14
+  |
+2 |     let total
+  |              ^ write let total = ...
+```
+
+Every variable starts with a value. If the value depends on a condition, use a `match` expression on the right side, or declare it with `var`, give it a starting value and assign it in each branch.
+
+## Names
+
+### unknown name
+
+```vex title="typo.vx"
+fn main() {
+    let count = 3
+    println(cout)
+}
+```
+
+```text title="Output"
+error: unknown name 'cout'
+ --> typo.vx:3:13
+  |
+3 |     println(cout)
+  |             ^^^^ did you mean 'count'?
+```
+
+The name isn't declared in this scope or any outer one. When a declared name is close in spelling, the hint suggests it. The same check gives `unknown function 'gret'` for calls and `unknown type 'Pont'` for types, each with a suggestion.
+
+### unknown name for a module
+
+```vex title="noimport.vx"
+fn main() {
+    println(math.abs(-2))
+}
+```
+
+```text title="Output"
+error: unknown name 'math'
+ --> noimport.vx:2:13
+  |
+2 |     println(math.abs(-2))
+  |             ^^^^ import it at the top of the file: import "vex:math"
+```
+
+Each file imports the modules it uses. Add the line from the hint at the top of the file.
+
+### already declared
+
+```vex title="twice.vx"
+fn main() {
+    let count = 1
+    let count = 2
+}
+```
+
+```text title="Output"
+error: 'count' is already declared on line 2
+ --> twice.vx:3:9
+  |
+3 |     let count = 2
+  |         ^^^^^ choose another name, or assign to it without let/var
+```
+
+A name can be declared once per block. To change the value, declare it with `var` and assign without `let`. Declaring the same name in an inner block is allowed and hides the outer one.
+
+### built-in names
+
+```vex title="builtin.vx"
+fn main() {
+    let str = "x"
+}
+```
+
+```text title="Output"
+error: 'str' is a built-in function and can't be used as a variable name
+ --> builtin.vx:2:9
+  |
+2 |     let str = "x"
+  |         ^^^ choose another name
+```
+
+The built-in functions and types (`print`, `println`, `input`, `panic`, `assert`, `str`, `int`, `float`, `bool`, `string`, `void`, `Error`) are reserved everywhere. Imported module names are reserved in the file that imports them.
+
+### no main function
+
+```vex title="library.vx"
+fn helper() {}
+```
+
+```text title="Output"
+error: no main function
+ --> library.vx:1:1
+  |
+1 | fn helper() {}
+  | ^ add fn main() { ... } where the program starts
+```
+
+Every program starts at `fn main()` in its root file or folder.
+
+## Types
+
+### can't use an operator with these types
+
+```vex title="concat.vx"
+fn main() {
+    let count = 3
+    println("Items: " + count)
+}
+```
+
+```text title="Output"
+error: can't use '+' with string and int
+ --> concat.vx:3:13
+  |
+3 |     println("Items: " + count)
+  |             ^^^^^^^^^^^^^^^^^ put the value inside the string instead: "Items: {count}"
+```
+
+`+` joins strings only to other strings. Use interpolation, `"Items: {count}"`, to put any value into text.
+
+```vex title="mix.vx"
+fn main() {
+    let count = 3
+    let price = 2.5
+    let total = count * price
+}
+```
+
+```text title="Output"
+error: can't use '*' with int and float
+ --> mix.vx:4:17
+  |
+4 |     let total = count * price
+  |                 ^^^^^^^^^^^^^ convert the int with float(...)
+```
+
+`int` and `float` never mix silently, because a silent conversion can lose precision or hide a mistake. Convert one side: `float(count) * price`, or `int(price)` if you mean to drop the fraction.
+
+### expected one type, found another
+
+```vex title="mismatch.vx"
+fn main() {
+    let flag: bool = 1
+}
+```
+
+```text title="Output"
+error: expected bool, found int
+ --> mismatch.vx:2:22
+  |
+2 |     let flag: bool = 1
+  |                      ^
+```
+
+The value's type doesn't match the declared type, parameter type or return type. Change the value, or the type. When a conversion would fix it, the hint names it, as in `argument 'name': expected string, found int` with the hint `convert it with str(...) or "{...}"`.
+
+### condition must be bool
+
+```vex title="truthy.vx"
+fn main() {
+    let items = [1, 2]
+    if items.len {
+        println("some")
+    }
+}
+```
+
+```text title="Output"
+error: if condition must be bool, found int
+ --> truthy.vx:3:8
+  |
+3 |     if items.len {
+  |        ^^^^^^^^^ compare it, e.g. x != 0
+```
+
+Vex has no "truthy" values: numbers, strings, lists and optionals don't count as true or false. Write the comparison you mean, `if items.len > 0`. Use `if let` for optionals.
+
+### can't tell the type of an empty list
+
+```vex title="empty.vx"
+fn main() {
+    let names = []
+}
+```
+
+```text title="Output"
+error: can't tell the type of an empty list
+ --> empty.vx:2:17
+  |
+2 |     let names = []
+  |                 ^^ give the type, e.g. let xs: [int] = []
+```
+
+Write the type: `let names: [string] = []`. Empty maps need it too: `let ages: [string: int] = [:]`.
+
+### list item has the wrong type
+
+```vex title="items.vx"
+fn main() {
+    let mixed = [1, "two"]
+}
+```
+
+```text title="Output"
+error: list item 2: expected int, found string
+ --> items.vx:2:21
+  |
+2 |     let mixed = [1, "two"]
+  |                     ^^^^^ parse it with int(...)
+```
+
+The first item sets the element type, and every item must match it. Use a struct, an enum or a record when you need values of different types together.
+
+### can't convert
+
+```vex title="convert.vx"
+fn main() {
+    let ok = true
+    let n = int(ok)
+}
+```
+
+```text title="Output"
+error: can't convert bool to int
+ --> convert.vx:3:17
+  |
+3 |     let n = int(ok)
+  |                 ^^
+```
+
+`int(...)` and `float(...)` accept only `int`, `float` and `string`. For a `bool`, use a `match` expression that gives each case a number:
+
+```vex title="flag.vx"
+fn main() {
+    let ok = true
+    let n = match ok {
+        true => 1
+        false => 0
+    }
+    println(n)
+}
+```
+
+```text title="Output"
+1
+```
+
+### no value to store
+
+```vex title="void.vx"
+fn log(msg: string) {
+    println(msg)
+}
+
+fn main() {
+    let x = log("hi")
+}
+```
+
+```text title="Output"
+error: this expression has no value to store
+ --> void.vx:6:13
+  |
+6 |     let x = log("hi")
+  |             ^^^^^^^^^
+```
+
+`log` returns nothing, so there is nothing to store. Call it as a statement, or give it a result type.
+
+## Mutability
+
+### can't change a let
+
+```vex title="limit.vx"
+fn main() {
+    let limit = 10
+    limit = 20
+}
+```
+
+```text title="Output"
+error: can't change 'limit': it's declared with let
+ --> limit.vx:3:5
+  |
+3 |     limit = 20
+  |     ^^^^^ declare it with var limit = ... to make it changeable
+```
+
+Declare it with `var` if it needs to change. `let` fixes the name, not the object: the fields of a struct or the items of a list held in a `let` can still change.
+
+### can't change a parameter or loop variable
+
+```vex title="countdown.vx"
+fn countdown(n: int) {
+    n -= 1
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: can't change parameter 'n'
+ --> countdown.vx:2:5
+  |
+2 |     n -= 1
+  |     ^ copy it first: var myN = n
+```
+
+Parameters and `for` loop variables (`can't change loop variable 'i'`) are read-only. Copy the value into a `var` first.
+
+### can't change a constant list
+
+```vex title="primes.vx"
+const primes = [2, 3, 5]
+
+fn main() {
+    primes.push(7)
+}
+```
+
+```text title="Output"
+error: can't change a constant list: 'primes' is constant
+ --> primes.vx:4:5
+  |
+4 |     primes.push(7)
+  |     ^^^^^^ change a copy instead: var mine = primes.copy()
+```
+
+Lists and maps declared with `const` are frozen. Take a copy with `.copy()` and change that. Changing a constant list through another name is caught when the program runs instead; see [Runtime errors](/docs/tools/runtime-errors).
+
+## Calls and returns
+
+### missing argument
+
+```vex title="greet.vx"
+fn greet(name: string, greeting: string = "Hi") {
+    println("{greeting}, {name}")
+}
+
+fn main() {
+    greet()
+}
+```
+
+```text title="Output"
+error: missing argument 'name' in call to greet
+ --> greet.vx:6:5
+  |
+6 |     greet()
+  |     ^^^^^ e.g. greet(name: ...)
+```
+
+Every parameter without a default needs an argument. The same message appears for struct constructors, as in `missing argument 'name' in call to User`, when a field has no default.
+
+### too many arguments
+
+```vex title="extra.vx"
+fn greet(name: string) {}
+
+fn main() {
+    greet("Ann", "Hi")
+}
+```
+
+```text title="Output"
+error: too many arguments: greet takes 1 argument
+ --> extra.vx:4:18
+  |
+4 |     greet("Ann", "Hi")
+  |                  ^^^^
+```
+
+### no parameter with that name
+
+```vex title="named.vx"
+fn greet(name: string, greeting: string = "Hi") {}
+
+fn main() {
+    greet("Ann", greting: "Yo")
+}
+```
+
+```text title="Output"
+error: greet has no parameter 'greting'
+ --> named.vx:4:18
+  |
+4 |     greet("Ann", greting: "Yo")
+  |                  ^^^^^^^ did you mean 'greeting'?
+```
+
+### unnamed argument after a named one
+
+```vex title="order.vx"
+fn greet(name: string, greeting: string = "Hi") {}
+
+fn main() {
+    greet(greeting: "Yo", "Ann")
+}
+```
+
+```text title="Output"
+error: unnamed argument after a named one
+ --> order.vx:4:27
+  |
+4 |     greet(greeting: "Yo", "Ann")
+  |                           ^^^^^ put unnamed arguments first
+```
+
+### missing return
+
+```vex title="sign.vx"
+fn sign(n: int) -> int {
+    if n > 0 {
+        return 1
+    }
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: missing return: sign must return int
+ --> sign.vx:5:1
+  |
+5 | }
+  | ^ add a return statement before the closing }
+```
+
+Every path through a function with a result type must return or end the program. Here, `n <= 0` reaches the end without a value. Add a `return` after the `if`, or use `if ... else` with a return in each branch.
+
+## Optionals
+
+### nil where a value is required
+
+```vex title="nil.vx"
+fn main() {
+    let n: int = nil
+}
+```
+
+```text title="Output"
+error: nil can't be used as int, which always has a value
+ --> nil.vx:2:18
+  |
+2 |     let n: int = nil
+  |                  ^^^ make the type optional: int?
+```
+
+Only optional types, written with `?`, can hold `nil`. A plain `let x = nil` gives `can't tell the type of nil`; write the type, `let x: int? = nil`.
+
+### reading through an optional
+
+```vex title="find.vx"
+struct User {
+    name: string
+}
+
+fn find() -> User? => nil
+
+fn main() {
+    let u = find()
+    println(u.name)
+}
+```
+
+```text title="Output"
+error: can't read 'name' from a User?: it may be nil
+ --> find.vx:9:15
+  |
+9 |     println(u.name)
+  |               ^^^^ use ?.name, or unwrap it first with if let
+```
+
+Unwrap the optional before using it: `if let u = find() { println(u.name) }`, or read through it with `u?.name`, which gives a `string?`.
+
+### optional where a plain value is required
+
+```vex title="lookup.vx"
+fn lookup() -> string? => nil
+
+fn main() {
+    let s: string = lookup()
+}
+```
+
+```text title="Output"
+error: expected string, found string?
+ --> lookup.vx:4:21
+  |
+4 |     let s: string = lookup()
+  |                     ^^^^^^^^ it may be nil: unwrap it with if let, or give a default with ?? value
+```
+
+Give a default, `lookup() ?? ""`, or unwrap it with `if let` or `guard let`. There is no force-unwrap operator.
+
+### optional tools on a plain value
+
+```vex title="plain.vx"
+fn main() {
+    let n = 3
+    let m = n ?? 0
+}
+```
+
+```text title="Output"
+error: ?? needs an optional on the left, but this is int
+ --> plain.vx:3:13
+  |
+3 |     let m = n ?? 0
+  |             ^ it always has a value, so ?? isn't needed
+```
+
+`??`, `?.`, `if let` and comparing with `nil` work only on optionals. On a plain value they give similar errors: `if let needs an optional value, but this is int` and `can't compare int with nil: only optional values can be nil`. Remove them.
+
+## Structs and enums
+
+### no such field
+
+```vex title="field.vx"
+struct User {
+    name: string
+}
+
+fn main() {
+    let u = User(name: "Ann")
+    println(u.nam)
+}
+```
+
+```text title="Output"
+error: User has no field 'nam'
+ --> field.vx:7:15
+  |
+7 |     println(u.nam)
+  |               ^^^ did you mean 'name'?
+```
+
+### static method using a field
+
+```vex title="static.vx"
+struct User {
+    name: string
+
+    static fn guest() -> string => name
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: static method guest can't use field 'name'
+ --> static.vx:4:36
+  |
+4 |     static fn guest() -> string => name
+  |                                    ^^^^ static methods have no instance; pass the value in as a parameter
+```
+
+A static method belongs to the type, not to a value, so there is no `name` to read. Make it an ordinary method, or pass the value in.
+
+### match doesn't handle every case
+
+```vex title="area.vx"
+enum Shape {
+    circle(radius: float)
+    rect(w: float, h: float)
+    empty
+}
+
+fn area(s: Shape) -> float {
+    return match s {
+        circle(r) => 3.14 * r * r
+    }
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: match doesn't handle 'rect' and 'empty'
+ --> area.vx:8:12
+  |
+8 |     return match s {
+  |            ^^^^^ add the missing arms, or _ => ...
+```
+
+A `match` must cover every possible value, so adding a case to an enum shows you every `match` to update. Add an arm for each missing case, or a `_ =>` arm for the rest. Matches on `int`, `string` or `float` need a `_` arm.
+
+### arm never reached
+
+```vex title="unreachable.vx"
+fn describe(n: int) -> string {
+    return match n {
+        0 => "zero"
+        _ => "other"
+        1 => "one"
+    }
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: this arm is never reached: _ on line 4 matches everything
+ --> unreachable.vx:5:9
+  |
+5 |         1 => "one"
+  |         ^ remove it, or move _ to the end
+```
+
+Arms are tried top to bottom, so an arm after one that matches everything can never run.
+
+### no such case
+
+```vex title="case.vx"
+enum Shape {
+    circle(radius: float)
+    empty
+}
+
+fn main() {
+    let s = Shape.circel(radius: 1.0)
+}
+```
+
+```text title="Output"
+error: Shape has no case 'circel'
+ --> case.vx:7:19
+  |
+7 |     let s = Shape.circel(radius: 1.0)
+  |                   ^^^^^^ did you mean 'circle'?
+```
+
+### comparing enums with values
+
+```vex title="equal.vx"
+enum Shape {
+    circle(radius: float)
+    empty
+}
+
+fn main() {
+    let a = Shape.empty
+    println(a == Shape.empty)
+}
+```
+
+```text title="Output"
+error: values of type Shape can't be compared with ==
+ --> equal.vx:8:13
+  |
+8 |     println(a == Shape.empty)
+  |             ^^^^^^^^^^^^^^^^
+```
+
+`==` works on enums only when no case carries values, since comparing the carried values could mean several things. For other enums, use `match` to test which case a value is.
+
+## Errors
+
+### a throwing call needs try
+
+```vex title="load.vx"
+fn load() throws -> string {
+    throw Error("missing")
+}
+
+fn main() {
+    let s = load()
+}
+```
+
+```text title="Output"
+error: load can throw, so the call needs try
+ --> load.vx:6:13
+  |
+6 |     let s = load()
+  |             ^^^^^^ write try before it to pass the error up, try ... catch to handle it, or try? to get nil
+```
+
+Every call that can fail is marked, so you can see each line that may fail. Choose one of the three forms in the hint.
+
+### the error can't pass up
+
+```vex title="passup.vx"
+fn load() throws -> string {
+    throw Error("missing")
+}
+
+fn main() {
+    let s = try load()
+}
+```
+
+```text title="Output"
+error: the error can't pass up: main doesn't throw
+ --> passup.vx:6:13
+  |
+6 |     let s = try load()
+  |             ^^^^^^^^^^ handle it with catch, use try?, or declare fn main(...) throws
+```
+
+Plain `try` passes the error to the caller, so the enclosing function must be marked `throws`. A `fn main() throws` that lets an error escape prints `error: <message>` and exits with status 1.
+
+### throw outside a throwing function
+
+```vex title="check.vx"
+fn check(n: int) {
+    if n < 0 {
+        throw Error("negative")
+    }
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: throw can only be used in a function that throws
+ --> check.vx:3:9
+  |
+3 |         throw Error("negative")
+  |         ^^^^^^^^^^^^^^^^^^^^^^^ declare fn check(...) throws
+```
+
+### nothing can throw
+
+```vex title="needless.vx"
+fn load() -> string => "x"
+
+fn main() {
+    let s = try? load()
+}
+```
+
+```text title="Output"
+error: nothing after try can throw
+ --> needless.vx:4:13
+  |
+4 |     let s = try? load()
+  |             ^^^^^^^^^^^ remove try
+```
+
+## Async and isolates
+
+### await outside an async function
+
+```vex title="sleep.vx"
+import "vex:time"
+
+fn main() {
+    await time.sleep(10)
+}
+```
+
+```text title="Output"
+error: await is only allowed in async functions
+ --> sleep.vx:4:5
+  |
+4 |     await time.sleep(10)
+  |     ^^^^^^^^^^^^^^^^^^^^ make main async: async fn main()
+```
+
+Mark the function `async`, or wait from plain code with `run(future)`. See [Async and await](/docs/concurrency/async).
+
+### value can't be copied to another isolate
+
+```vex title="capture.vx"
+import "vex:isolate"
+
+async fn main() {
+    let f = fn() -> int { return 1 }
+    let n = await isolate.run(fn() -> int { return f() })
+}
+```
+
+```text title="Output"
+error: the closure uses 'f', a fn() -> int: it can't be copied to another isolate
+ --> capture.vx:5:31
+  |
+5 |     let n = await isolate.run(fn() -> int { return f() })
+  |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^ copy the values it needs into plain variables first
+```
+
+Isolates share no memory, so everything a closure passed to `isolate.run` uses is copied. Functions, futures, interface values and C handles can't be. See [vex:isolate](/docs/stdlib/isolate#what-can-be-copied).
+
+## Modules
+
+### private to another module
+
+With a project whose `models` folder holds:
+
+```vex
+pub struct Item {
+    pub name: string
+    cost: int = 0
+}
+
+fn audit() {}
+```
+
+and a `main.vx` that uses it:
+
+```vex
+import "models"
+
+fn main() {
+    let item = models.Item(name: "pen", cost: 3)
+    models.audit()
+}
+```
+
+```text title="Output"
+error: field 'cost' of models.Item is private to models
+ --> shop/main.vx:4:41
+  |
+4 |     let item = models.Item(name: "pen", cost: 3)
+  |                                         ^^^^ mark it pub in models to set it from other modules
+
+error: function 'audit' is private to models
+ --> shop/main.vx:5:5
+  |
+5 |     models.audit()
+  |     ^^^^^^^^^^^^ mark it pub in models to use it from other modules
+
+2 errors
+```
+
+Names are private to their module unless marked `pub`. Mark what other modules need, or leave the field out and let its default apply. In project mode, file names are shown relative to where you ran `vex`.
+
+### no folder or unknown module
+
+```vex title="imports.vx"
+import "modles"
+
+fn main() {}
+```
+
+```text title="Output"
+error: no folder 'modles'
+ --> imports.vx:1:8
+  |
+1 | import "modles"
+  |        ^^^^^^^^ check the folder name; paths are relative to the importing file
+```
+
+For standard modules, a wrong name lists the ones that exist: `the standard library has vex:fs, vex:isolate, vex:math, vex:os, vex:strings, vex:time`.
+
+## Errors that aren't diagnostics
+
+A few problems are reported on one line, starting with `vex:`, because they aren't about a place in the source:
+
+| Message | Cause |
+|---|---|
+| `vex: open nope.vx: no such file or directory` | The file given to `ast` or `tokens` doesn't exist |
+| `vex: stat .../nofile.vx: no such file or directory` | The target of `run`, `build`, `check` or `emit-c` doesn't exist |
+| `vex: no package.toml in store; create one with: ...` | A folder target without a project file |
+| `vex: no .vx files in store` | A project folder with no source files |
+| `vex: no C compiler found; ...` | No `clang`, `cc` or `gcc`, and no `CC` |
+
+See [The vex command](/docs/tools/cli#exit-codes) for exit codes.
+
+## See also
+
+- [Runtime errors](/docs/tools/runtime-errors)
+- [The vex command](/docs/tools/cli)
+- [Errors](/docs/language/errors)
+- [Optionals](/docs/language/optionals)
+- [Patterns](/docs/language/patterns)

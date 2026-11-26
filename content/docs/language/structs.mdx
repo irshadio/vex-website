@@ -1,0 +1,897 @@
+---
+title: Structs
+description: Declaring structs, creating them with named and default arguments, methods, static members, properties, operators, and why structs are shared references.
+---
+
+A struct groups named values, called fields, into one type, and can carry methods that work on them. Structs are the main way to model data in Vex.
+
+```vex title="user.vx"
+struct User {
+    name: string
+    age: int = 18
+
+    fn greet() -> string => "Hi, I'm {name}"
+    fn isAdult() -> bool => age >= 18
+}
+
+fn main() {
+    let ann = User(name: "Ann", age: 30)
+    println(ann.greet())
+    println(ann.isAdult())
+    println(ann)
+}
+```
+
+```text title="Output"
+Hi, I'm Ann
+true
+User(name: "Ann", age: 30)
+```
+
+## Declaring a struct
+
+A struct declaration lists its fields as `name: Type`, one per line. A field can have a default value after `=`.
+
+```vex
+struct Account {
+    owner: string
+    balance: float = 0.0
+    history: [string] = []
+    nickname: string? = nil
+}
+```
+
+Fields on one line are separated by commas:
+
+```vex
+struct Point { x: int, y: int }
+```
+
+A struct can have no fields at all: `struct Marker {}` is created with `Marker()`.
+
+Fields are written without `let` or `var`. Every field can be changed (see [Mutability](#mutability)), so there is no per-field keyword:
+
+```vex title="fields.vx"
+struct Point { let x: int }
+
+fn main() {}
+```
+
+```text title="Output"
+error: fields don't use 'let'
+ --> fields.vx:1:16
+  |
+1 | struct Point { let x: int }
+  |                ^^^ write fields as name: type
+```
+
+Type names are written in `UpperCamelCase` and fields and methods in `lowerCamelCase`.
+
+## Creating values
+
+Every struct gets a constructor with the same name as the struct. It takes one parameter per field, in the order the fields are declared, and fields with defaults become optional parameters.
+
+```vex title="create.vx"
+struct User {
+    name: string
+    age: int = 18
+    tags: [string] = []
+}
+
+fn main() {
+    println(User(name: "Ann"))
+    println(User(name: "Bob", age: 40))
+    println(User(age: 25, name: "Cy"))     // named arguments in any order
+    println(User("Dee", age: 3))           // positional, then named
+    println(User("Eve", 50))               // positional, in field order
+}
+```
+
+```text title="Output"
+User(name: "Ann", age: 18, tags: [])
+User(name: "Bob", age: 40, tags: [])
+User(name: "Cy", age: 25, tags: [])
+User(name: "Dee", age: 3, tags: [])
+User(name: "Eve", age: 50, tags: [])
+```
+
+The rules are the same as for [function calls](/docs/language/functions): positional arguments come first, named arguments after them, and a named argument can't be followed by an unnamed one. Named arguments are the usual style, since they keep the call readable when fields change order.
+
+There is no `new` keyword and no separate `init` method. If you need validation or a computed starting state, write a [static method](#static-members) that builds the value.
+
+### Missing and unknown arguments
+
+A field without a default must be given:
+
+```vex title="missing.vx"
+struct User {
+    name: string
+    age: int = 18
+}
+
+fn main() {
+    let a = User(age: 30)
+}
+```
+
+```text title="Output"
+error: missing argument 'name' in call to User
+ --> missing.vx:7:13
+  |
+7 |     let a = User(age: 30)
+  |             ^^^^ e.g. User(name: ...)
+```
+
+An argument that names no field is an error, with a suggestion when the name is close:
+
+```vex title="unknown.vx"
+struct Point { x: int, y: int }
+
+fn main() {
+    let p = Point(x: 1, y: 2, z: 3)
+}
+```
+
+```text title="Output"
+error: Point has no parameter 'z'
+ --> unknown.vx:4:31
+  |
+4 |     let p = Point(x: 1, y: 2, z: 3)
+  |                               ^ did you mean 'x'?
+```
+
+### Default values
+
+A default is an expression that runs each time a value is created without that argument. Each value gets its own result, so a list default is a fresh list for every value, and a default that calls a function calls it every time:
+
+```vex title="defaults.vx"
+fn nextId() -> int {
+    println("nextId called")
+    return 7
+}
+
+struct Bag {
+    items: [string] = []
+    id: int = nextId()
+}
+
+fn main() {
+    let a = Bag()
+    let b = Bag()
+    a.items.push("apple")
+    println(a.items, b.items)
+    let c = Bag(id: 1)                    // nextId isn't called
+    println(c.id)
+}
+```
+
+```text title="Output"
+nextId called
+nextId called
+["apple"] []
+1
+```
+
+A default can't refer to other fields of the same struct; it is evaluated before the value exists.
+
+```vex title="default_field.vx"
+struct R { a: int, b: int = a * 2 }
+
+fn main() {}
+```
+
+```text title="Output"
+error: unknown name 'a'
+ --> default_field.vx:1:29
+  |
+1 | struct R { a: int, b: int = a * 2 }
+  |                             ^
+```
+
+A default can create another struct, but not one that would create itself forever:
+
+```vex title="loop_default.vx"
+struct S { a: S? = S() }
+
+fn main() {}
+```
+
+```text title="Output"
+error: the default of 'a' creates another S that uses the same default, so it never ends
+ --> loop_default.vx:1:20
+  |
+1 | struct S { a: S? = S() }
+  |                    ^^^ pass that field explicitly, or default it to nil
+```
+
+### Trailing blocks
+
+When the last field has a function type, a `{ ... }` block after the call is passed as that field, as with any call:
+
+```vex title="button.vx"
+struct Button {
+    title: string
+    onTap: fn()
+}
+
+fn main() {
+    var taps = 0
+    let add = Button(title: "Add") { taps += 1 }
+    add.onTap()
+    add.onTap()
+    println(add.title, taps)
+}
+```
+
+```text title="Output"
+Add 2
+```
+
+See [Closures](/docs/language/closures) for trailing blocks and builder blocks.
+
+## Reading and changing fields
+
+Fields are read and assigned with `.`:
+
+```vex title="fields_rw.vx"
+struct Point { x: int, y: int }
+
+fn main() {
+    let p = Point(x: 1, y: 2)
+    p.x = 10
+    p.y += 5
+    println(p.x, p.y)
+}
+```
+
+```text title="Output"
+10 7
+```
+
+A misspelled field is caught at compile time:
+
+```vex title="typo.vx"
+struct User { name: string }
+
+fn main() {
+    let u = User(name: "Ann")
+    println(u.nam)
+}
+```
+
+```text title="Output"
+error: User has no field 'nam'
+ --> typo.vx:5:15
+  |
+5 |     println(u.nam)
+  |               ^^^ did you mean 'name'?
+```
+
+## Methods
+
+A method is a function declared inside the struct. Inside a method, the struct's fields and other methods are used by name, without `self.`:
+
+```vex title="account.vx"
+struct Account {
+    owner: string
+    balance: float = 0.0
+    history: [string] = []
+
+    fn deposit(amount: float) {
+        balance += amount
+        history.push("+{amount}")
+    }
+
+    fn withdraw(amount: float) -> bool {
+        if amount > balance {
+            history.push("declined {amount}")
+            return false
+        }
+        balance -= amount
+        history.push("-{amount}")
+        return true
+    }
+
+    fn summary() -> string => "{owner}: {balance}"
+}
+
+fn main() {
+    let acct = Account(owner: "Ann")
+    acct.deposit(50)
+    acct.withdraw(20)
+    acct.withdraw(500)
+    println(acct.summary())
+    println(acct.history)
+}
+```
+
+```text title="Output"
+Ann: 30.0
+["+50.0", "-20.0", "declined 500.0"]
+```
+
+Methods can use every form a function can: parameters with defaults, named arguments, `=>` bodies, `throws` and `async`. See [Functions](/docs/language/functions).
+
+### `self`
+
+`self` is the value the method was called on. You need it in two cases: to pass the whole value somewhere, and to reach a field that a parameter or local variable hides.
+
+```vex title="self.vx"
+struct Text {
+    value: string
+
+    fn set(value: string) {
+        self.value = value                // the parameter hides the field
+    }
+
+    fn show() -> string => describe()     // same as self.describe()
+    fn describe() -> string => "<{value}>"
+}
+
+fn main() {
+    let t = Text(value: "a")
+    t.set("hi")
+    println(t.show())
+}
+```
+
+```text title="Output"
+<hi>
+```
+
+Leaving out `self.` keeps methods short. It is safe because a field and a method of the same struct can't share a name, and a local name that hides a field is always visible right there in the method.
+
+`self` itself can't be reassigned; change its fields instead:
+
+```vex title="assign_self.vx"
+struct Point {
+    x: int
+    y: int
+    fn reset() {
+        self = Point(x: 0, y: 0)
+    }
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: can't assign to self
+ --> assign_self.vx:5:9
+  |
+5 |         self = Point(x: 0, y: 0)
+  |         ^^^^ change its fields instead, e.g. self.name = ...
+```
+
+## Static members
+
+`static fn` declares a method that belongs to the type rather than to a value. It is called on the type name. `static const` declares a [constant](/docs/language/constants) that belongs to the type.
+
+```vex title="static.vx"
+struct Circle {
+    static const pi = 3.14159
+    radius: float
+
+    fn area() -> float => pi * radius * radius
+
+    static fn unit() -> Circle => Circle(radius: 1)
+    static fn ofDiameter(d: float) -> Circle => Circle(radius: d / 2.0)
+}
+
+fn main() {
+    println(Circle.pi)
+    println(Circle.unit().area())
+    println(Circle.ofDiameter(4))
+}
+```
+
+```text title="Output"
+3.14159
+3.14159
+Circle(radius: 2.0)
+```
+
+Inside the struct, static members are used by name too: `pi` above, or `unit()` from another method.
+
+Static methods are the place for named constructors. A common pattern is a static method that checks its input before creating the value:
+
+```vex title="factory.vx"
+struct Port {
+    number: int
+
+    static fn parse(s: string) -> Port? {
+        let n = int(s)
+        if n < 1 || n > 65535 {
+            return nil
+        }
+        return Port(number: n)
+    }
+}
+
+fn main() {
+    println(Port.parse("8080"), Port.parse("70000"))
+}
+```
+
+```text title="Output"
+Port(number: 8080) nil
+```
+
+A static method has no `self`, so it can't use fields, and instance methods can't be called on the type. The compiler explains each mistake:
+
+```vex title="static_errors.vx"
+struct User {
+    name: string
+    age: int = 18
+
+    fn greet() -> string => "Hi, {name}"
+    static fn guest() -> User => User(name: "Guest", age: age)
+}
+
+fn main() {
+    let u = User(name: "Ann")
+    println(User.greet())
+    println(u.guest())
+}
+```
+
+```text title="Output"
+error: static method guest can't use field 'age'
+ --> static_errors.vx:6:59
+  |
+6 |     static fn guest() -> User => User(name: "Guest", age: age)
+  |                                                           ^^^ static methods have no instance; pass the value in as a parameter
+
+error: 'greet' needs a User value
+  --> static_errors.vx:11:18
+   |
+11 |     println(User.greet())
+   |                  ^^^^^ call it on a value, e.g. user.greet(), or declare it static fn
+
+error: 'guest' is a static method
+  --> static_errors.vx:12:15
+   |
+12 |     println(u.guest())
+   |               ^^^^^ call it on the type: User.guest()
+
+3 errors
+```
+
+A `const` inside a struct must be `static`. There are no static stored variables, and no variables at the top level of a file either: state lives in values that you create and pass around.
+
+<Callout type="warn" title="Not yet">
+Static methods of a generic struct, such as `Box<T>`, can be declared but not called yet: `Box<int>.make()` is reported as `'Box' is a type, not a value`. Use a top-level generic function instead. Static methods of generic enums work.
+</Callout>
+
+## Mutability
+
+Vex has one rule for structs: **`let` and `var` control the name, not the value.**
+
+- `let p = Point(...)` means `p` always refers to the same struct. `var p` lets you point `p` at a different struct later.
+- The fields of a struct can always be changed, through any name that refers to it: a `let`, a `var`, a parameter, a list element or `self` in a method.
+
+```vex title="mutability.vx"
+struct Point { x: int, y: int }
+
+fn moveRight(p: Point) {
+    p.x += 10                             // changes the caller's struct
+}
+
+fn main() {
+    let p = Point(x: 1, y: 2)
+    p.y = 7                               // allowed: p still names the same struct
+    moveRight(p)
+    println(p)
+
+    var q = Point(x: 0, y: 0)
+    q = Point(x: 5, y: 5)                 // allowed: q is var
+    println(q)
+}
+```
+
+```text title="Output"
+Point(x: 11, y: 7)
+Point(x: 5, y: 5)
+```
+
+Reassigning a `let` name is the error, not changing a field:
+
+```vex title="reassign.vx"
+struct Point { x: int, y: int }
+
+fn main() {
+    let p = Point(x: 1, y: 2)
+    p = Point(x: 0, y: 0)
+}
+```
+
+```text title="Output"
+error: can't change 'p': it's declared with let
+ --> reassign.vx:5:5
+  |
+5 |     p = Point(x: 0, y: 0)
+  |     ^ declare it with var p = ... to make it changeable
+```
+
+Methods don't need a `mutating` or `mut` marker either. Any method can change fields, and it can be called on a value held by `let`.
+
+<Callout title="Why no read-only structs">
+Swift's value-type structs make every change explicit, but they also copy on every assignment and need `mutating`, `inout` and copy-on-write to stay fast. Vex structs are references, like classes in Dart, Kotlin and TypeScript, so a value passed to a function or stored in a list is the same value everywhere. If you want a value that can't change, use a [record](/docs/language/records) or an [enum](/docs/language/enums), whose fields are fixed once created.
+</Callout>
+
+## Structs are shared references
+
+Assigning a struct, passing it to a function, or putting it in a list doesn't copy it. All of these give another name for the same struct, so a change through one name is seen through every other.
+
+```vex title="shared.vx"
+struct Point { x: int }
+
+fn main() {
+    let a = Point(x: 1)
+    var b = a                             // b and a are the same struct
+    b.x = 5
+    println(a.x)
+
+    b = Point(x: 9)                       // b now names a new struct; a is unchanged
+    println(a.x, b.x)
+
+    let list = [a, a]                     // two references to one struct
+    list[0].x = 100
+    println(a, list)
+}
+```
+
+```text title="Output"
+5
+5 9
+Point(x: 100) [Point(x: 100), Point(x: 100)]
+```
+
+There is no built-in copy for structs. When you need an independent value, write a method that creates one:
+
+```vex title="copy.vx"
+struct Point {
+    x: int
+    y: int
+
+    fn copy() -> Point => Point(x: x, y: y)
+}
+
+fn main() {
+    let a = Point(x: 1, y: 2)
+    let b = a.copy()
+    b.x = 99
+    println(a, b)
+}
+```
+
+```text title="Output"
+Point(x: 1, y: 2) Point(x: 99, y: 2)
+```
+
+A copy method like this is shallow: list and struct fields still refer to the same lists and structs. See [Memory](/docs/language/memory) for how references, values and the garbage collector fit together.
+
+## Printing and string conversion
+
+`println`, `str(...)` and string interpolation all show a struct as its type name followed by every field in declaration order, with strings quoted:
+
+```vex title="print.vx"
+struct Inner {
+    label: string
+    weight: float
+}
+
+struct Outer {
+    inner: Inner
+    counts: [string: int]
+    maybe: int?
+    pair: (int, string)
+}
+
+fn main() {
+    let o = Outer(inner: Inner(label: "a \"b\"", weight: 2), counts: ["x": 1], maybe: nil, pair: (1, "z"))
+    println(o)
+    let i = Inner(label: "c", weight: 1.5)
+    println("value: {i}", str(i) == "{i}")
+}
+```
+
+```text title="Output"
+Outer(inner: Inner(label: "a \"b\"", weight: 2.0), counts: ["x": 1], maybe: nil, pair: (1, "z"))
+value: Inner(label: "c", weight: 1.5) true
+```
+
+- Floats always show a decimal point: `2.0`.
+- Optional fields show their value or `nil`.
+- A generic struct includes its type arguments: `Pair<string, int>(first: "ann", second: 31)`.
+- A struct that refers back to itself shows the repeat as `Name(...)` instead of looping forever:
+
+```vex title="cycle_print.vx"
+struct Node {
+    value: int
+    next: Node? = nil
+}
+
+fn main() {
+    let a = Node(value: 1)
+    a.next = a
+    println(a)
+}
+```
+
+```text title="Output"
+Node(value: 1, next: Node(...))
+```
+
+To control how a struct reads, write a method such as `fn describe() -> string` and call it. Printing always uses the built-in format.
+
+## Equality
+
+Structs can't be compared with `==` unless they define it. Two separate structs with the same fields aren't automatically equal, and Vex has no identity operator (`===`):
+
+```vex title="equality.vx"
+struct Point { x: int, y: int }
+
+fn main() {
+    let p = Point(x: 1, y: 2)
+    let q = Point(x: 1, y: 2)
+    println(p == q)
+}
+```
+
+```text title="Output"
+error: values of type Point can't be compared with ==
+ --> equality.vx:6:13
+  |
+6 |     println(p == q)
+  |             ^^^^^^ define it in Point: operator ==(other: Point) -> bool
+```
+
+Define `operator ==` to say what equal means for your type. `!=` then works too, and so do `list.contains` and the `Equatable` constraint:
+
+```vex title="eq.vx"
+struct Point {
+    x: int
+    y: int
+
+    operator ==(other: Point) -> bool => x == other.x && y == other.y
+}
+
+fn main() {
+    let p = Point(x: 1, y: 2)
+    println(p == Point(x: 1, y: 2), p != Point(x: 0, y: 0))
+    println([Point(x: 0, y: 0), p].contains(Point(x: 1, y: 2)))
+}
+```
+
+```text title="Output"
+true true
+true
+```
+
+## Properties: getters and setters
+
+A getter is read like a field but computed each time. A setter runs when the property is assigned. Both use the property's name:
+
+```vex title="temperature.vx"
+struct Temperature {
+    celsius: float
+
+    get fahrenheit -> float => celsius * 9.0 / 5.0 + 32.0
+    set fahrenheit(f: float) {
+        celsius = (f - 32.0) * 5.0 / 9.0
+    }
+
+    get isFreezing -> bool => celsius <= 0.0
+}
+
+fn main() {
+    let t = Temperature(celsius: 100)
+    println(t.fahrenheit, t.isFreezing)
+    t.fahrenheit = 32                     // runs the setter
+    println(t.celsius, t.isFreezing)
+    t.fahrenheit += 18                    // reads with the getter, then sets
+    println(t.celsius)
+    println(t)                            // only stored fields are printed
+}
+```
+
+```text title="Output"
+212.0 false
+0.0 true
+10.0
+Temperature(celsius: 10.0)
+```
+
+- A getter has a result type and no parameters, and is read without `()`.
+- A setter takes exactly one parameter, the new value, of the getter's type.
+- A property with only a getter is read-only. One with only a setter can't be read.
+- Getters and setters can't throw.
+
+```vex title="readonly.vx"
+struct T {
+    c: float
+    get f -> float => c
+}
+
+fn main() {
+    let t = T(c: 1)
+    t.f = 3
+}
+```
+
+```text title="Output"
+error: can't assign to 'f': it has a getter but no setter
+ --> readonly.vx:8:7
+  |
+8 |     t.f = 3
+  |       ^ add a setter: set f(value: ...) { ... }
+```
+
+A common pattern stores the real value in a field with a leading underscore and exposes it through a property. The underscore is only a naming convention; [`pub`](/docs/projects/modules) is what controls visibility.
+
+## Observing changes with didSet
+
+A block after a field runs after every assignment to that field, with the previous value in `oldValue`:
+
+```vex title="didset.vx"
+struct Counter {
+    count: int = 0 {
+        didSet {
+            println("count: {oldValue} -> {count}")
+        }
+    }
+
+    fn bump() { count += 1 }
+}
+
+fn main() {
+    let c = Counter(count: 5)             // not run when the struct is created
+    c.bump()
+    c.count = 10
+}
+```
+
+```text title="Output"
+count: 5 -> 6
+count: 6 -> 10
+```
+
+- It runs for assignments from outside (`c.count = ...`) and inside methods (`count = ...`), but not when the struct is created.
+- Assigning the field inside its own `didSet` doesn't run it again, so a `didSet` can clamp the value.
+- Changing what a field refers to, such as pushing to a list field, isn't an assignment and doesn't run it.
+
+## Operators
+
+A struct can define operators like methods. `self` is the left operand and the parameter is the right one:
+
+```vex title="vec.vx"
+struct Vec {
+    x: float
+    y: float
+
+    operator +(other: Vec) -> Vec => Vec(x: x + other.x, y: y + other.y)
+    operator -() -> Vec => Vec(x: -x, y: -y)
+    operator *(k: float) -> Vec => Vec(x: x * k, y: y * k)
+    operator ==(other: Vec) -> bool => x == other.x && y == other.y
+}
+
+struct Version {
+    major: int
+    minor: int
+
+    operator ==(other: Version) -> bool => major == other.major && minor == other.minor
+    operator <(other: Version) -> bool =>
+        major < other.major || (major == other.major && minor < other.minor)
+}
+
+fn main() {
+    let a = Vec(x: 1, y: 2)
+    var v = a + Vec(x: 3, y: 4) * 2
+    println(v, -a, v == Vec(x: 7, y: 10))
+    v += a                                // v = v + a
+    println(v)
+
+    let old = Version(major: 1, minor: 2)
+    let new = Version(major: 1, minor: 10)
+    println(old < new, old >= new)        // >= comes from <
+}
+```
+
+```text title="Output"
+Vec(x: 7.0, y: 10.0) Vec(x: -1.0, y: -2.0) true
+Vec(x: 8.0, y: 12.0)
+true false
+```
+
+| You define | You get |
+|---|---|
+| `+ - * / %` (one parameter, any type) | the operator, and its compound assignment (`+=` ...) when it returns the struct |
+| unary `-` (no parameter) | `-value` |
+| `==` (takes the struct, returns `bool`) | `==`, `!=`, `contains`, the `Equatable` constraint |
+| `<` and `==` | `<`, `<=`, `>`, `>=`, the `Comparable` constraint |
+| `[]` and `[]=` | indexing, `value[i]` and `value[i] = x` |
+
+`!=`, `>`, `<=` and `>=` are derived, so they can't be defined themselves. Operators can't be static, generic, async or throwing, and their parameters have no defaults. See [Operators](/docs/language/operators) for the full list.
+
+## Recursive structs
+
+A struct can contain itself through an optional field or a list, which is how linked lists and trees are built:
+
+```vex title="tree.vx"
+struct Node {
+    name: string
+    children: [Node] = []
+    parent: Node? = nil
+
+    fn add(child: Node) {
+        child.parent = self
+        children.push(child)
+    }
+
+    fn depth() -> int {
+        var d = 0
+        var cur = parent
+        while let p = cur {
+            d += 1
+            cur = p.parent
+        }
+        return d
+    }
+}
+
+fn main() {
+    let root = Node(name: "root")
+    let docs = Node(name: "docs")
+    let file = Node(name: "intro.md")
+    root.add(docs)
+    docs.add(file)
+    println(file.depth(), root.children.len, file.parent?.name ?? "-")
+}
+```
+
+```text title="Output"
+2 1 docs
+```
+
+The parent and child refer to each other. That cycle is fine: the [garbage collector](/docs/language/memory) frees it once nothing else refers to it, so there is no `weak` keyword.
+
+## Structs and other features
+
+- **Interfaces.** A struct lists the interfaces it implements after a `:`, as in `struct Circle: Shape`. See [Interfaces](/docs/language/interfaces).
+- **Generics.** `struct Stack<T> { items: [T] = [] }`. See [Generics](/docs/language/generics).
+- **Extensions.** Methods, getters and static members can be added to a struct after it is declared. See [Extensions](/docs/language/extensions).
+- **Patterns.** `match p { Point(x: 0, :y) => ... }` tests and takes apart a struct. See [Patterns](/docs/language/patterns).
+- **Tear-offs.** `User.new` is the constructor as a function value, and `user.greet` is a method bound to `user`. See [Closures](/docs/language/closures).
+- **Modules.** Structs, fields and methods are private to their module unless marked `pub`. Another module can only create a struct whose private fields all have defaults; otherwise it reports `lib.Wall can't be created outside lib because field 'secret' is private`. See [Modules](/docs/projects/modules).
+
+## Rules and edge cases
+
+- Every field has a type. `x = 1` without a type is an error: `field 'x' needs a type`.
+- A field and a method can't have the same name: `'x' is already a field of Point`.
+- Fields are always changeable; `let` and `var` apply to names, not fields.
+- A `const` inside a struct must be written `static const`.
+- Parameters, loop variables and `self` can't be reassigned, but the fields of a struct they refer to can be changed.
+- Structs have no built-in `==`, no identity comparison and no built-in copy.
+- A struct can't be a map key. Map keys are `int`, `string`, `bool` and enums whose cases carry no values.
+- Default values are evaluated at each creation, can't use other fields, and can't recreate the struct endlessly.
+- `didSet` doesn't run during creation, and getters and setters can't throw.
+- Structs can't inherit from other structs. Share behavior with [interfaces](/docs/language/interfaces) and their default methods, or by holding another struct in a field.
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Dart | Go |
+|---|---|---|---|---|---|
+| Semantics | reference | value (copied) | reference (class) | reference | value (copied) |
+| Constructor | generated, named args | memberwise init | primary constructor | written by hand | literal `T{...}` |
+| Field access in methods | bare name | bare name | bare name | bare name | `t.field` |
+| Change fields of a `let` value | yes | no | `val` fields: no | `final` fields: no | n/a |
+| Built-in `==` | no, define `operator ==` | with `Equatable` | `data class` | no | yes |
+
+## See also
+
+- [Enums](/docs/language/enums)
+- [Interfaces](/docs/language/interfaces)
+- [Generics](/docs/language/generics)
+- [Memory](/docs/language/memory)
+- [Example: structs](/docs/examples/structs)

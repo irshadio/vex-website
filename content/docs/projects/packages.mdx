@@ -1,0 +1,140 @@
+---
+title: Packages
+description: What you can use from outside your project today, and the planned package system with vex get, package imports and package.lock.
+---
+
+A package is code written by someone else that your project uses. Vex has a design for packages, but the package manager isn't built yet. This page says exactly what works today and what is planned, so you can tell the two apart.
+
+## What works today
+
+| Feature | Status |
+|---|---|
+| Standard library imports, `import "vex:math"` | Works |
+| Folders of your own project, `import "models"` | Works |
+| `package.toml` with `[package]` and `[c]` | Works |
+| C libraries through the `[c]` section | Works |
+| `[dependencies]` and `[dev-dependencies]` sections | Accepted and skipped |
+| `import "package:name"` | Planned; a compile error today |
+| `vex get` | Planned; not a command yet |
+| `package.lock` | Planned; never read or written |
+| `vex doc`, `vex new`, the package website | Planned |
+
+### Using code from outside your project today
+
+There are three ways to bring in code that isn't yours:
+
+- **The standard library.** `vex:fs`, `vex:isolate`, `vex:math`, `vex:os`, `vex:strings` and `vex:time` come with the compiler. See the [standard library](/docs/stdlib).
+- **A copy inside your project.** Put the other code's folder inside your project and import it by its relative path, like any of your own modules. An import can't reach outside the project folder, so the code has to live inside it.
+- **A C library.** Link it through the `[c]` section of `package.toml` and declare its functions with `extern fn`. See [C interop](/docs/projects/c-interop).
+
+### What happens if you try a package import
+
+```vex
+import "package:charts"
+```
+
+```text
+error: package imports aren't supported yet
+ --> main.vx:1:8
+  |
+1 | import "package:charts"
+  |        ^^^^^^^^^^^^^^^^ packages arrive with vex get; for now, import folders of this project
+```
+
+And `vex get` is not a known command:
+
+```text
+vex: unknown command "get"
+Run 'vex help' for a list of commands.
+```
+
+The exit code is 2, the code for usage errors.
+
+### The dependency sections today
+
+`package.toml` accepts `[dependencies]` and `[dev-dependencies]`, so a project file written for the planned design is not rejected. The compiler skips every line in these sections without checking it, and nothing is downloaded.
+
+```toml
+[package]
+name = "report"
+
+[dependencies]
+charts = { git = "https://github.com/ann/charts", version = "0.3.1" }
+```
+
+This file is accepted today, but `import "package:charts"` still fails.
+
+## The planned design
+
+<Callout type="warn" title="Planned">
+Everything below this point describes the package manager as designed. None of it is built yet: there is no `vex get`, no `package:` import, no `package.lock` and no package website. The design may change before it is built.
+</Callout>
+
+### Packages are git repositories
+
+A Vex package will be a public git repository with version tags. There is no upload step and no central storage: `vex get` downloads straight from the repository, and a website lists the packages it knows about.
+
+Code imports a package by its name, and `package.toml` says where that name comes from, as in Dart. Moving a repository then changes one line in the project file, never the imports.
+
+### Imports
+
+| Form | Imports | Example |
+|---|---|---|
+| `vex:name` | The standard library, built in | `import "vex:math"` |
+| `package:name` | A package listed in `package.toml` | `import "package:charts"` |
+| `package:name/folder` | A folder inside a package | `import "package:charts/line"` |
+| `"folder"` | A folder of the current project | `import "models"` |
+
+### Adding a package
+
+```sh
+vex get https://github.com/ann/charts           # the newest tag
+vex get https://github.com/ann/charts@0.3.1     # a tagged version
+```
+
+`vex get` will add the dependency to `package.toml` under the package's name and record its exact content hash in `package.lock`. `vex run` and `vex build` will fetch whatever is missing, so a fresh clone builds with no extra step.
+
+```toml
+[package]
+name = "report"
+vex = "0.2"
+
+[dependencies]
+charts = { git = "https://github.com/ann/charts", version = "0.3.1" }
+```
+
+- The key is the name used in `import "package:..."`. It is usually the package's own name, and can be changed to resolve a clash between two packages with the same name.
+- `path` names a folder inside the repository, for repositories that hold several packages.
+
+### The lock file
+
+| File | Written by | Purpose |
+|---|---|---|
+| `package.toml` | You, and `vex get` | Package name, Vex version, dependencies |
+| `package.lock` | `vex get`, never by hand | Exact version and content hash of every dependency, including indirect ones |
+
+The lock file is meant to be committed, so a build that works today builds the same way later, and a dependency whose content changed under the same tag is rejected. Downloads go into one shared cache, `~/.vex/pkg/<repository>@<version>`, not a folder inside each project.
+
+### Choosing versions
+
+Versions follow semantic versioning. When two packages need different versions of a third, Vex will pick the lowest version that satisfies all of them (minimal version selection, as in Go). A build never picks up a newer release by itself; versions change only when someone runs `vex get`. A build holds one version of each package, so packages that need different major versions of the same dependency can't be used together.
+
+### Publishing
+
+1. Put the code in a public git repository with a `package.toml` at its root (or at its `path`).
+2. Tag a release: `git tag v0.3.1 && git push --tags`. In a repository with several packages, tags carry the folder: `camera/v0.2.0`.
+
+### Later
+
+- A package website that indexes repositories, shows their README, versions and API docs (from `vex doc`), and stores no code.
+- A cache that keeps a copy of every published version, and a public checksum log of every version's hash. Both optional: `vex get` can always fall back to git.
+
+For the reasoning behind these choices, see [the package system design](/docs/internals/packages).
+
+## See also
+
+- [Modules and projects](/docs/projects/modules)
+- [C interop](/docs/projects/c-interop)
+- [The vex command](/docs/tools/cli)
+- [Package system design](/docs/internals/packages)
+- [Standard library](/docs/stdlib)

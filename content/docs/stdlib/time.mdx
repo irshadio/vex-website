@@ -1,0 +1,173 @@
+---
+title: vex:time
+description: API reference for vex:time, which reads the monotonic and wall clocks and gives futures that complete after a delay.
+---
+
+`vex:time` reads the clock. It has three functions: `nanos` for measuring how long code takes, `unix` for the current date and time as a number, and `sleep` for waiting inside async code.
+
+```vex title="timing.vx"
+import "vex:time"
+
+fn work() -> int {
+    var total = 0
+    for i in 0..1000000 {
+        total += i
+    }
+    return total
+}
+
+fn main() {
+    let start = time.nanos()
+    let total = work()
+    let ms = (time.nanos() - start) / 1000000
+    println(total, ms >= 0)
+}
+```
+
+```text title="Output"
+499999500000 true
+```
+
+## Summary
+
+| Function | Result |
+|---|---|
+| [`nanos()`](#nanos) | Nanoseconds from a fixed point, for measuring intervals |
+| [`unix()`](#unix) | Seconds since 1970-01-01 UTC |
+| [`sleep(ms)`](#sleep) | A `Future<void>` that completes after `ms` milliseconds |
+
+There are no date, calendar, time zone or formatting functions yet.
+
+## nanos
+
+```vex
+pub extern fn nanos() -> int as "vx_time_ns"
+```
+
+Returns nanoseconds from a fixed point in the past.
+
+- **Parameters:** none.
+- **Returns:** An `int` from the system's monotonic clock (`CLOCK_MONOTONIC`). The starting point is arbitrary, often the time the machine booted, so a single reading means nothing. Subtract two readings to get the time between them.
+- **Errors:** None.
+
+The monotonic clock never jumps backward when the system time is changed, which makes it right for measuring how long code takes. Divide by `1000000` for milliseconds or by `1000000000` for seconds; use `float(...)` first if you want a fraction:
+
+```vex title="elapsed.vx"
+import "vex:time"
+
+fn main() {
+    let start = time.nanos()
+    var words: [string] = []
+    for i in 0..10000 {
+        words.push("word {i}")
+    }
+    let seconds = float(time.nanos() - start) / 1000000000.0
+    println(words.len, seconds < 1.0)
+}
+```
+
+```text title="Output"
+10000 true
+```
+
+## unix
+
+```vex
+pub extern fn unix() -> int as "vx_time_unix"
+```
+
+Returns the seconds since 1970-01-01 00:00:00 UTC, the Unix timestamp.
+
+- **Parameters:** none.
+- **Returns:** An `int` from the system's wall clock (C `time(NULL)`). It follows the system time, so it can jump if the clock is changed. Use `nanos` to measure intervals.
+- **Errors:** None.
+
+```vex title="now.vx"
+import "vex:time"
+
+fn main() {
+    let now = time.unix()
+    let days = now / 86400
+    println(now > 1700000000, days > 19000)
+}
+```
+
+```text title="Output"
+true true
+```
+
+## sleep
+
+```vex
+pub extern fn sleep(ms: int) -> Future<void> as "vx_sleep"
+```
+
+Returns a future that completes after `ms` milliseconds.
+
+- **Parameters:** `ms`, the delay in milliseconds. 0 or a negative number completes on the next turn of the event loop.
+- **Returns:** A `Future<void>`.
+- **Errors:** None.
+
+`await time.sleep(ms)` pauses only the async function it is in. Other tasks and timers keep running meanwhile, so two sleeps started together take as long as the longer one, not the sum:
+
+```vex title="sleep.vx"
+import "vex:time"
+
+async fn step(name: string, ms: int) -> string {
+    await time.sleep(ms)
+    println("{name} done")
+    return name
+}
+
+async fn main() {
+    let start = time.nanos()
+    let a = step("slow", 200)
+    let b = step("fast", 100)
+    let names = await all([a, b])
+    println(names)
+    let elapsed = (time.nanos() - start) / 1000000
+    println(elapsed >= 200 && elapsed < 300)
+}
+```
+
+```text title="Output"
+fast done
+slow done
+["slow", "fast"]
+true
+```
+
+Calling `time.sleep` starts the timer at once, even before you await it. A pending timer keeps the program alive: the program ends only when `main` is done and no tasks or timers are left.
+
+To wait in code that isn't async, pass the future to `run`, which runs the event loop until it completes:
+
+```vex title="pause.vx"
+import "vex:time"
+
+fn main() {
+    let start = time.nanos()
+    run(time.sleep(50))
+    println((time.nanos() - start) / 1000000 >= 50)
+}
+```
+
+```text title="Output"
+true
+```
+
+`await` outside an async function is a compile error, with a hint to make the function async:
+
+```text
+error: await is only allowed in async functions
+ --> wait.vx:4:5
+  |
+4 |     await time.sleep(10)
+  |     ^^^^^^^^^^^^^^^^^^^^ make main async: async fn main()
+```
+
+## See also
+
+- [Async and await](/docs/concurrency/async)
+- [Concurrency overview](/docs/concurrency)
+- [Built-ins: run, all and any](/docs/stdlib/built-ins#run-all-and-any)
+- [Standard library overview](/docs/stdlib)

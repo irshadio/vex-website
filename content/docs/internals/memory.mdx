@@ -1,0 +1,130 @@
+---
+title: Memory management
+description: Why Vex uses a tracing garbage collector, how the current mark-and-sweep collector works, how to observe it, and what the next stages will change.
+---
+
+Vex manages memory automatically with a tracing garbage collector that is compiled into every program. This page explains why Vex chose tracing collection over reference counting, how the current collector allocates and frees memory, and what is planned next. For what this means when you write Vex code, see [Memory](/docs/language/memory).
+
+## The decision: tracing, not reference counting
+
+Vex uses a tracing collector, like Go, Dart and Kotlin/Native, rather than reference counting, like Swift. The reasons:
+
+- **Real programs are full of reference cycles.** A parent node holds its children and each child points back to its parent; an object stores a callback closure that uses the object. Reference counting leaks such a cycle unless one side is marked `weak`. A tracing collector frees the whole cycle, so Vex needs no `weak` keyword and you never have to decide which side of a relationship is the weak one.
+- **Many objects are short-lived.** Temporary strings, lists and structs suit an allocator where allocating is a free-list pop and dead objects cost nothing to free. Reference counting adds work to every copy of a reference and every scope exit.
+- **Speed.** Allocation-heavy and compute-heavy benchmarks run as fast as the same programs written in Go (see [Benchmarks](#benchmarks)).
+- **Native handles work with either model.** A Vex object that owns a C resource can release it from a finalizer, and a Vex closure held by C code stays alive until the C side lets go.
+- **Precedent.** Kotlin/Native started with reference counting and moved to a tracing collector because the old model was painful to use. Go, Dart and Java all use tracing collectors with short pauses.
+
+The trade-offs: memory isn't freed the moment it becomes unreachable, and a collection pauses the program briefly. Resources other than memory, such as files, need to be closed explicitly rather than relying on the collector.
+
+## Stage 1: mark and sweep
+
+The current collector is a conservative, non-moving mark-and-sweep collector. It lives entirely in the runtime (`compiler/codegen/runtime/vexrt.h`); the compiler's only part is starting it at the beginning of the C `main`.
+
+### Allocation
+
+- **Small objects**, up to 2 KB, come from 64 KB pages. Each page holds objects of a single size class, and there are 24 classes: 16, 32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024, 1280, 1536, 1792 and 2048 bytes.
+- An allocation takes an object from its class's free list, or from the unused end of the page the class is filling. For objects of up to 128 bytes this fast path is inlined where the allocation happens, and for a constant size the class is a constant.
+- **Large objects** get their own allocation from the C library, with a small header.
+- **Atomic objects**, such as the text of strings and lists of plain numbers, are allocated separately and marked as holding no pointers, so the collector never scans their contents.
+
+### Finding objects
+
+To decide whether a word might point into the heap, the collector first checks it against the lowest and highest heap addresses. Within that range, a hash table maps a page number to its page, so a candidate pointer is checked with a shift and one lookup; the page last found is cached, since nearby objects usually share a page. Large objects are found by binary search over their sorted addresses. Within a page, the object that contains a given byte is found with a multiplication rather than a division.
+
+### Marking
+
+Marking starts from the roots:
+
+- The C stack of the running code, and the CPU registers, which are spilled onto the stack with `setjmp` so they are scanned too.
+- The stacks of async tasks that aren't running.
+- The program's constants, closures handed to C as callback contexts (until C calls `vex_release`), and a few runtime tables.
+
+Marking is **conservative**: any word that points into an object keeps it alive, including a pointer into the middle of an object. Marked objects are scanned the same way, using an explicit work list rather than recursion, so deeply linked structures can't overflow the stack.
+
+Conservative marking can keep a dead object alive when an unrelated number happens to look like its address. It never frees a live object.
+
+### Sweeping
+
+Unmarked small objects go back onto the free lists of their class. A page with no live objects becomes empty and can be reused for any size class. Unmarked large objects are returned to the C library.
+
+### Pacing
+
+A collection runs when the heap reaches twice the live size left by the previous collection, and never below 4 MB. This matches Go's default setting (`GOGC=100`): the collector does an amount of work proportional to the memory the program allocates.
+
+### Isolates
+
+Each isolate is a thread with its own heap and its own collector. The heap's state is one thread-local struct, so an allocation looks up thread-local storage only once; on macOS that keeps the cost to about 4% in allocation-heavy code. Because no object is shared between heaps, collections never need locks and never stop other isolates. Messages between isolates are deep copies, and channels live outside the heaps.
+
+Constants are the exception: lists, maps and other constant values are built once on the main thread before `main` runs, kept alive for the whole program, and shared read-only with every isolate. The memory an isolate used is freed when it ends.
+
+## Observing the collector
+
+Two environment variables control the collector in any Vex program, whether run with `vex run` or built with `vex build`:
+
+| Variable | Effect |
+|---|---|
+| `VEX_GC_STATS=1` | At exit, prints the number of collections, the total bytes allocated, the peak heap and the live heap to standard error. |
+| `VEX_GC_STRESS=N` | Collects every `N` allocations; `1` collects on every allocation. The compiler's tests run every program this way to catch objects freed too early. |
+
+This program builds a million two-node cycles, each unreachable after its loop iteration:
+
+```vex title="cycles.vx"
+struct Node {
+    value: int
+    next: Node? = nil
+}
+
+fn main() {
+    var total = 0
+    for i in 0..1_000_000 {
+        let a = Node(value: i)
+        let b = Node(value: i, next: a)
+        a.next = b
+        total += b.value
+    }
+    println(total)
+}
+```
+
+```sh
+VEX_GC_STATS=1 vex run cycles.vx
+```
+
+```text title="Output"
+gc: 7 collections, 31250 KB allocated, 4096 KB peak heap, 2578 KB live
+499999500000
+```
+
+About 30 MB is allocated in total, but the heap never grows past its 4 MB minimum, because each collection frees the dead cycles.
+
+If an allocation fails, the program stops with `error: out of memory` and exit code 1.
+
+## Benchmarks
+
+On an Apple silicon Mac, best of several runs, compared with the same program written in Go:
+
+| Program | Vex | Go |
+|---|---|---|
+| 2 million iterations allocating structs, enums, closures, strings and lists (530 MB allocated in total) | 0.33 s, 6 MB peak memory | 0.35 s, 9 MB |
+| `fib(38)` plus a sieve over 20 million booleans | 0.17 s | 0.16 s |
+
+Before the collector existed, the first program leaked all 387 MB it allocated.
+
+## Next stages
+
+<Callout type="warn" title="Planned">
+The stages below are designed but not built. Today's collector is stage 1.
+</Callout>
+
+1. **Precise roots and object layouts.** The compiler will record where pointers live in each struct, enum and stack frame. Nothing will then be kept alive by a number that looks like a pointer, and scanning will skip plain numbers.
+2. **Generational collection.** Young objects will be collected often and cheaply, so most collections stay short and rarely touch old data.
+3. **Returning memory to the operating system**, and finalizers for native handles.
+4. **Threads with shared memory**, if Vex gets them: per-thread allocation caches and stopping threads for a collection. Isolates already run in parallel without this, since each has its own heap.
+
+## See also
+
+- [Memory](/docs/language/memory)
+- [Isolates](/docs/concurrency/isolates)
+- [The compiler](/docs/internals/compiler)
+- [Runtime errors](/docs/tools/runtime-errors)

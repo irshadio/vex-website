@@ -1,0 +1,572 @@
+---
+title: Async and await
+description: How async functions, futures and the event loop work in Vex, with the exact rules for ordering, errors, all, any and run.
+---
+
+An `async fn` can wait for something, such as a timer, without stopping the rest of the program. While it waits, other tasks and timers on the same isolate run. When the thing it waits for is done, it continues where it left off.
+
+Vex follows Dart here: the result type of an async function is the plain value (`-> string`, not `-> Future<string>`), `await` gives that value, and the whole program runs on one event loop per isolate.
+
+## A first async program
+
+```vex title="fetch.vx"
+import "vex:time"
+
+async fn fetch(url: string) throws -> string {
+    await time.sleep(100)                   // pauses this function only
+    if url == "" {
+        throw Error("empty url")
+    }
+    return "page of {url}"
+}
+
+async fn main() throws {
+    let page = try await fetch("a.com")     // await gives the value; try handles the error
+    println(page)
+}
+```
+
+```text title="Output"
+page of a.com
+```
+
+- `async fn` marks a function that may wait. `await` is only allowed inside one.
+- `time.sleep(ms)` from [`vex:time`](/docs/stdlib/time) gives a future that completes after `ms` milliseconds.
+- An async function that throws needs `try` (or `try?`, or `try ... catch`) at the `await`, like any other throwing call.
+- `async fn main()` makes the whole program a task, so `main` can await.
+
+## Tasks and futures
+
+Calling an async function **with** `await` runs it right here, as part of the current task, and gives its value.
+
+Calling it **without** `await` starts it as a new **task** and gives a `Future<T>` right away. The new task runs immediately, up to its first `await` that has to wait, and only then does the caller continue. That is how you run several things at once:
+
+```vex title="start.vx"
+import "vex:time"
+
+async fn step(name: string) -> string {
+    println("{name}: start")
+    await time.sleep(10)
+    println("{name}: end")
+    return name
+}
+
+async fn main() {
+    let a = step("a")          // runs until its sleep, then main continues
+    let b = step("b")
+    println("both started")
+    println(await a, await b)
+}
+```
+
+```text title="Output"
+a: start
+b: start
+both started
+a: end
+b: end
+a b
+```
+
+Both sleeps run at the same time, so the program takes about 10 ms, not 20.
+
+### Futures are values
+
+`Future<T>` is a normal type. You can store a future in a variable, a list or a struct field, pass it to functions, and await it any number of times. Awaiting a future that is already done gives its value again without waiting.
+
+```vex title="futures.vx"
+import "vex:time"
+
+struct Download {
+    name: string
+    result: Future<int>
+}
+
+async fn size(name: string) -> int {
+    await time.sleep(name.len)
+    return name.len * 100
+}
+
+fn start(name: string) -> Download {
+    return Download(name: name, result: size(name))
+}
+
+async fn main() {
+    let downloads = [start("logo.png"), start("a.txt")]
+    for d in downloads {
+        println(d.name, await d.result)
+    }
+    let first = downloads[0].result
+    println(await first, await first)
+}
+```
+
+```text title="Output"
+logo.png 800
+a.txt 500
+800 800
+```
+
+`start` is not async, yet it can call `size`: without `await`, an async call is allowed anywhere, because it only starts a task.
+
+The type of a future is written:
+
+| Type | Meaning |
+|---|---|
+| `Future<int>` | completes with an `int` |
+| `Future<void>` | completes with no value, like `time.sleep(ms)` |
+| `Future<string, Error>` | completes with a `string` or fails with an `Error` |
+| `Future<string, FetchError>` | completes with a `string` or fails with the enum `FetchError` |
+
+Calling a throwing async function without `await` gives the second form: `fetch("a.com")` has the type `Future<string, Error>`. Printing a future shows its type, such as `<Future<int>>`.
+
+## Waiting for several futures
+
+`all` and `any` are built-in functions that take a list of futures.
+
+- `all(futures)` gives a future of every value, in the order of the list. With `[Future<void>]` it gives `Future<void>`. An empty list gives `[]`.
+- `any(futures)` gives a future of the first one to settle, whether it succeeded or failed. An empty list stops the program with `any() needs at least one future`.
+
+```vex title="all_any.vx"
+import "vex:time"
+
+async fn fetch(url: string, ms: int) -> string {
+    await time.sleep(ms)
+    return "page of {url}"
+}
+
+async fn main() {
+    let pages = await all([fetch("a.com", 20), fetch("b.com", 10)])
+    println(pages)
+    let first = await any([fetch("slow.com", 30), fetch("fast.com", 5)])
+    println(first)
+    await all([time.sleep(1), time.sleep(2)])
+    println("done")
+}
+```
+
+```text title="Output"
+["page of a.com", "page of b.com"]
+page of fast.com
+done
+```
+
+`any` doesn't cancel the others. In the program above, the `slow.com` task is still sleeping when `main` returns, and the program waits for it before it exits (see [When the program ends](#when-the-program-ends)). Vex has no task cancellation.
+
+A list of futures often comes from `map`. Closures can't await, but they can start tasks:
+
+```vex
+let urls = ["a.com", "bb.com", "c.io"]
+let pages = await all(urls.map(fn(u: string) -> Future<string> => fetch(u)))
+```
+
+`all`, `any` and `run` are ordinary names, not keywords: a function of your program with the same name replaces them.
+
+## Errors in async functions
+
+An async function declares `throws` or `throws(E)` like any function. What happens to the error depends on how you call it.
+
+**With `await`**, the error reaches the `await` right away, and you handle it with `try`, `try?` or `try ... catch`:
+
+```vex title="typed.vx"
+import "vex:time"
+
+enum FetchError {
+    notFound(url: string)
+    timeout
+}
+
+async fn fetch(url: string, ms: int) throws(FetchError) -> string {
+    await time.sleep(ms)
+    if url == "missing" {
+        throw .notFound(url: url)
+    }
+    return "page of {url}"
+}
+
+async fn main() {
+    let f: Future<string, FetchError> = fetch("missing", 5)
+    println("started")
+    let page = try await f catch e {
+        match e {
+            notFound(url) => "no page at {url}"
+            timeout => "timed out"
+        }
+    }
+    println(page)
+    let again = try? await f
+    println(again)
+}
+```
+
+```text title="Output"
+started
+no page at missing
+nil
+```
+
+**Without `await`**, the call needs no `try`: starting a task can't fail. The error is stored in the future and comes out wherever the future is awaited, every time it is awaited. A failed future that is never awaited drops its error silently.
+
+```vex title="lost.vx"
+import "vex:time"
+
+async fn fail() throws -> int {
+    await time.sleep(1)
+    throw Error("lost")
+}
+
+async fn main() {
+    fail()                   // nobody awaits this; its error is dropped
+    await time.sleep(20)
+    println("main done")
+}
+```
+
+```text title="Output"
+main done
+```
+
+**With `all`**, the futures are awaited in list order, and the first failure in that order fails the whole `all`. A later future that fails earlier in time doesn't win: `all` reports it only after every future before it succeeded.
+
+```vex title="all_errors.vx"
+import "vex:time"
+
+async fn job(name: string, ms: int, fails: bool) throws -> string {
+    await time.sleep(ms)
+    println("{name} finished")
+    if fails {
+        throw Error("{name} failed")
+    }
+    return name
+}
+
+async fn main() {
+    let r = try await all([job("a", 30, true), job("b", 10, true)]) catch e {
+        println("all:", e.message)
+        []
+    }
+    println(r)
+    let s = try await any([job("c", 30, false), job("d", 10, true)]) catch e {
+        println("any:", e.message)
+        ""
+    }
+    println(s)
+}
+```
+
+```text title="Output"
+b finished
+a finished
+all: a failed
+[]
+d finished
+any: d failed
+
+c finished
+```
+
+`b` fails first in time, but `a` is first in the list, so `all` fails with `a`'s error. `any` settles with the first future to finish, which is `d`'s failure. The last line comes from task `c`, which keeps running after `main` is done.
+
+**In `async fn main() throws`**, an error that reaches the top is printed as `error: <message>` with exit code 1, but only once every other task and timer is done. The loop finishes its work first:
+
+```vex title="main_error.vx"
+import "vex:time"
+
+async fn fail() throws -> int {
+    await time.sleep(5)
+    throw Error("boom")
+}
+
+async fn ticker() {
+    for i in 0..3 {
+        await time.sleep(10)
+        println("tick", i)
+    }
+}
+
+async fn main() throws {
+    ticker()
+    let v = try await fail()
+    println(v)
+}
+```
+
+```text title="Output"
+tick 0
+tick 1
+tick 2
+error: boom
+```
+
+The exit code is 1. The `error:` line goes to standard error.
+
+## The event loop
+
+Each isolate has one event loop. It owns three queues:
+
+1. **Ready tasks**: tasks whose future settled and that can continue, in first-in, first-out order.
+2. **Timers**: futures from `time.sleep`, ordered by when they are due.
+3. **Inbox**: messages from other isolates, such as the result of an `isolate.run` or a value sent on a channel that a task is awaiting.
+
+The loop repeats: take the messages that arrived and settle their futures, settle every timer that is due, then run the ready tasks one at a time. When nothing is ready, the thread sleeps until the next timer is due or a message arrives. It doesn't spin.
+
+### What `await` does
+
+`await x` looks at what `x` is:
+
+- **A call of an async function**: the function runs directly, on the current task's stack, like a normal call. Nothing is scheduled. If the function itself never waits, `await f()` costs the same as a plain call.
+- **A future**: if it is already done, `await` gives its value (or its error) at once, without giving up the thread. If it is still pending, the current task is put on the future's list of waiters and the loop runs something else. When the future settles, the task goes to the back of the ready queue.
+
+So a task only gives up the thread at an `await` of a pending future. Between two such points, its code runs without interruption, and no other task can see a half-finished state. This is what makes sharing objects between tasks safe without locks.
+
+### Ordering guarantees
+
+These rules are part of how the runtime works, and programs can rely on them:
+
+- **A new task runs first.** Calling an async function without `await` runs it at once, up to its first wait. The caller continues after that.
+- **Ready tasks run in the order they became ready.**
+- **Waiters wake in the order they started waiting.** If several tasks await the same future, they resume in the order they called `await`.
+- **Timers that are due at the same time fire in the order they were created.** `time.sleep(0)` (or any value up to 0) is due at once but still waits for the next turn of the loop, so `await time.sleep(0)` lets every other ready task run first.
+- **No preemption.** A task that runs a long loop without awaiting keeps the thread until it finishes or awaits.
+
+```vex title="order.vx"
+import "vex:time"
+
+async fn worker(name: string, rounds: int) {
+    for i in 0..rounds {
+        println("{name} {i}")
+        await time.sleep(0)       // let the other task have a turn
+    }
+}
+
+async fn waiter(name: string, gate: Future<void>) {
+    await gate
+    println("{name} woke")
+}
+
+async fn main() {
+    await all([worker("a", 3), worker("b", 3)])
+
+    let gate = time.sleep(10)
+    let x = waiter("first", gate)
+    let y = waiter("second", gate)
+    let z = waiter("third", gate)
+    await all([x, y, z])
+}
+```
+
+```text title="Output"
+a 0
+b 0
+a 1
+b 1
+a 2
+b 2
+first woke
+second woke
+third woke
+```
+
+A task that never awaits runs to completion before the code that started it continues:
+
+```vex title="no_preempt.vx"
+async fn busy() -> int {
+    var n = 0
+    for i in 0..1000000 {
+        n += i
+    }
+    println("busy done")
+    return n
+}
+
+async fn main() {
+    let f = busy()
+    println("main continues")
+    println(await f)
+}
+```
+
+```text title="Output"
+busy done
+main continues
+499999500000
+```
+
+For work like this, use [`isolate.run`](/docs/concurrency/isolates) to move it to another core.
+
+### Timers start when they are created
+
+`time.sleep(ms)` creates its timer when it is called, not when it is awaited. Two sleeps of 50 ms started together finish together:
+
+```vex title="timers.vx"
+import "vex:time"
+
+async fn main() {
+    let start = time.nanos()
+    let timer = time.sleep(50)       // already counting
+    await time.sleep(50)
+    await timer                      // done by now
+    let ms = (time.nanos() - start) / 1000000
+    println(ms >= 50, ms < 100)
+}
+```
+
+```text title="Output"
+true true
+```
+
+A timer never fires early. It may fire late when the isolate is busy, because a timer can only complete when the loop gets a turn.
+
+## Async from code that isn't async
+
+A plain `fn main()` can start tasks, but it can't `await`. It has two options.
+
+**Let them run after `main` returns.** Tasks started from a plain `main` run up to their first wait, then continue after `main` returns, when the loop starts.
+
+**Wait with `run`.** `run(future)` runs the event loop, including every other task and timer, until that future settles, then gives its value. It needs `try` when the future can fail.
+
+```vex title="sync_main.vx"
+import "vex:time"
+
+async fn tick(name: string, n: int) -> int {
+    for i in 0..n {
+        await time.sleep(2)
+        println(name, i)
+    }
+    return n * 10
+}
+
+fn main() {
+    println("main starts")
+    let background = tick("background", 2)
+    let value = run(tick("run", 2))
+    println("run gave", value)
+    tick("later", 1)
+    println("main returns", background)
+}
+```
+
+```text title="Output"
+main starts
+background 0
+run 0
+background 1
+run 1
+run gave 20
+main returns <Future<int>>
+later 0
+```
+
+While `run` waits, the `background` task makes progress too. `later` only starts its loop after `main` returns.
+
+`run` is for the top of a program, not for async code:
+
+- In an async function, `run` is a compile error: `run waits for the whole loop, so async functions can't use it`. Use `await`.
+- A plain function called from async code can't use it either. That is a runtime error: `run can't be used inside async code; use await`.
+- If the future can never settle because nothing is left to run, `run` stops the program with `run: the future can never complete, since nothing is left to run`.
+
+## When the program ends
+
+The program ends when `main` has returned (or, for `async fn main`, finished) **and** nothing is pending on the main isolate: no ready tasks, no timers, and no futures waiting for another isolate.
+
+- A task that is still sleeping keeps the program alive. Even `time.sleep(500)` without `await` in a plain `main` delays the exit by half a second.
+- A task awaiting `receive()` on a channel keeps the program alive until a message arrives or the channel is closed. If neither ever happens, the program never ends.
+- Isolates started with `isolate.spawn` do **not** keep the program alive. See [Isolates](/docs/concurrency/isolates#when-isolates-end).
+
+## Async methods and generics
+
+Methods, static methods, enum methods and generic functions can be async:
+
+```vex title="kinds.vx"
+import "vex:time"
+
+struct Account {
+    balance: int
+
+    async fn deposit(amount: int) -> int {
+        await time.sleep(1)
+        balance += amount
+        return balance
+    }
+
+    static async fn open(amount: int) -> Account {
+        await time.sleep(1)
+        return Account(balance: amount)
+    }
+}
+
+async fn echo<T>(value: T) -> T {
+    await time.sleep(1)
+    return value
+}
+
+async fn main() {
+    let acct = await Account.open(10)
+    println(await acct.deposit(5))
+    println(await echo("hi"), await echo(4.5))
+}
+```
+
+```text title="Output"
+15
+hi 4.5
+```
+
+## Embedding the event loop
+
+A program normally runs its own loop after `main`. A host program with its own run loop, such as a game engine or a GUI toolkit written in C, can drive the Vex loop instead by calling this C function, which the runtime exports:
+
+```c
+int64_t vex_poll(void);
+```
+
+It runs every task that is ready and every timer that is due, then returns the number of milliseconds until the next timer, or `-1` when nothing is pending. While only other isolates can wake the loop, it returns `10`, asking to be called again soon. It must be called on the thread that runs the Vex program. See [C interop](/docs/projects/c-interop).
+
+## Under the hood
+
+- Each task has its own stack of 256 KB, taken from a pool and reused. Switching tasks swaps a few registers, so an `await` deep inside nested calls costs no more than one at the top, and code that doesn't await pays nothing.
+- Because a task's stack is smaller than the main thread's, very deep recursion inside an async function overflows sooner. An overflow stops the program with `error: stack overflow: too many nested function calls, probably a function that calls itself without stopping`.
+- Async functions need an arm64 or x86-64 CPU.
+
+## Rules and edge cases
+
+- `await` is only allowed in async functions.
+
+  ```text
+  error: await is only allowed in async functions
+   --> async.vx:5:12
+    |
+  5 |     return await a()
+    |            ^^^^^^^^^ mark the function async: async fn ...
+  ```
+
+  In `fn main()`, the hint says `make main async: async fn main()`.
+
+- Closures can't be async and can't await: `closures can't await yet`. Await in the enclosing async function instead. A closure can still start tasks by calling an async function without `await`.
+- An async function can't be used as a value: `async functions can't be used as values yet`. Call it instead; the call starts it and gives its future.
+- Interface methods can't be async: `interface methods can't be async yet`. Make the struct's method async and call it from a non-async interface method.
+- `extern fn` and `export fn` can't be async.
+- `await` needs a future or a call of an async function: `await 5` gives `await needs a future or a call of an async function, found int`.
+- `Future` needs its value type: a bare `Future` is `Future needs a type argument`. The error type must be `Error` or an enum: `Future<int, int>` gives `a future fails with Error or an enum, found int`.
+- `all` and `any` need a list of futures: `all(5)` gives `all needs a list of futures, found int`.
+- A future is not its value. Using one where the value is expected is a type error, such as `expected int, found Future<void>`.
+- An awaited throwing call needs `try`: `load can throw, so the call needs try`.
+- Futures can't cross between isolates or be sent on channels. See [Isolates](/docs/concurrency/isolates#what-can-be-copied).
+
+## Comparison
+
+| | Vex | Dart | Swift | Kotlin | TypeScript |
+|---|---|---|---|---|---|
+| Mark a function | `async fn f() -> T` | `Future<T> f() async` | `func f() async -> T` | `suspend fun f(): T` | `async function f(): Promise<T>` |
+| Start without waiting | `let x = f()` | `final x = f();` | `async let x = f()` | `async { f() }` | `const x = f()` |
+| Wait for many | `await all([a, b])` | `await Future.wait([a, b])` | `await (a, b)` | `awaitAll(a, b)` | `await Promise.all([a, b])` |
+| Threads | one per isolate | one per isolate | thread pool | thread pool | one |
+| Cancellation | none | none | yes | yes | none |
+
+## See also
+
+- [Concurrency overview](/docs/concurrency)
+- [Isolates and channels](/docs/concurrency/isolates)
+- [vex:time](/docs/stdlib/time)
+- [Errors](/docs/language/errors)
+- [Runtime errors](/docs/tools/runtime-errors)

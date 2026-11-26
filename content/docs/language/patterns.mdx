@@ -1,0 +1,903 @@
+---
+title: Patterns
+description: Every pattern form in Vex, where patterns can be used (match, if case, let, var, for), guards with when, and how exhaustiveness and unreachable arms are checked.
+---
+
+A pattern describes the shape of a value. In one step it tests whether a value has that shape and takes it apart into names. Patterns are used in `match` arms, `if case`, and in `let`, `var` and `for` to destructure values.
+
+```vex title="describe.vx"
+struct Point {
+    x: int
+    y: int
+}
+
+fn describe(p: Point) -> string => match p {
+    Point(x: 0, y: 0) => "origin"
+    Point(x: 0, :y) => "on the y axis at {y}"
+    Point(:x, y: 0) => "on the x axis at {x}"
+    Point(:x, :y) when x == y => "on the diagonal at {x}"
+    _ => "somewhere else"
+}
+
+fn main() {
+    for p in [Point(x: 0, y: 0), Point(x: 0, y: 4), Point(x: 3, y: 0), Point(x: 2, y: 2), Point(x: 1, y: 5)] {
+        println(describe(p))
+    }
+}
+```
+
+```text title="Output"
+origin
+on the y axis at 4
+on the x axis at 3
+on the diagonal at 2
+somewhere else
+```
+
+## match
+
+`match` compares a value against arms written `pattern => result`, from top to bottom, and runs the first arm that fits.
+
+```vex title="match.vx"
+fn main() {
+    for code in [200, 404, 500] {
+        let message = match code {           // a match can be a value
+            200 => "ok"
+            404 => "not found"
+            _ => "error {code}"
+        }
+        println(code, message)
+    }
+}
+```
+
+```text title="Output"
+200 ok
+404 not found
+500 error 500
+```
+
+A match works as a value or as a statement.
+
+- **As a value**, every arm gives an expression, and all of them must have the same type. An arm may call `panic(...)` instead.
+- **As a statement**, an arm can be a single statement such as `println(...)`, `return`, `break` or `count += 1`, or a block in `{ }`.
+
+```vex title="statement.vx"
+fn main() {
+    for n in [0, 3, 12] {
+        match n {
+            0 => println("zero")
+            1..=9 => {
+                let doubled = n * 2
+                println("small, doubled {doubled}")
+            }
+            _ => println("big")
+        }
+    }
+}
+```
+
+```text title="Output"
+zero
+small, doubled 6
+big
+```
+
+Arms are separated by new lines. Several short arms can share a line with commas: `match x { 1 => "a", 2 => "b", _ => "c" }`.
+
+When the arms of a value match disagree on type, the compiler says which one:
+
+```vex title="arm_types.vx"
+fn main() {
+    let n = match 3 {
+        1 => "one"
+        _ => 2
+    }
+}
+```
+
+```text title="Output"
+error: match arms must have the same type: expected string, found int
+ --> arm_types.vx:4:14
+  |
+4 |         _ => 2
+  |              ^ convert it with str(...) or "{...}"
+```
+
+## Pattern forms
+
+| Pattern | Matches |
+|---|---|
+| `_` | anything, binding nothing |
+| `name` | inside another pattern: anything, bound to `name` |
+| `0`, `-1.5`, `"yes"`, `true` | a value equal to that literal |
+| a constant name | a value equal to that [constant](/docs/language/constants) |
+| `1..=9`, `0..10` | an `int` or `float` in the range |
+| `> 100`, `<= 0` | an `int`, `float` or `string` that compares so |
+| `circle(r)`, `rect(height: h)` | that enum case, with its values matching the inner patterns |
+| `Point(x: 0, :y)` | a struct whose named fields match; other fields are ignored |
+| `(a, b)`, `(:min, max: _)` | a record, with every field given |
+| `[]`, `[a, b]`, `[first, ...rest]`, `[..., last]` | a list of that exact length, or at least that long with `...` |
+| `a \|\| b` | either pattern |
+
+Each form is described below. All of them nest: any place that takes a pattern takes any other pattern.
+
+### Wildcard and bindings
+
+`_` matches anything. A name inside a larger pattern matches anything and binds the value to that name, for use in the arm:
+
+```vex title="bindings.vx"
+fn main() {
+    let point = (3, 0)
+    let s = match point {
+        (0, 0) => "origin"
+        (x, 0) => "on the x axis at {x}"
+        (_, y) => "y is {y}"
+    }
+    println(s)
+}
+```
+
+```text title="Output"
+on the x axis at 3
+```
+
+At the top of a `match` arm, a lone name means an enum case, not a new binding. On anything but an enum, use `_`:
+
+```vex title="top_name.vx"
+fn main() {
+    let n = 5
+    let k = match n {
+        other => other * 2
+    }
+}
+```
+
+```text title="Output"
+error: 'other' isn't a case: the match is on int
+ --> top_name.vx:4:9
+  |
+4 |         other => other * 2
+  |         ^^^^^ match literal values such as 1 or "yes", or _
+```
+
+The value being matched is already in a variable, so a catch-all binding isn't needed: write `_ => n * 2`.
+
+### Literals and constants
+
+A literal matches values equal to it. `int`, `float`, `string` and `bool` literals work, including negative numbers:
+
+```vex title="literals.vx"
+fn sign(n: int) -> string => match n {
+    -1 => "minus one"
+    0 => "zero"
+    _ => "other"
+}
+
+fn yesNo(s: string) -> bool => match s {
+    "y" || "yes" => true
+    _ => false
+}
+
+fn main() {
+    println(sign(-1), sign(0), sign(9), yesNo("yes"), yesNo("nope"))
+}
+```
+
+```text title="Output"
+minus one zero other true false
+```
+
+A name that refers to a `const` matches values equal to the constant, unless a local variable has the same name:
+
+```vex title="const_pattern.vx"
+const okCode = 200
+
+fn main() {
+    let code = 200
+    let m = match code {
+        okCode => "ok"
+        _ => "other"
+    }
+    println(m)
+}
+```
+
+```text title="Output"
+ok
+```
+
+The compiler notices a value handled twice, even when it is written differently:
+
+```vex title="repeat.vx"
+const ten = 10
+
+fn main() {
+    let x = 1
+    let a = match x { 1 => "a", 0x1 => "b", _ => "c" }
+    let b = match x { 10 => "a", ten => "b", _ => "d" }
+}
+```
+
+```text title="Output"
+error: 0x1 is already handled on line 5
+ --> repeat.vx:5:33
+  |
+5 |     let a = match x { 1 => "a", 0x1 => "b", _ => "c" }
+  |                                 ^^^ remove one of the arms
+
+error: ten is already handled on line 6
+ --> repeat.vx:6:34
+  |
+6 |     let b = match x { 10 => "a", ten => "b", _ => "d" }
+  |                                  ^^^ remove one of the arms
+
+2 errors
+```
+
+### Ranges and comparisons
+
+A range pattern matches numbers in a range: `a..b` excludes `b` and `a..=b` includes it, as in [`for` loops](/docs/language/control-flow). A comparison pattern, `< x`, `<= x`, `> x` or `>= x`, matches values that compare that way. Comparisons also work on strings, in alphabetical order:
+
+```vex title="ranges.vx"
+fn grade(score: int) -> string => match score {
+    90..=100 => "A"
+    80..90 => "B"
+    > 100 => "bonus"
+    < 0 => "invalid"
+    _ => "C"
+}
+
+fn temperature(t: float) -> string => match t {
+    < 0.0 => "freezing"
+    0.0..20.0 => "cool"
+    _ => "warm"
+}
+
+fn half(word: string) -> string => match word {
+    "" => "empty"
+    < "m" => "first half"
+    _ => "second half"
+}
+
+fn main() {
+    println(grade(95), grade(85), grade(101), grade(-1), grade(50))
+    println(temperature(-5.0), temperature(10.5), temperature(30.0))
+    println(half(""), half("apple"), half("zebra"))
+}
+```
+
+```text title="Output"
+A B bonus invalid C
+freezing cool warm
+empty first half second half
+```
+
+Ranges work only on numbers, and must not be empty:
+
+```vex title="range_errors.vx"
+fn main() {
+    let i = match 5 {
+        9..1 => 1
+        _ => 2
+    }
+    let j = match "a" {
+        "a"..="z" => 1
+        _ => 2
+    }
+}
+```
+
+```text title="Output"
+error: the range 9..1 matches nothing
+ --> range_errors.vx:3:9
+  |
+3 |         9..1 => 1
+  |         ^^^^ write the smaller bound first
+
+error: a range matches int or float values, found string
+ --> range_errors.vx:7:9
+  |
+7 |         "a"..="z" => 1
+  |         ^^^^^^^^^
+
+2 errors
+```
+
+### Enum cases
+
+An enum case pattern names the case and gives a pattern for each value it carries. Values can be matched by position, `rect(w, h)`, or by name in any order, `rect(height: h)`, leaving out the ones you don't need. A case without values is written as its bare name:
+
+```vex title="enum_patterns.vx"
+struct Point {
+    x: int
+    y: int
+}
+
+enum Shape {
+    circle(center: Point, radius: int)
+    rect(width: int, height: int)
+    empty
+}
+
+fn shape(s: Shape) -> string => match s {
+    circle(Point(x: 0, y: 0), r) => "circle of {r} at the origin"
+    circle(c, r) when r > 10 => "big circle at {c.x},{c.y}"
+    circle(radius: r) => "circle of {r}"
+    rect(w, h) when w == h => "square of {w}"
+    rect(w, _) => "rect {w} wide"
+    empty => "nothing"
+}
+
+fn main() {
+    println(shape(.circle(center: Point(x: 0, y: 0), radius: 3)))
+    println(shape(.circle(center: Point(x: 1, y: 2), radius: 30)))
+    println(shape(.circle(center: Point(x: 1, y: 2), radius: 3)))
+    println(shape(.rect(width: 4, height: 4)))
+    println(shape(.rect(width: 4, height: 2)))
+    println(shape(.empty))
+}
+```
+
+```text title="Output"
+circle of 3 at the origin
+big circle at 1,2
+circle of 3
+square of 4
+rect 4 wide
+nothing
+```
+
+A positional pattern must give every value, using `_` for the ones you skip. See [Enums](/docs/language/enums) for more.
+
+### Struct patterns
+
+A struct pattern is the struct's name with `field: pattern` pairs. Fields you don't name are ignored. `:y` is short for `y: y`, binding the field to a variable of the same name:
+
+```vex title="struct_patterns.vx"
+struct User {
+    name: string
+    age: int
+    admin: bool
+}
+
+fn label(u: User) -> string => match u {
+    User(admin: true, :name) => "{name} (admin)"
+    User(age: < 18, :name) => "{name} (minor)"
+    User(name: n, age: a) => "{n}, {a}"
+}
+
+fn main() {
+    println(label(User(name: "Ann", age: 40, admin: true)))
+    println(label(User(name: "Bo", age: 12, admin: false)))
+    println(label(User(name: "Cy", age: 30, admin: false)))
+}
+```
+
+```text title="Output"
+Ann (admin)
+Bo (minor)
+Cy, 30
+```
+
+Struct patterns always name their fields, and each field may appear once:
+
+```vex title="struct_errors.vx"
+struct Point {
+    x: int
+    y: int
+}
+
+fn main() {
+    let p = Point(x: 1, y: 2)
+    let f = match p {
+        Point(z: 1) => 1
+        Point(1, 2) => 2
+        Point(x: 1, x: 2) => 3
+        _ => 4
+    }
+}
+```
+
+```text title="Output"
+error: Point has no field 'z'
+ --> struct_errors.vx:9:15
+  |
+9 |         Point(z: 1) => 1
+  |               ^ did you mean 'x'?
+
+error: a struct pattern names its fields
+  --> struct_errors.vx:10:15
+   |
+10 |         Point(1, 2) => 2
+   |               ^ name the field: Point(x: 0, :y)
+
+error: field 'x' is matched twice
+  --> struct_errors.vx:11:21
+   |
+11 |         Point(x: 1, x: 2) => 3
+   |                     ^
+
+3 errors
+```
+
+### Record patterns
+
+A record pattern mirrors the record: positional fields in order, named fields with `name: pattern` or `:name`. Unlike a struct pattern, it must list every field, using `_` for the ones it ignores:
+
+```vex title="record_patterns.vx"
+fn quadrant(p: (int, int)) -> string => match p {
+    (0, 0) => "origin"
+    (x, 0) || (0, x) => "on an axis at {x}"
+    (x, y) when x > 0 && y > 0 => "first quadrant"
+    _ => "elsewhere"
+}
+
+fn both(a: bool, b: bool) -> string => match (a, b) {
+    (true, true) => "both"
+    (true, false) || (false, true) => "one"
+    (false, false) => "neither"
+}
+
+fn main() {
+    println(quadrant((0, 0)), quadrant((5, 0)), quadrant((0, 7)), quadrant((1, 1)), quadrant((-1, 2)))
+    println(both(true, true), both(false, true), both(false, false))
+}
+```
+
+```text title="Output"
+origin on an axis at 5 on an axis at 7 first quadrant elsewhere
+both one neither
+```
+
+Matching on a record of several values, as in `both`, is a clean way to handle combinations without nested `if`s. See [Records](/docs/language/records).
+
+### List patterns
+
+A list pattern matches by length and elements. Without `...`, the list must have exactly that many elements. `...` matches any number of elements in that position, and `...name` collects them into a new list:
+
+```vex title="list_patterns.vx"
+fn sum(xs: [int]) -> int => match xs {
+    [] => 0
+    [first, ...rest] => first + sum(rest)
+}
+
+fn ends(xs: [string]) -> string => match xs {
+    [] => "none"
+    [one] => "just {one}"
+    [first, ..., last] => "{first} to {last}"
+}
+
+fn command(args: [string]) -> string => match args {
+    ["help"] => "showing help"
+    ["run", file] => "running {file}"
+    ["run", file, ...flags] => "running {file} with {flags}"
+    _ => "unknown command"
+}
+
+fn main() {
+    println(sum([1, 2, 3, 4]), sum([]))
+    println(ends([]), ends(["a"]), ends(["a", "b", "c"]))
+    println(command(["help"]))
+    println(command(["run", "app.vx"]))
+    println(command(["run", "app.vx", "-v", "-q"]))
+    println(command(["build"]))
+}
+```
+
+```text title="Output"
+10 0
+none just a a to c
+showing help
+running app.vx
+running app.vx with ["-v", "-q"]
+unknown command
+```
+
+`...rest` copies the remaining elements into a new list, so changing `rest` doesn't change the original. A pattern can have at most one `...`, and it can be in the middle: `[a, b, ...mid, z]`.
+
+### Alternatives
+
+`a || b` matches when either side does. Every alternative must bind the same names, with the same types, so the arm can use them whichever side matched:
+
+```vex title="alternatives.vx"
+fn status(code: int) -> string => match code {
+    200 || 201 || 204 => "ok"
+    301 || 302 => "moved"
+    400..500 => "client error"
+    _ => "other"
+}
+
+fn main() {
+    println(status(201), status(302), status(404), status(500))
+}
+```
+
+```text title="Output"
+ok moved client error other
+```
+
+```vex title="alt_errors.vx"
+fn main() {
+    let g = match (1, 2) {
+        (x, 0) || (0, y) => 1
+        _ => 2
+    }
+}
+```
+
+```text title="Output"
+error: this alternative doesn't bind 'x'
+ --> alt_errors.vx:3:19
+  |
+3 |         (x, 0) || (0, y) => 1
+  |                   ^^^^^^ bind the same names in every alternative
+
+error: 'y' isn't bound by the first alternative of ||
+ --> alt_errors.vx:3:23
+  |
+3 |         (x, 0) || (0, y) => 1
+  |                       ^ bind the same names in every alternative
+
+2 errors
+```
+
+### Nesting
+
+Patterns nest to any depth, so a single arm can test a whole tree of values:
+
+```vex title="nested.vx"
+enum Tree {
+    leaf(value: int)
+    node(left: Tree, right: Tree)
+}
+
+fn depth(t: Tree) -> int => match t {
+    leaf(_) => 1
+    node(leaf(_), leaf(_)) => 2
+    node(l, r) => 1 + max(depth(l), depth(r))
+}
+
+fn max(a: int, b: int) -> int => match a > b {
+    true => a
+    false => b
+}
+
+fn main() {
+    let t = Tree.node(left: .node(left: .leaf(value: 1), right: .leaf(value: 2)), right: .leaf(value: 3))
+    println(depth(t), depth(.leaf(value: 0)))
+}
+```
+
+```text title="Output"
+3 1
+```
+
+## Guards with `when`
+
+`when condition` after a pattern adds a test that must also be true. The condition sees the names the pattern binds:
+
+```vex title="guards.vx"
+fn classify(p: (int, int)) -> string => match p {
+    (x, y) when x == y => "equal"
+    (x, y) when x > y => "first is larger"
+    _ => "second is larger"
+}
+
+fn main() {
+    println(classify((2, 2)), classify((5, 1)), classify((1, 5)))
+    let n = 15
+    let size = match n {
+        1 => "one"
+        _ when n > 10 => "big"
+        _ => "small"
+    }
+    println(size)
+}
+```
+
+```text title="Output"
+equal first is larger second is larger
+big
+```
+
+- The condition must be a `bool`: `when condition must be bool, found int` otherwise.
+- An arm with `when` doesn't count toward exhaustiveness, because the compiler can't know the condition will be true. A match whose only arm for a case has a guard still needs another arm for that case, or `_`.
+- Vex writes guards with `when`, not `if`.
+
+## Exhaustiveness
+
+A match must cover every possible value. The compiler works out what's missing, through nested patterns, and names it:
+
+```vex title="exhaustive.vx"
+struct Point {
+    x: int
+    y: int
+}
+
+enum Shape {
+    circle(radius: int)
+    rect(width: int, height: int)
+}
+
+fn main() {
+    let p = Point(x: 1, y: 2)
+    let s = Shape.circle(radius: 1)
+    let a = match p {
+        Point(x: 0, :y) => y
+    }
+    let b = match s {
+        circle(r) when r > 1 => r
+        rect(w, _) => w
+    }
+    let c = match (1, true) {
+        (_, true) => 1
+        (0, _) => 2
+    }
+}
+```
+
+```text title="Output"
+error: match doesn't handle every Point value
+  --> exhaustive.vx:14:13
+   |
+14 |     let a = match p {
+   |             ^^^^^ add _ => ... as the last arm
+
+error: match doesn't handle 'circle'
+  --> exhaustive.vx:17:13
+   |
+17 |     let b = match s {
+   |             ^^^^^ add circle => ..., or _ => ...
+
+error: match doesn't handle '(_, false)'
+  --> exhaustive.vx:21:13
+   |
+21 |     let c = match (1, true) {
+   |             ^^^^^ add (_, false) => ..., or _ => ...
+
+3 errors
+```
+
+What counts as covered:
+
+- **Enums** are covered when every case is, with its values covered too.
+- **`bool`** is covered by `true` and `false`.
+- **Records** are covered when every combination of their fields is.
+- **Lists** are covered by `[]` together with `[_, ...]`, or by any set of lengths that ends with a `...` pattern.
+- **`int`, `float` and `string`** have too many values to list, so a match on them always needs a `_` arm, even as a statement:
+
+```vex title="needs_wildcard.vx"
+fn main() {
+    let n = 5
+    match n {
+        1 => println("one")
+    }
+}
+```
+
+```text title="Output"
+error: a match on int needs a _ arm for the other values
+ --> needs_wildcard.vx:3:5
+  |
+3 |     match n {
+  |     ^^^^^ add _ => ... as the last arm
+```
+
+## Unreachable arms
+
+An arm that earlier arms already cover can never run, and is an error. This catches arms in the wrong order:
+
+```vex title="unreachable.vx"
+fn main() {
+    let d = match [1, 2] {
+        [] => 0
+        [x, ...] => x
+        [x, y] => y
+    }
+    let e = match 5 {
+        _ => 3
+        5 => 2
+    }
+}
+```
+
+```text title="Output"
+error: this arm is never reached: earlier arms match everything it does
+ --> unreachable.vx:5:9
+  |
+5 |         [x, y] => y
+  |         ^^^^^^ remove it, or move it above the arms that cover it
+
+error: this arm is never reached: _ on line 8 matches everything
+ --> unreachable.vx:9:9
+  |
+9 |         5 => 2
+  |         ^ remove it, or move _ to the end
+
+2 errors
+```
+
+## if case
+
+`if value case pattern` tests a single pattern. The names it binds are available in the block. It takes a `when` guard and chains with `else if` and `else` like a normal `if`:
+
+```vex title="if_case.vx"
+struct Point {
+    x: int
+    y: int
+}
+
+enum Shape {
+    circle(center: Point, radius: int)
+    rect(width: int, height: int)
+}
+
+fn main() {
+    let s = Shape.circle(center: Point(x: 1, y: 1), radius: 2)
+    if s case circle(radius: r) when r > 1 {
+        println("radius {r}")
+    }
+    if s case rect(w, h) {
+        println("rect {w} {h}")
+    } else if s case circle(Point(:x, :y), _) {
+        println("circle at {x},{y}")
+    } else {
+        println("other")
+    }
+
+    let n = 5
+    if n case 1..=9 {
+        println("one digit")
+    }
+    let xs = [1, 2, 3]
+    if xs case [_, ...rest] {
+        println(rest)
+    }
+}
+```
+
+```text title="Output"
+radius 2
+circle at 1,1
+one digit
+[2, 3]
+```
+
+There is no `while case` or `guard case`. For optionals, use [`if let`, `guard let` and `while let`](/docs/language/optionals).
+
+## Destructuring with let, var and for
+
+`let`, `var` and `for` accept patterns too, to take a value apart into several names:
+
+```vex title="destructure.vx"
+struct Point {
+    x: int
+    y: int
+}
+
+fn divmod(a: int, b: int) -> (int, int) => (a / b, a % b)
+
+fn main() {
+    let (q, r) = divmod(17, 5)
+    println(q, r)
+
+    let ((a, b), Point(:x, :y)) = ((1, 2), Point(x: 3, y: 4))
+    println(a, b, x, y)
+
+    var Point(x: px, y: py) = Point(x: 5, y: 6)
+    px += 10                                  // var patterns make changeable names
+    println(px, py)
+
+    let (:min, max: hi) = (min: 0, max: 9)
+    println(min, hi)
+
+    for Point(:x, :y) in [Point(x: 1, y: 2), Point(x: 3, y: 4)] {
+        println(x * y)
+    }
+    for i, (name, score) in [("ann", 3), ("bob", 5)] {
+        println(i, name, score)
+    }
+}
+```
+
+```text title="Output"
+3 2
+1 2 3 4
+15 6
+0 9
+2
+12
+0 ann 3
+1 bob 5
+```
+
+These patterns must match every possible value, since there is no other arm to fall back to. Use `match` or `if case` for patterns that can fail:
+
+```vex title="refutable.vx"
+enum E { a(n: int), b }
+
+fn main() {
+    let [one, two] = [1, 2]
+    let a(n) = E.a(n: 1)
+}
+```
+
+```text title="Output"
+error: this pattern doesn't match every value: [] isn't handled
+ --> refutable.vx:4:9
+  |
+4 |     let [one, two] = [1, 2]
+  |         ^^^^^^^^^^ use match or if case for patterns that can fail
+
+error: this pattern doesn't match every value: b isn't handled
+ --> refutable.vx:5:9
+  |
+5 |     let a(n) = E.a(n: 1)
+  |         ^^^^ use match or if case for patterns that can fail
+
+2 errors
+```
+
+## Bound names can't change
+
+Names bound by `match` and `if case` are constants. To change one, copy it into a `var`, or destructure with a `var` pattern:
+
+```vex title="bound.vx"
+fn main() {
+    let p = (1, 2)
+    match p {
+        (a, _) => {
+            a += 1
+        }
+    }
+}
+```
+
+```text title="Output"
+error: can't change 'a': names bound by a match pattern can't be changed
+ --> bound.vx:5:13
+  |
+5 |             a += 1
+  |             ^ copy it first: var myA = a
+```
+
+A name can be bound only once in a pattern: `let (n, n) = (1, 2)` is reported as `'n' is bound twice in this pattern`.
+
+Closures created in an arm capture its bindings like any other variable:
+
+```vex title="capture.vx"
+fn main() {
+    let r = 3
+    let f = match (r, true) {
+        (x, true) when x < 5 => fn() => x * 2
+        _ => fn() => 0
+    }
+    println(f())
+}
+```
+
+```text title="Output"
+6
+```
+
+## Rules and edge cases
+
+- A match runs the first arm that fits, from top to bottom.
+- A match must be exhaustive. On `int`, `float` and `string` it always needs `_`. Arms with `when` don't count.
+- An arm covered by earlier arms is an error, including a value written twice in different forms (`1` and `0x1`).
+- At the top of an arm, a bare name is an enum case or a constant, never a new binding.
+- Struct patterns name their fields and may leave some out. Record patterns list every field. Positional enum patterns give every value.
+- `||` alternatives must bind the same names.
+- Ranges are for `int` and `float` only; comparisons also work on `string`.
+- `let`, `var` and `for` patterns can't fail. `var` patterns make changeable names; names from `match` and `if case` can't change.
+- `...rest` copies, and a list pattern has at most one `...`.
+- `nil` isn't a pattern. Unwrap optionals with `if let` or `??` first.
+- Interface values can't be matched against a struct pattern: there is no downcasting.
+
+## See also
+
+- [Enums](/docs/language/enums)
+- [Records](/docs/language/records)
+- [Control flow](/docs/language/control-flow)
+- [Optionals](/docs/language/optionals)

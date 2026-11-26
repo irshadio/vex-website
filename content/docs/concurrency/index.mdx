@@ -1,0 +1,90 @@
+---
+title: Concurrency
+description: The two concurrency tools in Vex, async functions on one event loop and isolates on other cores, and how to choose between them.
+---
+
+Vex has two tools for doing more than one thing at a time. **Async functions** let one thread wait for timers and messages without stopping, by switching between tasks at each `await`. **Isolates** run code in parallel on other processor cores, each with its own memory, and talk to each other through copies of values.
+
+Both follow the same idea as Dart: nothing is shared between threads, so there are no locks, no data races and no atomic types to learn.
+
+## The model in one picture
+
+Every Vex program starts with one isolate, the **main isolate**. An isolate is an operating system thread with its own heap, its own garbage collector and its own **event loop**.
+
+Inside one isolate:
+
+- Code runs on one thread at a time. Async functions take turns, and a task only gives up the thread at an `await` that has to wait. Nothing interrupts code in the middle of a statement.
+- The event loop holds the tasks that are ready to run, the timers that are waiting, and the messages that arrived from other isolates.
+- Objects are shared freely between tasks, because only one task runs at a time.
+
+Between isolates:
+
+- Each isolate runs on its own thread, truly in parallel.
+- Values never move between isolates by reference. They are copied, deeply, when an isolate starts, when it returns its result and when they pass through a channel.
+- A `Channel<T>` is the one object every isolate that has it can see: a shared queue of copied messages.
+
+## Async or isolates
+
+| You want to | Use |
+|---|---|
+| Wait for a timer without stopping the rest of the program | `async fn` and `await time.sleep(ms)` |
+| Run several waits at once and collect the results | Call async functions without `await`, then `await all([...])` |
+| Take whichever of several operations finishes first | `await any([...])` |
+| Run CPU-heavy work without freezing the main isolate | `await isolate.run(fn() -> T { ... })` |
+| Use more than one core for a batch of work | Several `isolate.run` calls, then `await all([...])` |
+| Keep a background worker running and feed it jobs | `isolate.spawn` with `Channel<T>` |
+
+The short version: async is for **waiting**, isolates are for **computing**. An async function that runs a long loop without awaiting holds its isolate's thread the whole time, so other tasks and timers on that isolate wait. Move that loop into `isolate.run` and the main isolate stays free.
+
+```vex title="both.vx"
+import "vex:isolate"
+import "vex:time"
+
+fn sumTo(n: int) -> int {
+    var s = 0
+    for i in 1..=n {
+        s += i
+    }
+    return s
+}
+
+async fn countdown() {
+    for i in 0..3 {
+        println("tick", i)
+        await time.sleep(5)
+    }
+}
+
+async fn main() {
+    let ticking = countdown()                                    // a task on this isolate
+    let total = await isolate.run(fn() -> int { return sumTo(1000) })   // another core
+    await ticking
+    println("total", total)
+}
+```
+
+```text title="Output"
+tick 0
+tick 1
+tick 2
+total 500500
+```
+
+## What is planned
+
+Streams (`async*` and `for await`) are planned. A host program that has its own run loop can already drive the Vex event loop through the C function `vex_poll`; see [Async](/docs/concurrency/async#embedding-the-event-loop).
+
+## Pages in this section
+
+<Cards>
+  <Card title="Async and await" href="/docs/concurrency/async" description="Tasks, futures, the event loop, all, any, run, errors and ordering rules." />
+  <Card title="Isolates and channels" href="/docs/concurrency/isolates" description="isolate.run, isolate.spawn, Channel<T>, what can be copied, and blocking." />
+</Cards>
+
+## See also
+
+- [Async and await](/docs/concurrency/async)
+- [Isolates and channels](/docs/concurrency/isolates)
+- [vex:time](/docs/stdlib/time)
+- [vex:isolate](/docs/stdlib/isolate)
+- [Memory](/docs/language/memory)

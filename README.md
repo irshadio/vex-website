@@ -22,6 +22,8 @@ npm run sync   # examples and roadmap
 npm run bench  # benchmark results
 ```
 
+The rest of the documentation is written by hand. Every Vex code block in it is compiled and run with the `vex` compiler, and the output shown is the real output.
+
 ## Layout
 
 | Path | Contents |

@@ -1,0 +1,159 @@
+---
+title: vex:strings
+description: API reference for vex:strings, which repeats, joins and pads strings.
+---
+
+`vex:strings` builds and pads strings. It has four functions: `repeat`, `join`, `padLeft` and `padRight`. Everything else you do with text, such as searching, splitting, replacing and trimming, is a built-in member of `string` and needs no import; see [String members](/docs/stdlib/built-ins#string-members).
+
+```vex title="table.vx"
+import "vex:strings"
+
+fn main() {
+    let rows = [("pen", 3), ("notebook", 12), ("ruler", 5)]
+    println(strings.repeat("=", 16))
+    for (name, cost) in rows {
+        println(strings.padRight(name, 10, fill: ".") + strings.padLeft(str(cost), 6))
+    }
+    println(strings.join(["pen", "notebook", "ruler"], ", "))
+}
+```
+
+```text title="Output"
+================
+pen.......     3
+notebook..    12
+ruler.....     5
+pen, notebook, ruler
+```
+
+Widths count Unicode code points, the same way `string.len` does.
+
+## Summary
+
+| Function | Result |
+|---|---|
+| [`repeat(s, count)`](#repeat) | `s` repeated `count` times |
+| [`join(parts, separator)`](#join) | The parts with the separator between them |
+| [`padLeft(s, width, fill)`](#padleft) | `s` with fill added in front up to `width` |
+| [`padRight(s, width, fill)`](#padright) | `s` with fill added after it up to `width` |
+
+## repeat
+
+```vex
+pub fn repeat(s: string, count: int) -> string
+```
+
+Returns `s` repeated `count` times.
+
+- **Parameters:** `s`, the text to repeat; `count`, how many times.
+- **Returns:** The copies joined with nothing between them. A `count` of 0 or less gives `""`.
+- **Errors:** None.
+
+```vex title="repeat.vx"
+import "vex:strings"
+
+fn main() {
+    println(strings.repeat("ab", 3))
+    println("[{strings.repeat("x", 0)}]", "[{strings.repeat("x", -2)}]")
+}
+```
+
+```text title="Output"
+ababab
+[] []
+```
+
+## join
+
+```vex
+pub fn join(parts: [string], separator: string) -> string
+```
+
+Returns the strings in `parts` joined with `separator` between each pair.
+
+- **Parameters:** `parts`, the strings to join; `separator`, the text to put between them.
+- **Returns:** The joined text. An empty list gives `""`, and a list of one string gives that string.
+- **Errors:** None.
+
+`join` takes a list of strings only. Convert other values first, for example with `xs.map(fn(x) => str(x))`. It is the inverse of the built-in `split` when the parts contain no separator.
+
+```vex title="join.vx"
+import "vex:strings"
+
+fn main() {
+    println(strings.join(["a", "b", "c"], ", "))
+    println("[{strings.join([], "-")}]", strings.join(["solo"], "-"))
+    let nums = [1, 2, 3]
+    println(strings.join(nums.map(fn(n) => str(n)), " + "))
+    println(strings.join("a,b,c".split(","), "|"))
+}
+```
+
+```text title="Output"
+a, b, c
+[] solo
+1 + 2 + 3
+a|b|c
+```
+
+## padLeft
+
+```vex
+pub fn padLeft(s: string, width: int, fill: string = " ") -> string
+```
+
+Returns `s` with `fill` added in front until it is `width` characters long. Use it to right-align numbers in columns or to add leading zeros.
+
+- **Parameters:** `s`, the text; `width`, the length to reach, in code points; `fill`, the text to pad with, a space by default. You can pass `fill` by name or by position.
+- **Returns:** `s` unchanged when it is already `width` characters or longer, or when `fill` is empty. Otherwise `fill` repeated in front of `s`, with the last copy cut short so the result is exactly `width` long.
+- **Errors:** None.
+
+```vex title="padleft.vx"
+import "vex:strings"
+
+fn main() {
+    println("[{strings.padLeft("42", 5)}]", "[{strings.padLeft("42", 5, fill: "0")}]")
+    println(strings.padLeft("7", 3, "0"), "[{strings.padLeft("toolong", 3)}]")
+    println("[{strings.padLeft("é", 3, fill: "·")}]", "[{strings.padLeft("x", 4, fill: "")}]")
+}
+```
+
+```text title="Output"
+[   42] [00042]
+007 [toolong]
+[··é] [x]
+```
+
+## padRight
+
+```vex
+pub fn padRight(s: string, width: int, fill: string = " ") -> string
+```
+
+Returns `s` with `fill` added after it until it is `width` characters long. Use it to left-align text in columns.
+
+- **Parameters:** the same as [`padLeft`](#padleft).
+- **Returns:** `s` unchanged when it is already long enough or `fill` is empty. Otherwise `s` followed by `fill` repeated, with the last copy cut short to reach exactly `width`.
+- **Errors:** None.
+
+```vex title="padright.vx"
+import "vex:strings"
+
+fn main() {
+    println("[{strings.padRight("ab", 6)}]", "[{strings.padRight("ab", 6, fill: "-=")}]")
+    println("[{strings.padRight("ab", 5, fill: "-=")}]")
+}
+```
+
+```text title="Output"
+[ab    ] [ab-=-=]
+[ab-=-]
+```
+
+Padding counts code points, not how wide characters look on screen, so East Asian characters and emoji may not line up in a terminal.
+
+## See also
+
+- [Built-ins: string members](/docs/stdlib/built-ins#string-members)
+- [Strings](/docs/language/strings)
+- [Standard library overview](/docs/stdlib)

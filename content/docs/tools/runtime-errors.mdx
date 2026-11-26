@@ -1,0 +1,519 @@
+---
+title: Runtime errors
+description: Every error the Vex runtime can stop a program with, what each message looks like, which line it points to, and the exit status.
+---
+
+Some mistakes can only be found while the program runs: an index past the end of a list, a division by zero, text that isn't a number. Vex checks for these and stops the program with a clear message instead of carrying on with a wrong value or crashing. This page lists every runtime error the runtime can raise.
+
+## What a runtime error looks like
+
+```vex title="scores.vx"
+fn main() {
+    let scores = [90, 72, 85]
+    println("first: {scores[0]}")
+    println("fifth: {scores[4]}")
+    println("not reached")
+}
+```
+
+```text title="Output"
+first: 90
+error: index 4 is out of range for a list of length 3
+ --> scores.vx:4
+```
+
+- The message starts with `error:` and goes to standard error. Everything printed before it on standard output is flushed first, so the order you see is the order things happened.
+- The `-->` line gives the file and line where the error happened. There is no column and no source excerpt, since the program no longer has its source.
+- The program stops at once with **exit status 1**. Nothing after the failing line runs, `catch` blocks don't run, and pending async tasks and timers are dropped.
+
+Runtime errors are not [thrown errors](/docs/language/errors). A `try ... catch` can't catch them: they mean the program itself is wrong. To handle a condition, check for it first, as in `if i < xs.len`, or use the optional forms Vex provides, such as `m[key]`, which gives `nil` for a missing key instead of stopping.
+
+The same messages appear whether you use `vex run` or run a built executable. Under `vex run`, the exit status of `vex` is the program's exit status, 1.
+
+When the error happens inside a standard module, the location points into that module, for example `vex:math/math.vx:40`. Look one step up, at your call to it.
+
+## Lists
+
+### Index out of range
+
+```vex title="index.vx"
+fn main() {
+    let nums = [1, 2, 3]
+    println(nums[5])
+}
+```
+
+```text title="Output"
+error: index 5 is out of range for a list of length 3
+ --> index.vx:3
+```
+
+A valid index is 0 or more and less than `len`. Negative indexes don't count from the end:
+
+```vex title="negative.vx"
+fn main() {
+    let nums = [1, 2, 3]
+    println(nums[-1])
+}
+```
+
+```text title="Output"
+error: index -1 is out of range for a list of length 3
+ --> negative.vx:3
+```
+
+An empty list gets its own wording:
+
+```vex title="empty.vx"
+fn main() {
+    let nums: [int] = []
+    println(nums[0])
+}
+```
+
+```text title="Output"
+error: index 0 is out of range: the list is empty
+ --> empty.vx:3
+```
+
+The same check runs for writes, `nums[5] = 1`. Use `nums.len` to check first; `for x in nums` and `for i, x in nums` never go out of range.
+
+### pop from an empty list
+
+```vex title="pop.vx"
+fn main() {
+    var stack: [int] = []
+    stack.pop()
+}
+```
+
+```text title="Output"
+error: can't pop from an empty list
+ --> pop.vx:3
+```
+
+Check `stack.len > 0` before calling `pop()`.
+
+### Changing a constant list or map
+
+Lists and maps declared with `const` are frozen. Changing one directly is a [compile error](/docs/tools/compile-errors#cant-change-a-constant-list), but passing it to a function that changes it can only be caught at run time:
+
+```vex title="constlist.vx"
+const primes = [2, 3, 5]
+
+fn add(xs: [int]) {
+    xs.push(7)
+}
+
+fn main() {
+    add(primes)
+}
+```
+
+```text title="Output"
+error: can't change a constant list; change a copy made with .copy()
+ --> constlist.vx:4
+```
+
+Maps give `can't change a constant map; change a copy made with .copy()`. Pass `primes.copy()` instead.
+
+## Strings
+
+### substring out of range
+
+```vex title="substring.vx"
+fn main() {
+    let s = "hello"
+    println(s.substring(2, 10))
+}
+```
+
+```text title="Output"
+error: substring(2, 10) is out of range for a string of length 5
+ --> substring.vx:3
+```
+
+`substring(from, to)` needs `0 <= from <= to <= len`, counted in characters.
+
+### Empty separator or search text
+
+```vex title="split.vx"
+fn main() {
+    println("a,b".split(""))
+}
+```
+
+```text title="Output"
+error: split separator can't be empty
+ --> split.vx:2
+```
+
+```vex title="replace.vx"
+fn main() {
+    println("abc".replace("", "x"))
+}
+```
+
+```text title="Output"
+error: replace needs text to look for, not an empty string
+ --> replace.vx:2
+```
+
+Use `chars()` to split a string into characters.
+
+## Conversions
+
+### Text that isn't a number
+
+```vex title="parse.vx"
+fn main() {
+    println(int("12abc"))
+}
+```
+
+```text title="Output"
+error: can't convert "12abc" to int
+ --> parse.vx:2
+```
+
+```vex title="parsefloat.vx"
+fn main() {
+    println(float("abc"))
+}
+```
+
+```text title="Output"
+error: can't convert "abc" to float
+ --> parsefloat.vx:2
+```
+
+`int(...)` accepts an optional sign and decimal digits; `float(...)` also accepts a fraction and an exponent. Spaces, tabs and line endings around the number are ignored. Hex, `inf`, `nan` and the empty string are rejected. There is no non-stopping parse function yet, so validate input you don't control before converting it.
+
+### Number too big
+
+```vex title="bignum.vx"
+fn main() {
+    println(int("99999999999999999999"))
+}
+```
+
+```text title="Output"
+error: can't convert "99999999999999999999" to int: the number is too big
+ --> bignum.vx:2
+```
+
+### Float out of the int range
+
+```vex title="toint.vx"
+fn main() {
+    let x = 1e30
+    println(int(x))
+}
+```
+
+```text title="Output"
+error: can't convert 1e+30 to int: it's out of range
+ --> toint.vx:3
+```
+
+`int(x)` of a float drops the fraction. It stops the program when the result doesn't fit in 64 bits, and for `nan`, which prints `can't convert nan to int: it's out of range`.
+
+## Arithmetic
+
+### Integer overflow
+
+`int` is 64 bits. Arithmetic whose result doesn't fit stops the program instead of wrapping around to a wrong number:
+
+```vex title="overflow.vx"
+fn main() {
+    let big = 9223372036854775807
+    println(big + 1)
+}
+```
+
+```text title="Output"
+error: integer overflow: 9223372036854775807 + 1 doesn't fit in an int; use &+ to wrap around
+ --> overflow.vx:3
+```
+
+The message names the operation and its operands. Subtraction and multiplication work the same way (`use &- to wrap around`, `use &* to wrap around`), and so does `+=` and its relatives. Negating the smallest `int`, and dividing it by -1, overflow too:
+
+```text
+error: integer overflow: -(-9223372036854775808) doesn't fit in an int
+```
+
+```text
+error: integer overflow: -9223372036854775808 / -1 doesn't fit in an int
+```
+
+When wrap-around is what you want, as in hash functions and random number generators, use `&+`, `&-` and `&*`:
+
+```vex title="wrap.vx"
+fn main() {
+    let big = 9223372036854775807
+    println(big &+ 1)
+}
+```
+
+```text title="Output"
+-9223372036854775808
+```
+
+Floats never overflow into an error: they become `inf` or `-inf`.
+
+### Division by zero
+
+```vex title="divide.vx"
+fn main() {
+    let a = 10
+    let b = 0
+    println(a / b)
+}
+```
+
+```text title="Output"
+error: division by zero
+ --> divide.vx:4
+```
+
+The remainder operator has its own message, `division by zero in %`. Dividing by a zero literal is caught by the compiler only in [constants](/docs/language/constants); everywhere else the check happens at run time.
+
+Float division by zero is not an error. It follows IEEE 754:
+
+```vex title="floatdiv.vx"
+fn main() {
+    let a = 1.0
+    let b = 0.0
+    println(a / b, -a / b, b / b)
+}
+```
+
+```text title="Output"
+inf -inf nan
+```
+
+## panic and assert
+
+`panic(message)` stops the program with your message:
+
+```vex title="panic.vx"
+fn main() {
+    panic("something went wrong")
+}
+```
+
+```text title="Output"
+error: something went wrong
+ --> panic.vx:2
+```
+
+`assert(condition, message)` stops it when the condition is false. The message is optional:
+
+```vex title="assert.vx"
+fn main() {
+    let n = 3
+    assert(n > 5, "n must be above 5")
+}
+```
+
+```text title="Output"
+error: assertion failed: n must be above 5
+ --> assert.vx:3
+```
+
+Without a message, it prints `error: assertion failed`. Assertions always run; there is no build mode that removes them.
+
+## Errors that escape main
+
+A `fn main() throws` can let a thrown error reach the top. The program prints `error:` and the error's message, and exits with status 1. Unlike the other runtime errors, there is no `-->` line, because the error was thrown on purpose and carries its own message:
+
+```vex title="escape.vx"
+fn load() throws -> int {
+    throw Error("config file is missing")
+}
+
+fn main() throws {
+    let n = try load()
+    println(n)
+}
+```
+
+```text title="Output"
+error: config file is missing
+```
+
+A typed error, from a function marked `throws(E)`, prints the enum case and its values:
+
+```vex title="typed.vx"
+enum LoadError {
+    notFound(path: string)
+    denied
+}
+
+fn load() throws(LoadError) -> int {
+    throw .notFound(path: "a.txt")
+}
+
+fn main() throws {
+    println(try load())
+}
+```
+
+```text title="Output"
+error: LoadError.notFound(path: "a.txt")
+```
+
+## Stack overflow
+
+Recursion that never stops runs out of stack. Vex catches this and prints a message instead of crashing:
+
+```vex title="recurse.vx"
+fn down(n: int) -> int {
+    return down(n + 1) + 1
+}
+
+fn main() {
+    println(down(0))
+}
+```
+
+```text title="Output"
+error: stack overflow: too many nested function calls, probably a function that calls itself without stopping
+```
+
+There is no `-->` line, since the runtime can't safely find the source line once the stack is exhausted. The exit status is 1.
+
+How deep you can go depends on where the code runs:
+
+- A plain `fn main()` and the functions it calls use the main thread's stack, whose size the system sets (`ulimit -s`, commonly 8 MB). Recursion 100,000 calls deep is fine there.
+- Async code, including everything called from an `async fn main()`, runs on a task stack of 256 KB, so it overflows much sooner: in a small test, a simple recursive function 10,000 calls deep worked in an async function and 20,000 overflowed.
+
+Rewrite very deep recursion as a loop, or run it from code that isn't async.
+
+## Async
+
+### run inside async code
+
+`run(future)` is for code that isn't async. When a plain function that calls `run` is itself called from async code, the problem shows at run time:
+
+```vex title="nested_run.vx"
+async fn inner() -> int {
+    return 1
+}
+
+fn helper() -> int {
+    return run(inner())
+}
+
+async fn main() {
+    println(helper())
+}
+```
+
+```text title="Output"
+error: run can't be used inside async code; use await
+ --> nested_run.vx:6
+```
+
+Make `helper` async and `await` the future instead. Calling `run` directly inside an async function is caught by the compiler.
+
+### A future that can never complete
+
+`run` waits until its future is done. If nothing is left that could complete it, such as a task waiting for itself, `run` stops the program instead of hanging:
+
+```vex title="deadlock.vx"
+import "vex:time"
+
+struct Slot {
+    future: Future<int>? = nil
+}
+
+async fn waitForSelf(slot: Slot) -> int {
+    await time.sleep(0)
+    if let f = slot.future {
+        return await f
+    }
+    return 0
+}
+
+fn main() {
+    let slot = Slot()
+    let f = waitForSelf(slot)
+    slot.future = f
+    println(run(f))
+}
+```
+
+```text title="Output"
+error: run: the future can never complete, since nothing is left to run
+ --> deadlock.vx:19
+```
+
+<Callout type="info">
+The same situation in an `async fn main` doesn't print an error: when no task can make progress and no timers are pending, the program ends with status 0, and the code after the stuck `await` never runs.
+</Callout>
+
+### any with no futures
+
+```vex title="anyempty.vx"
+async fn main() {
+    let none: [Future<int>] = []
+    let first = await any(none)
+}
+```
+
+```text title="Output"
+error: any() needs at least one future
+ --> anyempty.vx:3
+```
+
+`any` completes with the first future to finish, so with none it could never complete.
+
+## Isolates and channels
+
+### send on a closed channel
+
+```vex title="closed.vx"
+fn main() {
+    let ch = Channel<string>()
+    ch.close()
+    ch.send("late")
+}
+```
+
+```text title="Output"
+error: send on a closed channel
+ --> closed.vx:4
+```
+
+Close a channel only from the side that sends, after the last `send`.
+
+A runtime error inside an isolate started with `isolate.run` or `isolate.spawn` stops the whole program, with the same message and line it would have on the main isolate.
+
+## Rare system errors
+
+These come from the system running out of a resource rather than from a mistake in the program. They exit with status 1:
+
+| Message | Cause |
+|---|---|
+| `error: out of memory` | The system refused to give the program more memory |
+| `error: can't start another isolate: the system has no threads left` | Too many isolates are running at once |
+| `error: map is too big` | A map's table would need more than about a billion slots |
+
+## Exit status summary
+
+| How the program ends | Exit status |
+|---|---|
+| `main` returns normally, and no tasks or timers are left | 0 |
+| `os.exit(code)` | `code` |
+| Any runtime error on this page | 1 |
+| An error escaping `fn main() throws` | 1 |
+| Killed by a signal | 128 plus the signal number, as reported by the shell or by `vex run` |
+
+## See also
+
+- [Compile errors](/docs/tools/compile-errors)
+- [Errors](/docs/language/errors)
+- [Operators](/docs/language/operators)
+- [Built-ins](/docs/stdlib/built-ins)
+- [The vex command](/docs/tools/cli)

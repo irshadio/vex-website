@@ -1,0 +1,524 @@
+---
+title: C interop
+description: Calling C functions from Vex with extern fn, passing C pointers, callbacks and sized numbers, exporting Vex functions to C, and building C code with the [c] section of package.toml.
+---
+
+Vex compiles to C, so calling C costs nothing extra: an `extern fn` call is a direct C call. You declare the C function with a Vex signature, and the compiler converts strings and other values at the boundary. No header file and no binding generator are needed.
+
+This is also how the standard library is built: `vex:math` is mostly `pub extern fn` declarations of C's math functions.
+
+## Calling a C function
+
+`extern fn` declares a function written in C. It has no body. The C standard library and the math library are always linked, so their functions work in any program, even a single file:
+
+```vex title="libc.vx"
+extern fn strlen(s: string) -> int
+extern fn sqrt(x: float) -> float
+extern fn getenv(name: string) -> string?
+extern fn abs(x: int32) -> int32
+extern fn toupper(c: int32) -> int32
+extern fn atoi(s: string) -> int32
+extern fn length(s: string) -> int as "strlen"
+
+fn main() {
+    println(strlen("hello"), length("héllo"))
+    println(sqrt(2.0))
+    println(getenv("VEX_DOCS_UNSET") ?? "not set")
+    println(abs(-5), toupper(97), atoi("  42abc"))
+    println(abs(4294967291))
+    println(["a", "bb", "ccc"].map(strlen))
+}
+```
+
+```text title="Output"
+5 6
+1.4142135623730951
+not set
+5 65 42
+5
+[1, 2, 3]
+```
+
+- `as "name"` calls the C function under a different name in Vex: `length` calls C's `strlen`.
+- `strlen` counts bytes, so `"héllo"` is 6, while Vex's `.len` counts characters (5).
+- `abs(4294967291)` is 5: the `int` argument keeps its low 32 bits when it becomes an `int32_t`, which is -5.
+- An extern function is a value like any other function: `map(strlen)` works.
+
+The compiler writes the C declaration from the Vex signature, and calls the C function through an assembler label. So your declaration can't clash with one from a system header, and you can give a C function any Vex name. The signature must still match the real C function, as in C itself. Nothing checks it.
+
+## Type mapping
+
+| Vex type | C type | Notes |
+|---|---|---|
+| `int` | `int64_t` | `long` on 64-bit systems, not `int` |
+| `float` | `double` | |
+| `bool` | `bool` | from `<stdbool.h>` |
+| `string` | `const char *` | a NUL-terminated copy, valid during the call |
+| `string?` | `const char *` | `nil` is `NULL` |
+| `int8`, `int16`, `int32`, `int64` | `int8_t` ... `int64_t` | `int` in Vex code |
+| `uint8`, `uint16`, `uint32`, `uint64` | `uint8_t` ... `uint64_t` | `int` in Vex code |
+| `float32`, `float64` | `float`, `double` | `float` in Vex code |
+| an `extern type`, such as `Db` | `void *` | any C pointer |
+| `Db?` | `void *` | `nil` is `NULL` |
+| `fn(...)` parameter | two parameters: a function pointer and its `void *` context | see [Callbacks](#callbacks) |
+| no result | `void` | |
+
+Results convert the other way:
+
+- A `string` result is copied into a new Vex string. `NULL` gives `""`.
+- A `string?` result is copied too. `NULL` gives `nil`.
+- A `Db?` result is `nil` when C returns `NULL`.
+- A sized number result becomes an `int` or `float`.
+
+Other types can't cross. Structs, lists, maps, enums, `int?` and `float?` are compile errors in an extern signature. To pass structured data, pass a handle, or pass the fields one by one.
+
+### Sized numbers
+
+Vex has one `int` and one `float`. The sized types `int8` to `int64`, `uint8` to `uint64`, `float32` and `float64` exist only in `extern fn` and `export fn` signatures, so you can match C's types exactly. In the function's Vex code and at its call sites, they are plain `int` and `float`.
+
+Conversion happens at the call, like a C cast:
+
+- An `int` passed as `int32` keeps its low 32 bits. An `int` passed as `uint8` keeps its low 8 bits.
+- An `int32` result is sign-extended into `int`; a `uint32` result is zero-extended.
+- A `float` passed as `float32` is rounded to single precision.
+
+<Callout type="warn" title="C int is 32 bits">
+Vex's `int` is C's `int64_t`. A C function that returns `int` must be declared with `-> int32`. Declared as `-> int`, only the low 32 bits of the result are set, and the upper bits are garbage.
+</Callout>
+
+`int32?` and other optional sized numbers are refused: `int32? can't cross into C, since a C number has no nil`.
+
+### Strings
+
+A Vex string is a length and a pointer, without a NUL terminator. When it goes to C, Vex makes a NUL-terminated copy:
+
+- The copy is valid **during the call only**. It lives in memory the Vex garbage collector manages. If C keeps the pointer after it returns, C must copy the text first (for example with `strdup`).
+- A string that contains a NUL character (`"a\u{0}b"`) looks shorter to C: `strlen` gives 1.
+- C must not write to the string.
+
+When a string comes back from C, Vex copies it and never frees the original. If C allocated it, C still owns it: free it with another C function, or return pointers to memory that C keeps anyway.
+
+### Fast math
+
+Calls to well-known C math functions compile to the C compiler's built-ins, so they can become single CPU instructions. This happens for an `extern fn` whose parameters and result are all `float`, without sized types, and whose C name is one of: `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `tanh`, `exp`, `exp2`, `log`, `log2`, `log10`, `floor`, `ceil`, `round`, `trunc`, `fabs` (one argument) or `pow`, `atan2`, `hypot`, `fmod`, `fmin`, `fmax` (two arguments).
+
+## C pointers: extern types
+
+`extern type` declares a type for pointers that C code owns, such as a `sqlite3 *` or a `FILE *`. Vex passes them around but never looks inside.
+
+```vex
+extern type Db as "sqlite3"
+extern fn db_open(path: string) -> Db?       // NULL gives nil
+extern fn db_close(db: Db)
+```
+
+- Each extern type is its own type, so a `Db` can't be passed where a `Stack` is expected, even though both are `void *` in C.
+- Handles can be compared with `==`, kept in variables, fields, lists and optionals, and printed. Printing shows the name and the address, such as `<sqlite3 0x6000...>`. `as "name"` sets the name that is printed; without it, the Vex name is used.
+- Handles can't be created in Vex: `Db is a C type, so it can't be created in Vex`. Get one from an extern function.
+- Vex never frees what a handle points to, and the garbage collector doesn't know about it. Call the C function that frees it when you are done.
+- Handles can't cross between isolates.
+
+## A project with C code
+
+C code of your own goes in a project, listed in the `[c]` section of `package.toml`. A single file can't have C sources, only call functions from libraries that are always linked.
+
+<Files>
+  <Folder name="stacks" defaultOpen>
+    <File name="package.toml" />
+    <File name="main.vx" />
+    <Folder name="native" defaultOpen>
+      <File name="stack.c" />
+    </Folder>
+  </Folder>
+</Files>
+
+```toml title="package.toml"
+[package]
+name = "stacks"
+
+[c]
+sources = ["native/stack.c"]
+libs = ["z"]
+flags = ["-DSTACK_MAX=4"]
+```
+
+```c title="native/stack.c"
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+typedef struct {
+    int64_t items[STACK_MAX];
+    int64_t len;
+} Stack;
+
+Stack *stack_new(void) { return calloc(1, sizeof(Stack)); }
+
+void stack_free(Stack *s) { free(s); }
+
+bool stack_push(Stack *s, int64_t x) {
+    if (s->len == STACK_MAX) return false;
+    s->items[s->len++] = x;
+    return true;
+}
+
+int64_t stack_len(Stack *s) { return s->len; }
+
+void vex_release(void *ctx);
+
+// Calls cb with each item, then gives the closure back to Vex.
+void stack_each(Stack *s, void (*cb)(void *ctx, int64_t x), void *ctx) {
+    for (int64_t i = 0; i < s->len; i++) cb(ctx, s->items[i]);
+    vex_release(ctx);
+}
+```
+
+```vex title="main.vx"
+extern type Stack
+extern fn stack_new() -> Stack
+extern fn stack_free(s: Stack)
+extern fn stack_push(s: Stack, x: int) -> bool
+extern fn stack_len(s: Stack) -> int
+extern fn stack_each(s: Stack, f: fn(int))
+extern fn crc32(crc: uint64, data: string, len: uint32) -> uint64
+
+fn main() {
+    let s = stack_new()
+    for i in 1..=5 {
+        println("push", i, stack_push(s, i * 10))
+    }
+    var total = 0
+    stack_each(s, fn(x: int) { total += x })
+    println("len", stack_len(s), "total", total)
+    println("{s}".startsWith("<Stack 0x"))
+    stack_free(s)
+
+    println(crc32(0, "hello", 5))      // from zlib, linked with libs = ["z"]
+}
+```
+
+```sh
+vex run stacks
+```
+
+```text title="Output"
+push 1 true
+push 2 true
+push 3 true
+push 4 true
+push 5 false
+len 4 total 100
+true
+907060870
+```
+
+`-DSTACK_MAX=4` sets the stack's size from `package.toml`. `crc32` comes from zlib, which `libs = ["z"]` links as `-lz`. On Linux, zlib's development package must be installed for that to link.
+
+### The `[c]` section
+
+| Key | Value | Passed to the C compiler as |
+|---|---|---|
+| `sources` | `.c`, `.m`, `.o` and `.a` files, relative to the project | the file paths; `.m` files with `-x objective-c -fobjc-arc` |
+| `libs` | library names, such as `"z"` or `"sqlite3"` | `-lz`, `-lsqlite3` |
+| `frameworks` | Apple framework names, such as `"Foundation"` | `-framework Foundation` (macOS only) |
+| `flags` | allowed compiler flags | as written, with `-I` and `-L` folders made absolute |
+
+Allowed flags are `-D`, `-U`, `-O`, `-std=`, `-W` warning flags, `-f` and `-m` options, and `-I` or `-L` folders inside the project. The full list, and every error message, is on [Modules and projects](/docs/projects/modules).
+
+### How the program is built
+
+`vex run` and `vex build` call the system C compiler once, with the generated C file, your sources and your libraries:
+
+```sh
+clang -std=gnu11 -fwrapv -O3 -w -pthread <your flags> -o <output> main.c <your sources> -l<libs> -framework <frameworks> -lm
+```
+
+- The compiler is `$CC` if it is set (it may include arguments), otherwise `clang`, `cc` or `gcc`, whichever is found first.
+- Flags in the `VEX_CFLAGS` environment variable are added after the default flags, before your `flags`.
+- Your C sources are compiled with the same flags as the generated code, including `-O3` and `-w` (warnings off). Add `-Wall` to `flags` to see warnings in your own code.
+- If a C source file doesn't exist, the build stops before compiling: `vex: package.toml: C source 'missing.c' not found`.
+- If the C compiler fails on a project with a `[c]` section, for any reason including a missing function, Vex prints `the C compiler (/usr/bin/clang) failed; check the C code and the [c] section of package.toml`, with the path of your C compiler, followed by the compiler's output.
+
+Without a `[c]` section, an `extern fn` whose C function is defined nowhere fails at link time with its own message:
+
+```text
+vex: linking failed: a C function named by an extern isn't defined; add its source or library to the [c] section of package.toml
+Undefined symbols for architecture arm64:
+  "_no_such_function", referenced from:
+      _main in main-dd0ea0.o
+ld: symbol(s) not found for architecture arm64
+clang: error: linker command failed with exit code 1 (use -v to see invocation)
+```
+
+## Callbacks
+
+A `fn(...)` parameter of an `extern fn` passes a Vex closure to C. In C it becomes **two** parameters: a function pointer that takes a `void *` context first and then the callback's own parameters, followed by the context itself.
+
+| Vex | C |
+|---|---|
+| `extern fn stack_each(s: Stack, f: fn(int))` | `void stack_each(void *s, void (*cb)(void *ctx, int64_t x), void *ctx)` |
+| `extern fn on_event(source: Source, handler: fn(int, string))` | `void on_event(void *source, void (*cb)(void *ctx, int64_t, const char *), void *ctx)` |
+| `extern fn store(f: fn(int) -> int)` | `void store(int64_t (*cb)(void *ctx, int64_t), void *ctx)` |
+
+C calls the function pointer with the context as its first argument. The closure runs with everything it captured, and can change captured `var`s, as `total += x` does above.
+
+- Callback parameters may be `int`, `float`, `bool`, `string`, `string?` and extern types, using the C types from the table above. Sized numbers can't be used inside a `fn(...)` type.
+- The result may be `int`, `float`, `bool` or an extern type. A callback can't return a string.
+- Callbacks can't throw: catch errors inside the closure.
+- This convention fits C APIs that take a context pointer along with a callback. An API without a context pointer, such as `qsort`, needs a small C wrapper.
+
+### Keeping a callback
+
+C may keep the context and call the callback later, after the `extern fn` call has returned. The closure stays alive until C passes the context to `vex_release`, which the Vex runtime exports. C declares it itself:
+
+```c
+void vex_release(void *ctx);
+```
+
+A context that C never releases keeps its closure, and everything the closure captured, alive until the program ends. Release each context once, when C no longer needs it, and don't call the callback after releasing it.
+
+Callbacks must be called on the thread that runs the Vex program (the isolate that passed them), either during the `extern fn` call or later from code that Vex called.
+
+## Exporting Vex functions to C
+
+`export fn` makes a top-level Vex function callable from C under its own name. C code declares it itself, using the C types from the table above:
+
+```c title="native/events.c"
+#include <stdint.h>
+
+// Defined in Vex with export fn.
+int64_t vex_score(const char *name, int64_t points);
+void vex_release(void *ctx);
+
+static void (*handler)(void *, int64_t);
+static void *handler_ctx;
+
+int64_t run_round(void) {
+    return vex_score("ana", 3) + vex_score("ben", 4);
+}
+
+void on_event(void (*cb)(void *, int64_t), void *ctx) {
+    handler = cb;
+    handler_ctx = ctx;
+}
+
+void fire_event(int64_t code) {
+    if (handler) handler(handler_ctx, code);
+}
+
+void clear_event(void) {
+    if (handler) vex_release(handler_ctx);
+    handler = 0;
+    handler_ctx = 0;
+}
+```
+
+```vex title="main.vx"
+extern fn run_round() -> int
+extern fn on_event(handler: fn(int))
+extern fn fire_event(code: int)
+extern fn clear_event()
+
+export fn vex_score(name: string, points: int) -> int {
+    println("score", name, points)
+    return points * 10
+}
+
+fn main() {
+    println("round total", run_round())
+
+    var log: [int] = []
+    on_event(fn(code: int) { log.push(code) })
+    fire_event(1)
+    fire_event(2)
+    clear_event()
+    fire_event(3)
+    println(log)
+}
+```
+
+```toml title="package.toml"
+[package]
+name = "exp"
+
+[c]
+sources = ["native/events.c"]
+```
+
+```text title="Output"
+score ana 3
+score ben 4
+round total 70
+[1, 2]
+```
+
+`run_round` calls back into Vex twice. `on_event` keeps the closure, `fire_event` calls it later, and `clear_event` releases it, so the third event goes nowhere.
+
+Rules for exported functions:
+
+- Parameters may be `int`, `float`, `bool`, `string`, `string?`, sized numbers and extern types. A string parameter is copied into a Vex string. Callbacks can't be parameters: `fn() can't be taken from C`.
+- They can't return strings yet: `export functions can't return strings yet, since C would hold memory Vex manages`. Return a handle, or let C pass in a buffer.
+- They can't be generic or throw. Catch errors inside and return a status.
+- Only top-level functions can be exported, and `main` can't be.
+- The name is the C symbol, so it must not clash with a C library function (`export function 'strlen' would clash with the C library function of that name`), with the runtime's own exports `vex_poll` and `vex_release`, or start with `vx_`, which is reserved for the runtime.
+- C can call them while the Vex program runs, on the thread that runs it: from code that Vex called, or from a callback.
+
+## Objective-C and Apple frameworks
+
+`.m` files in `sources` are compiled as Objective-C with automatic reference counting (`-fobjc-arc`). With `frameworks`, this is how Vex code reaches Apple's APIs on macOS:
+
+```toml title="package.toml"
+[package]
+name = "objc"
+
+[c]
+sources = ["native/glue.m", "native/plain.c"]
+frameworks = ["Foundation"]
+```
+
+```c title="native/glue.m"
+#import <Foundation/Foundation.h>
+
+void *str_make(const char *s) {
+    return (__bridge_retained void *)[NSMutableString stringWithUTF8String:s];
+}
+void str_append(void *h, const char *s) {
+    [(__bridge NSMutableString *)h appendString:[NSString stringWithUTF8String:s]];
+}
+const char *str_upper(void *h) {
+    return [[(__bridge NSMutableString *)h uppercaseString] UTF8String];
+}
+long long str_len(void *h) { return [(__bridge NSMutableString *)h length]; }
+void str_free(void *h) { CFRelease(h); }
+```
+
+```c title="native/plain.c"
+int plain_add(int a, int b) { return a + b; }
+```
+
+```vex title="main.vx"
+extern type Text as "NSMutableString"
+extern fn str_make(s: string) -> Text
+extern fn str_append(t: Text, s: string)
+extern fn str_upper(t: Text) -> string
+extern fn str_len(t: Text) -> int
+extern fn str_free(t: Text)
+extern fn plain_add(a: int32, b: int32) -> int32
+
+fn main() {
+    let t = str_make("hello")
+    str_append(t, ", vex")
+    println(str_upper(t), str_len(t), plain_add(2, 3))
+    str_free(t)
+}
+```
+
+```text title="Output"
+HELLO, VEX 10 5
+```
+
+The object crosses as a handle: `__bridge_retained` hands ownership to the Vex side, and `str_free` gives it back with `CFRelease`. `plain_add` returns a C `int`, so it is declared `-> int32`.
+
+Linking frameworks anywhere but macOS fails: `frameworks in package.toml (Foundation) can only be linked on macOS`.
+
+## Wrapping C in a module
+
+`extern fn` and `extern type` can be `pub`. A module can keep its C declarations private and offer Vex functions on top, or make the extern itself public:
+
+```vex title="cstr/cstr.vx"
+extern fn strlen(s: string) -> int
+extern fn strstr(haystack: string, needle: string) -> string?
+
+pub fn byteLength(s: string) -> int => strlen(s)
+
+pub fn after(s: string, needle: string) -> string? => strstr(s, needle)
+
+pub extern fn atof(s: string) -> float
+```
+
+```vex title="main.vx"
+import "cstr"
+
+fn main() {
+    println(cstr.byteLength("héllo"), "héllo".len)
+    println(cstr.after("key=value", "=") ?? "none")
+    println(cstr.atof("2.5") * 2.0)
+}
+```
+
+```text title="Output"
+6 5
+=value
+5.0
+```
+
+A wrapper is also the place to turn C's error codes into Vex errors, since extern functions can't throw.
+
+## Memory and ownership
+
+The rules in one place:
+
+| What | Who owns it | What you must do |
+|---|---|---|
+| A string passed to C | Vex | Copy it in C if you keep it past the call |
+| A string returned from C | C | Vex copies it; free the original in C if C allocated it |
+| A handle (`extern type`) | C | Call C's free function; Vex never frees it |
+| A closure passed as a callback | Vex, kept for C | Call `vex_release(ctx)` once C no longer needs it |
+| A string passed to an exported function | C | Vex copies it at the call |
+
+The Vex garbage collector scans the stack and its own heap. It doesn't scan memory that C allocated. So C must never keep a pointer to a Vex object, except a callback context, which `vex_release` manages.
+
+## Rules and edge cases
+
+- Extern functions have no body, can't be generic, can't throw, can't be async and can't be methods:
+
+  ```text
+  error: extern functions can't be generic
+   --> x.vx:1:15
+    |
+  1 | extern fn gen<T>(x: T) -> T
+    |               ^ C has no generics; declare one extern fn per type
+  ```
+
+  ```text
+  error: extern functions can't throw
+   --> x.vx:2:17
+    |
+  2 | extern fn bad() throws -> int
+    |                 ^^^^^^ C functions report failure through their result; check it in a Vex wrapper that throws
+  ```
+
+- Types that can't cross are reported with the list of those that can:
+
+  ```text
+  error: User can't be passed to C
+   --> extern.vx:5:19
+    |
+  5 | extern fn save(u: User) -> bool
+    |                   ^^^^ C functions take int, float, bool, string, string?, sized numbers such as int32, extern types and fn(...) callbacks
+  ```
+
+  The same message reads `[int] can't be returned from C`, `int? can't be passed to C` and `int? can't be returned from C` for those types.
+
+- `main` can't be extern: `main can't be extern`. It can't be exported either: `main can't be exported; it is where the program starts`.
+- Sized numbers outside extern and export signatures:
+
+  ```text
+  error: int32 is only for the signatures of extern fn and export fn
+   --> cinterop.vx:9:12
+    |
+  9 |     let x: int32 = 5
+    |            ^^^^^ use int or float here; sized C numbers convert at the call
+  ```
+
+- An extern type's name can't be used for anything else: `'Db' is already declared as an extern type on line 1`. It can't be named after a sized number: `'int32' is a C number type`.
+- Callback restrictions: `a callback passed to C can't return string`, `C can't pass [int] to a callback`, `callbacks passed to C can't throw`.
+- Export restrictions: `export functions can't be generic`, `export functions can't throw`, `names starting with vx_ are kept for the Vex runtime`, `'vex_poll' is already exported by the Vex runtime`.
+
+## See also
+
+- [Modules and projects](/docs/projects/modules)
+- [What the compiler generates](/docs/tools/generated-c)
+- [vex:math](/docs/stdlib/math)
+- [Memory](/docs/language/memory)
+- [Async and await](/docs/concurrency/async)

@@ -1,0 +1,406 @@
+---
+title: Closures
+description: Closures and function values, function types, capturing variables, higher-order functions, tear-offs, trailing blocks and builder blocks.
+---
+
+Functions are values in Vex. You can store them in variables, pass them to other functions, return them, and keep them in lists and struct fields. A closure is a function without a name, written inline, that can use the variables around it.
+
+## Writing a closure
+
+A closure is written like a function declaration without the name:
+
+```vex title="closure.vx"
+fn main() {
+    let double = fn(x: int) -> int => x * 2
+    let greet = fn(name: string) {
+        println("Hi, {name}")
+    }
+    let add = fn(a: int, b: int) -> int {
+        return a + b
+    }
+    greet("Ann")
+    println(double(21), add(2, 3))
+}
+```
+
+```text title="Output"
+Hi, Ann
+42 5
+```
+
+The body is either `=> expression` or a block. Call a function value like a function, with unnamed arguments: `double(21)`.
+
+### Inferred parameter and result types
+
+Where the expected function type is known, you can leave out the parameter types, and usually the result type too:
+
+```vex title="inferclosure.vx"
+fn apply(f: fn(int) -> int, x: int) -> int => f(x)
+
+fn main() {
+    println(apply(fn(x) => x + 1, 5))
+    let nums = [1, 2, 3, 4, 5, 6]
+    println(nums.filter(fn(n) => n % 2 == 0))
+    let check: fn(int, string) -> bool = fn(n, s) => s.len == n
+    println(check(2, "ab"))
+}
+```
+
+```text title="Output"
+6
+[2, 4, 6]
+true
+```
+
+- Parameter types come from the expected function type: a parameter of a called function, a typed variable, a field, or a `return`. Without one, write them: `let f = fn(x) => x` gives `can't tell the type of parameter 'x'`.
+- The result type comes from `-> T` if written, otherwise from the expected type, the `=>` expression, or the first `return` in a block body.
+- Closure parameters can't have default values: `closure parameters can't have default values`.
+
+## Function types
+
+A function type is written `fn(ParamTypes) -> Result`:
+
+| Type | Meaning |
+|---|---|
+| `fn()` | Takes nothing, returns nothing |
+| `fn(string)` | Takes a string, returns nothing |
+| `fn(int, int) -> int` | Takes two ints, returns an int |
+| `fn() -> [string]` | Takes nothing, returns a list |
+| `fn(int) throws -> int` | May throw an error |
+| `fn()?` | An optional function |
+| `(fn() -> int)?` | An optional function that returns an int; the parentheses are needed |
+
+Function types have no parameter names, so function values are always called with positional arguments. `f(x: 1)` gives `function values don't have parameter names`.
+
+A named function is a value of its function type, so you can pass it wherever a function is expected:
+
+```vex title="named.vx"
+fn inc(x: int) -> int => x + 1
+
+fn twice(f: fn(int) -> int) -> fn(int) -> int => fn(x) => f(f(x))
+
+fn main() {
+    let ops: [fn(int) -> int] = [inc, twice(inc), fn(x) => x * 10]
+    for op in ops {
+        print("{op(5)} ")
+    }
+    println()
+    println(inc)
+}
+```
+
+```text title="Output"
+6 7 50 
+<fn(int) -> int>
+```
+
+A function value prints as its type. Function values can't be compared with `==`.
+
+When a stored function has default parameter values, they don't carry over: the function value takes every argument.
+
+```vex title="nodefaults.vx"
+fn greet(name: string, greeting: string = "Hi") -> string => "{greeting}, {name}"
+
+fn main() {
+    let g = greet
+    println(g("Ann", "Yo"))
+    println(g("Ann"))
+}
+```
+
+```text title="Output"
+error: expected 2 arguments for fn(string, string) -> string, found 1
+ --> nodefaults.vx:6:13
+  |
+6 |     println(g("Ann"))
+  |             ^
+```
+
+## Capturing variables
+
+A closure can use the variables of the function it's written in. It captures them by reference: the closure and the surrounding code share the same variable, so a change on either side is visible on the other.
+
+```vex title="capture.vx"
+fn main() {
+    var total = 0
+    let addToTotal = fn(n: int) { total += n }
+    addToTotal(5)
+    addToTotal(7)
+    println(total)
+    total = 100
+    addToTotal(1)
+    println(total)
+}
+```
+
+```text title="Output"
+12
+101
+```
+
+A captured variable lives as long as the closure does, even after the function that declared it has returned. This is how a closure can keep state:
+
+```vex title="counter.vx"
+fn makeCounter() -> fn() -> int {
+    var count = 0
+    return fn() -> int {
+        count += 1
+        return count
+    }
+}
+
+fn adder(n: int) -> fn(int) -> int => fn(x) => x + n
+
+fn main() {
+    let next = makeCounter()
+    println(next(), next(), next())
+    let other = makeCounter()
+    println(other())
+    let addFive = adder(5)
+    println(addFive(10))
+}
+```
+
+```text title="Output"
+1 2 3
+1
+15
+```
+
+Each call to `makeCounter` creates a new `count`, so the two counters are independent.
+
+### Capture rules
+
+- A closure can change a captured `var`, but not a captured `let`: `can't change 'x': it's declared with let`.
+- Each loop iteration has its own loop variable, so closures created in a loop each keep the value from their own iteration:
+
+```vex title="loopcapture.vx"
+fn main() {
+    var printers: [fn()] = []
+    for i in 0..3 {
+        printers.push(fn() { print("{i} ") })
+    }
+    for p in printers { p() }
+    println()
+}
+```
+
+```text title="Output"
+0 1 2 
+```
+
+- A captured list, map or struct is a reference like any other: the closure sees and makes changes to the same object.
+- `break` and `continue` inside a closure can't reach a loop outside it: `break can only be used inside a loop`.
+- A closure can't call itself by the name it's being assigned to, since the name doesn't exist yet: `unknown function 'f'`. Use a top-level function for recursion.
+
+## Higher-order functions
+
+A function that takes or returns functions is a higher-order function. Lists have two built in:
+
+- `xs.filter(f)` keeps the elements for which `f` returns `true`.
+- `xs.map(f)` makes a new list from what `f` returns for each element. The result can have a different element type.
+
+```vex title="filtermap.vx"
+fn main() {
+    let scores = [42, 7, 19, 88, 3, 56]
+    let passed = scores.filter(fn(s) => s >= 40)
+    let labels = passed.map(fn(s) => "{s} pts")
+    let total = passed.map(fn(s) => s * 2).filter(fn(s) => s > 100).len
+    println(passed, labels, total)
+}
+```
+
+```text title="Output"
+[42, 88, 56] ["42 pts", "88 pts", "56 pts"] 2
+```
+
+There are no built-in `reduce`, `forEach`, `sort` or `any` yet. Write a `for` loop, or your own function, possibly as a list [extension](/docs/language/extensions):
+
+```vex title="compose.vx"
+fn compose(f: fn(int) -> int, g: fn(int) -> int) -> fn(int) -> int {
+    return fn(x: int) -> int => g(f(x))
+}
+
+fn reduce(xs: [int], start: int, combine: fn(int, int) -> int) -> int {
+    var acc = start
+    for x in xs { acc = combine(acc, x) }
+    return acc
+}
+
+fn main() {
+    let incThenDouble = compose(fn(x) => x + 1, fn(x) => x * 2)
+    println(incThenDouble(3))
+    println(reduce([1, 2, 3, 4], 0, fn(a, b) => a + b))
+}
+```
+
+```text title="Output"
+8
+10
+```
+
+### Closures that throw
+
+A function type with `throws` accepts closures that throw, and also ones that don't:
+
+```vex title="throwing.vx"
+fn applyAll(xs: [int], f: fn(int) throws -> int) throws -> [int] {
+    var out: [int] = []
+    for x in xs { out.push(try f(x)) }
+    return out
+}
+
+fn main() {
+    let check = fn(x: int) throws -> int {
+        if x < 0 { throw Error("negative: {x}") }
+        return x * 2
+    }
+    let ok = try applyAll([1, 2], check) catch e { [] }
+    let bad = try applyAll([1, -2], check) catch e {
+        println(e.message)
+        []
+    }
+    println(ok, bad, try applyAll([3], fn(x) => x + 1) catch e { [] })
+}
+```
+
+```text title="Output"
+negative: -2
+[2, 4] [] [4]
+```
+
+See [Errors](/docs/language/errors). Closures can't be `async`.
+
+## Tear-offs
+
+A method named without calling it is a function value bound to the value it was taken from. This is called a tear-off:
+
+```vex title="tearoff.vx"
+struct User {
+    name: string
+    fn greet(other: string) -> string => "{name} greets {other}"
+}
+
+fn main() {
+    let host = User(name: "Ann")
+    let names = ["Bo", "Cy"]
+    println(names.map(host.greet))
+    println(names.map(User.new))
+    let shout = "hi".upper
+    println(shout())
+    var items = [1]
+    let add = items.push
+    add(2)
+    println(items)
+}
+```
+
+```text title="Output"
+["Ann greets Bo", "Ann greets Cy"]
+[User(name: "Bo"), User(name: "Cy")]
+HI
+[1, 2]
+```
+
+- Methods of structs, enums and interfaces, extension methods, and built-in members such as `upper` and `push` can be torn off.
+- `Type.new` is the constructor as a function; static methods and enum cases that carry values tear off as `Type.name`.
+- A tear-off keeps the value it was taken from, even if the variable changes later.
+- `x?.method` is `nil` when `x` is `nil`, and otherwise a function bound to the value inside.
+- A method must be torn off a value: `User.greet` gives `method 'greet' isn't static, so it needs a value of type User`.
+- Async methods, generic methods and `map` can't be torn off yet: `async method 'load' can't be used as a value yet`, `'map' can't be used as a value`. Wrap them in a closure.
+
+## Trailing blocks
+
+When the last parameter of a function has type `fn()`, you can pass a block after the call's parentheses instead of inside them:
+
+```vex title="trailing.vx"
+fn repeat(times: int, action: fn()) {
+    for i in 0..times { action() }
+}
+
+struct Button {
+    title: string
+    onTap: fn()
+}
+
+fn main() {
+    var count = 0
+    repeat(3) { count += 1 }
+    let add = Button(title: "Add") { count += 10 }
+    add.onTap()
+    add.onTap()
+    println(count)
+}
+```
+
+```text title="Output"
+23
+```
+
+- The block is a closure with no parameters, so the last parameter must be `fn()` (or a list, for builder blocks below). For other function types, pass a closure in the parentheses: `a trailing block needs the last parameter of each to be fn() or a list, but 'f' is fn(int)`.
+- A call with only a trailing block can leave out the `()`: `Column { ... }`.
+- Passing the last argument both in the parentheses and as a trailing block is an error: `the last argument of onTap is given twice: in the call and as a trailing block`.
+- After `if`, `for`, `while` and similar headers, a `{` always starts the body, never a trailing block.
+
+## Builder blocks
+
+When the last parameter is a list, a trailing block builds that list. Each line in the block is one element, and `let`, `if`, `for` and `...` work inside it:
+
+```vex title="builder.vx"
+struct Menu {
+    title: string
+    items: [string]
+}
+
+fn main() {
+    let admin = true
+    let extras = ["Help", "About"]
+    let menu = Menu(title: "Main") {
+        "Open"
+        "Save"
+        if admin {
+            "Settings"
+        }
+        for i in 1..=2 {
+            "Recent {i}"
+        }
+        ...extras
+    }
+    println(menu.title, menu.items)
+}
+```
+
+```text title="Output"
+Main ["Open", "Save", "Settings", "Recent 1", "Recent 2", "Help", "About"]
+```
+
+- Each line must give an element of the list's type. A call that returns nothing, such as `println(...)`, is an error inside a builder block; so are `return`, assignments and `while`.
+- Builder blocks nest, and closures inside them are ordinary closures.
+- A struct whose last field is a list takes a builder block too, which suits tree-shaped data such as menus, documents or configuration.
+
+
+## Rules and edge cases
+
+- Function types don't carry parameter names or default values.
+- Calling a non-function is an error: `'n' is an int, not a function`.
+- A closure passed where a function with a different number of parameters is expected: `expected a function with 1 parameter, found one with 2`.
+- A closure result of the wrong type: `closure result: expected int, found string`.
+- `map` needs a function that returns a value: `map needs a function that returns a value`.
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Dart | TypeScript |
+|---|---|---|---|---|---|
+| Closure | `fn(x) => x * 2` | `{ x in x * 2 }` | `{ x -> x * 2 }` | `(x) => x * 2` | `(x) => x * 2` |
+| Function type | `fn(int) -> int` | `(Int) -> Int` | `(Int) -> Int` | `int Function(int)` | `(x: number) => number` |
+| Capture | by reference | by reference | by reference | by reference | by reference |
+| Trailing closure | `fn()` or list only | any | last lambda | no | no |
+| Method reference | `user.greet` | `user.greet` | `user::greet` | `user.greet` | `user.greet.bind(user)` |
+
+## See also
+
+- [Functions](/docs/language/functions)
+- [Lists](/docs/language/lists)
+- [Structs](/docs/language/structs)
+- [Errors](/docs/language/errors)
+- [Generics](/docs/language/generics)

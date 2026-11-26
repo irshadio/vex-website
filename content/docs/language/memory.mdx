@@ -1,0 +1,429 @@
+---
+title: Memory
+description: "What every Vex programmer needs to know about memory: which types are shared references and which behave as values, copying, constants, closures, isolates, and the garbage collector."
+---
+
+Vex manages memory for you. Values are created when you need them and freed by a garbage collector once nothing can reach them, including values that refer to each other in a cycle. There is nothing to free by hand, no ownership to track and no `weak` keyword.
+
+What you do need to know is which values are **shared** and which behave as **values**, because that decides whether a change made in one place shows up in another.
+
+## Values and references at a glance
+
+| Type | Behaves as | Can it change? |
+|---|---|---|
+| `int`, `float`, `bool` | a value | only by assigning a new one to a `var` |
+| `string` | a value | no: string operations return new strings |
+| records `(int, string)` | a value | no: make a new record |
+| enums | a value | no: make a new case |
+| optionals `T?` | like `T` | like `T` |
+| structs | a shared reference | yes: fields can always be changed |
+| lists `[T]` | a shared reference | yes |
+| maps `[K: V]` | a shared reference | yes |
+| closures | a shared reference to the function and what it captured | captured `var`s can change |
+| interface values | a shared reference to the struct inside | through the struct's methods |
+
+The rule behind the table: types whose contents can change are shared, and types that can't change behave as values. For a value that can never change, it makes no difference whether it is copied or shared, so strings, records and enums are free to be shared internally.
+
+## Shared references
+
+Assigning a struct, list or map to another name, passing it to a function, storing it in a field or putting it in a list never copies it. Every name refers to the same object:
+
+```vex title="shared.vx"
+struct Point {
+    x: int
+}
+
+fn addTo(xs: [int]) {
+    xs.push(99)                           // changes the caller's list
+}
+
+fn main() {
+    let xs = [1, 2]
+    let ys = xs
+    ys.push(3)
+    addTo(xs)
+    println(xs)
+
+    let ages = ["ann": 31]
+    let alias = ages
+    alias["bob"] = 25
+    println(ages)
+
+    let p = Point(x: 1)
+    let points = [p, p]
+    points[0].x = 7
+    println(p, points)
+}
+```
+
+```text title="Output"
+[1, 2, 3, 99]
+["ann": 31, "bob": 25]
+Point(x: 7) [Point(x: 7), Point(x: 7)]
+```
+
+`let` doesn't prevent this. `let` fixes which object a name refers to, not what is inside the object. See [Structs](/docs/language/structs#mutability).
+
+Assigning a new object to a `var` changes only that name. Other names keep the old object:
+
+```vex title="rebind.vx"
+fn main() {
+    var a = [1, 2]
+    let b = a
+    a = [9]                               // a names a new list; b still has the old one
+    println(a, b)
+}
+```
+
+```text title="Output"
+[9] [1, 2]
+```
+
+## Values
+
+Numbers, booleans, strings, records and enums behave as values. Assigning one and changing the new name never affects the original:
+
+```vex title="values.vx"
+fn main() {
+    var i = 1
+    var j = i
+    j += 1
+    println(i, j)
+
+    var s = "abc"
+    var t = s
+    t += "d"                              // t now names a new string
+    println(s, t)
+
+    var r = (x: 1, y: 2)
+    var q = r
+    q = (x: 5, y: q.y)                    // records are rebuilt, never changed in place
+    println(r, q)
+}
+```
+
+```text title="Output"
+1 2
+abc abcd
+(x: 1, y: 2) (x: 5, y: 2)
+```
+
+Record fields and enum values can't be changed at all, so there is no way to observe sharing:
+
+```vex title="immutable.vx"
+fn main() {
+    let r = (1, "a")
+    r.$1 = 5
+}
+```
+
+```text title="Output"
+error: record fields can't be changed
+ --> immutable.vx:3:7
+  |
+3 |     r.$1 = 5
+  |       ^^ make a new record instead
+```
+
+A record or enum can still hold a list or a struct, and that inner object is shared like any other. The record can't be pointed at a different list, but the list itself can change:
+
+```vex title="inner.vx"
+enum Holder {
+    items(list: [int])
+}
+
+fn main() {
+    let xs = [1]
+    let h = Holder.items(list: xs)
+    let r = (name: "nums", list: xs)
+    xs.push(2)
+    println(h, r)
+}
+```
+
+```text title="Output"
+Holder.items(list: [1, 2]) (list: [1, 2], name: "nums")
+```
+
+## Copying
+
+Lists and maps have `.copy()`, which makes a new collection with the same elements. The copy is shallow: elements that are themselves structs, lists or maps are shared between the two:
+
+```vex title="copy.vx"
+struct Point {
+    x: int
+}
+
+fn main() {
+    let a = [Point(x: 1)]
+    let b = a.copy()
+    b.push(Point(x: 2))                   // only b grows
+    b[0].x = 99                           // the Point is shared by both
+    println(a, b)
+
+    let m = ["k": [1]]
+    let n = m.copy()
+    n["extra"] = [0]                      // only n gets the key
+    println(m, n)
+}
+```
+
+```text title="Output"
+[Point(x: 99)] [Point(x: 99), Point(x: 2)]
+["k": [1]] ["k": [1], "extra": [0]]
+```
+
+Structs have no built-in copy. Write a method that builds a new value, copying as deeply as your type needs:
+
+```vex title="struct_copy.vx"
+struct Team {
+    name: string
+    members: [string] = []
+
+    fn copy() -> Team => Team(name: name, members: members.copy())
+}
+
+fn main() {
+    let a = Team(name: "core", members: ["ann"])
+    let b = a.copy()
+    b.members.push("bob")
+    println(a, b)
+}
+```
+
+```text title="Output"
+Team(name: "core", members: ["ann"]) Team(name: "core", members: ["ann", "bob"])
+```
+
+`...rest` in a [list pattern](/docs/language/patterns#list-patterns) and the spread `[...xs]` also create new lists.
+
+## Constants
+
+Lists and maps declared with `const` are built once, before `main` runs, and can't change. Changing one directly is a compile error:
+
+```vex title="const_list.vx"
+const primes = [2, 3, 5]
+
+fn main() {
+    primes.push(7)
+}
+```
+
+```text title="Output"
+error: can't change a constant list: 'primes' is constant
+ --> const_list.vx:4:5
+  |
+4 |     primes.push(7)
+  |     ^^^^^^ change a copy instead: var mine = primes.copy()
+```
+
+Changing it through another name, such as a function parameter, is caught when the program runs:
+
+```vex title="const_runtime.vx"
+const primes = [2, 3, 5]
+
+fn add(xs: [int]) {
+    xs.push(7)
+}
+
+fn main() {
+    add(primes)
+}
+```
+
+```text title="Output"
+error: can't change a constant list; change a copy made with .copy()
+ --> const_runtime.vx:4
+```
+
+Since constants never change, every [isolate](/docs/concurrency/isolates) shares the same copy. See [Constants](/docs/language/constants).
+
+## Closures
+
+A closure captures variables by reference, not by value. The variable lives as long as the closure does, and a change on either side is seen on the other:
+
+```vex title="capture.vx"
+fn makeCounter() -> fn() -> int {
+    var count = 0                         // outlives makeCounter
+    return fn() -> int {
+        count += 1
+        return count
+    }
+}
+
+fn main() {
+    let next = makeCounter()
+    next()
+    next()
+    println(next())
+
+    var total = 0
+    let add = fn(n: int) { total += n }
+    add(5)
+    add(10)
+    println(total)
+}
+```
+
+```text title="Output"
+3
+15
+```
+
+Each loop iteration has its own loop variable, so closures made in a loop each keep their own value. See [Closures](/docs/language/closures).
+
+## Isolates copy
+
+[Isolates](/docs/concurrency/isolates) run on other cores with their own memory. Values that cross into an isolate, through the closure it runs, its result or a channel, are copied deeply, so the two sides never share mutable state:
+
+```vex title="isolate_copy.vx"
+import "vex:isolate"
+
+struct Counter {
+    n: int = 0
+}
+
+async fn main() {
+    let c = Counter()
+    let result = await isolate.run(fn() -> int {
+        c.n += 100                        // changes the isolate's copy
+        return c.n
+    })
+    println(result, c.n)
+}
+```
+
+```text title="Output"
+100 0
+```
+
+Functions, futures, C handles and interface values can't be copied, so they can't cross into an isolate. The compiler reports it.
+
+## The garbage collector
+
+Vex uses a tracing garbage collector, like Go, Dart and Kotlin/Native, rather than reference counting like Swift.
+
+- **Cycles are freed.** A parent that holds its children while each child holds its parent, or a button whose `onTap` closure refers back to the screen holding the button, is freed as a whole once nothing outside refers to it. You don't need `weak` references to avoid leaks.
+- **Freeing isn't immediate.** Unreachable memory is reclaimed at the next collection, not the moment the last reference goes away.
+- **Collections pause the program briefly.** A collection runs when the heap has grown to twice the size of what was live after the previous one, and never below 4 MB.
+- **Allocation is cheap.** Small objects come from a free list for their size, so creating many short-lived objects is fast.
+
+This program builds 20,000 rings of ten nodes each, every ring a cycle, and drops each one right away:
+
+```vex title="rings.vx"
+struct Node {
+    name: string
+    next: Node? = nil
+}
+
+fn makeRing(n: int) {
+    let first = Node(name: "0")
+    var cur = first
+    for i in 1..n {
+        let node = Node(name: "{i}")
+        cur.next = node
+        cur = node
+    }
+    cur.next = first                      // close the cycle
+}
+
+fn main() {
+    for i in 0..20000 {
+        makeRing(10)
+    }
+    println("done")
+}
+```
+
+```text title="Output"
+done
+```
+
+Setting `VEX_GC_STATS=1` prints a summary to standard error when the program ends. The numbers vary by machine and run:
+
+```sh
+$ VEX_GC_STATS=1 vex run rings.vx
+done
+gc: 2 collections, 11875 KB allocated, 4096 KB peak heap, 3683 KB live
+```
+
+About 12 MB was allocated in total, but the heap never grew past 4 MB, because the rings were collected as the program went.
+
+| Variable | Effect |
+|---|---|
+| `VEX_GC_STATS=1` | prints collections, total bytes allocated, the peak heap and the live heap at exit |
+| `VEX_GC_STRESS=N` | collects every `N` allocations (`1` collects on every one); useful for testing the runtime |
+
+The collector is conservative today: a number on the stack that happens to look like an address can keep an object alive a little longer. It never frees an object that is still in use. See [Memory design](/docs/internals/memory) for how the collector works and what is planned.
+
+## Resources
+
+The collector manages memory, not other resources. There are no destructors, finalizers or `defer` blocks. The standard library's [`vex:fs`](/docs/stdlib/fs) reads and writes whole files in one call, so there are no file handles to close. When you hold C resources through [C interop](/docs/projects/c-interop), close them explicitly through the C API.
+
+## Printing cycles
+
+Printing a struct that refers back to itself shows the repeat as `Name(...)` instead of looping forever:
+
+```vex title="print_cycle.vx"
+struct Node {
+    value: int
+    next: Node? = nil
+}
+
+fn main() {
+    let a = Node(value: 1)
+    let b = Node(value: 2, next: a)
+    a.next = b
+    println(a)
+}
+```
+
+```text title="Output"
+Node(value: 1, next: Node(value: 2, next: Node(...)))
+```
+
+## Stack depth
+
+Each function call uses stack space. Recursion that never stops ends with a runtime error instead of a crash:
+
+```vex title="overflow.vx"
+fn forever(n: int) -> int {
+    return forever(n + 1) + 1
+}
+
+fn main() {
+    println(forever(0))
+}
+```
+
+```text title="Output"
+error: stack overflow: too many nested function calls, probably a function that calls itself without stopping
+```
+
+## Rules and edge cases
+
+- Structs, lists, maps, closures and interface values are shared; assignment and argument passing never copy them.
+- Numbers, booleans, strings, records and enums behave as values. Strings, records and enums never change in place.
+- `let` stops a name from being reassigned, not the object from changing.
+- `.copy()` on lists and maps is shallow. Structs have no built-in copy.
+- Constant lists and maps can't change: a compile error when changed directly, a runtime error when changed through another name.
+- Closures capture variables by reference.
+- Values sent to isolates are deep copies.
+- The garbage collector frees unreachable objects, cycles included, at its next collection.
+- No destructors, finalizers or `weak` references.
+
+## Comparison
+
+| | Vex | Swift | Go | Kotlin | Dart |
+|---|---|---|---|---|---|
+| Memory management | tracing GC | reference counting | tracing GC | tracing GC (JVM, Native) | tracing GC |
+| Cycles | freed | leak without `weak` | freed | freed | freed |
+| Structs | shared references | copied values | copied values | classes: references | references |
+| Lists | shared | copied (copy-on-write) | slices share an array | shared | shared |
+
+## See also
+
+- [Structs](/docs/language/structs)
+- [Closures](/docs/language/closures)
+- [Isolates](/docs/concurrency/isolates)
+- [Memory design](/docs/internals/memory)

@@ -1,0 +1,5 @@
+{
+  "title": "Language",
+  "defaultOpen": true,
+  "pages": ["index", "basics", "types", "strings", "operators", "control-flow", "functions", "closures", "constants", "lists", "maps", "records", "structs", "enums", "patterns", "optionals", "errors", "generics", "interfaces", "extensions", "memory"]
+}

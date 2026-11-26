@@ -1,0 +1,434 @@
+---
+title: Generated C
+description: What vex emit-c produces, and how functions, structs, enums, optionals, closures, errors, generics and collections map to C, shown with trimmed real output.
+---
+
+Vex compiles to C, and the system C compiler turns that C into a native executable. `vex emit-c` prints the C so you can read it. You never need to, but it helps when you want to know what a construct costs, when you debug a crash in a debugger, or when you are curious how the language works.
+
+```sh
+vex emit-c hello.vx > hello.c
+```
+
+The output in this page is real, from `vex emit-c` at version `0.1.0-dev`, trimmed to the parts that matter. The exact names and shapes are an implementation detail and can change between versions; don't write C that depends on them. To call Vex from C, use `export fn`, described in [C interop](/docs/projects/c-interop).
+
+## The shape of the output
+
+The output is a single self-contained C file in two parts:
+
+1. **The runtime.** About 2,600 lines that start with `// Runtime library compiled into every Vex program.`: the garbage collector, strings, lists, maps, printing, the event loop for async code, isolates and channels, and the error-reporting functions. It is the same for every program.
+2. **Your program**, after a `// --- Program ---` line: type declarations, function prototypes, then the functions.
+
+Every name the runtime uses starts with `vx_`, which is why Vex reserves that prefix. `vex build` compiles the file with `-std=gnu11 -fwrapv -O3 -w -pthread` and links `-lm`. You can do the same by hand:
+
+```sh
+cc -std=gnu11 -fwrapv -O2 -pthread hello.c -o hello -lm
+```
+
+The code uses GNU C extensions that both clang and GCC support: statement expressions (`({ ... })`), `__label__`, `__builtin_expect` and the overflow builtins.
+
+## Functions and main
+
+```vex title="add.vx"
+fn add(a: int, b: int) -> int {
+    return a + b
+}
+
+fn main() {
+    let total = add(2, 3)
+    println("total: {total}")
+}
+```
+
+```c
+static int64_t fn_add(int64_t v_a, int64_t v_b);
+static void fn_main(void);
+
+static int64_t fn_add(int64_t v_a, int64_t v_b) {
+    return vx_add(v_a, v_b, 2);
+    __builtin_unreachable();
+}
+
+static void fn_main(void) {
+    int64_t v_total = fn_add(INT64_C(2), INT64_C(3));
+    vx_print(true, 1, (vx_str[]){vx_str_join(2, (vx_str[]){VX_LIT("total: "), vx_int_str(v_total)})});
+}
+
+static const char *const vx_srcs[] = {"add.vx"};
+
+int main(int argc, char **argv) {
+    vx_argc = argc;
+    vx_argv = argv;
+    vx_init(__builtin_frame_address(0));
+    vx_files = vx_srcs;
+    fn_main();
+    vx_loop();
+    return 0;
+}
+```
+
+What to notice:
+
+- **Names.** Top-level functions become `fn_<name>`, locals and parameters `v_<name>`. Every function is `static`, so the C compiler can inline freely. Names from other modules carry a module prefix, such as `fn_1math_abs` for `math.abs`.
+- **Types.** `int` is `int64_t`, `float` is `double`, `bool` is `bool`, and `string` is `vx_str`, a pointer and a byte length. A function with no result returns `void`.
+- **Checked arithmetic.** `a + b` becomes `vx_add(a, b, 2)`, an inline function that uses the C compiler's overflow builtin and calls the error path only when the result doesn't fit. The last argument is the source line, used in the error message. In a program with several files, the file's index is stored above the low 20 bits: `2097168` is file 2, line 16. `&+`, `&-` and `&*` compile to plain wrapping arithmetic with no check.
+- **Interpolation.** `"total: {total}"` joins its parts in one allocation with `vx_str_join`.
+- **The real main.** C's `main` stores the arguments for `os.args()`, starts the runtime, calls your `main`, then runs the event loop with `vx_loop()` until no async tasks or timers are left.
+
+## Structs
+
+```vex title="point.vx"
+struct Point {
+    x: int
+    y: int = 0
+
+    fn sum() -> int => x + y
+
+    fn move(dx: int) {
+        x += dx
+    }
+}
+
+fn main() {
+    let p = Point(x: 1)
+    p.move(2)
+    println(p.sum(), p)
+}
+```
+
+```c
+typedef struct S_Point S_Point;
+struct S_Point {
+    int64_t f_x;
+    int64_t f_y;
+};
+
+static S_Point *new_S_Point(int64_t f_x, int64_t f_y) {
+    S_Point *o = vx_alloc(sizeof(S_Point));
+    o->f_x = f_x;
+    o->f_y = f_y;
+    return o;
+}
+
+static int64_t m5Point_sum(S_Point *self) {
+    return vx_add(self->f_x, self->f_y, 5);
+}
+
+static void m5Point_move(S_Point *self, int64_t v_dx) {
+    {
+        int64_t _t1 = self->f_x;
+        int64_t _t2 = v_dx;
+        self->f_x = vx_add(_t1, _t2, 8);
+    }
+}
+
+static void fn_main(void) {
+    S_Point *v_p = new_S_Point(INT64_C(1), INT64_C(0));
+    m5Point_move(v_p, INT64_C(2));
+    ...
+}
+```
+
+- A struct is a C struct with fields named `f_<name>`, always allocated on the garbage-collected heap with `vx_alloc` and passed around as a pointer. That is what makes structs reference types in Vex: `let b = a` copies the pointer.
+- The constructor `new_S_Point` takes every field. Defaults are filled in at the call site, which is why `Point(x: 1)` becomes `new_S_Point(1, 0)`.
+- A method becomes a function whose first parameter is `self`. Inside, a bare field name like `x` compiles to `self->f_x`, which is why Vex methods need no `self.` prefix.
+- Each struct also gets a `repr_` function that builds the text `println` shows, such as `Point(x: 3, y: 0)`.
+
+There is no destructor or free call. Objects nobody can reach are reclaimed by the collector; see [Memory](/docs/language/memory).
+
+## Enums
+
+```vex
+enum Shape {
+    circle(radius: float)
+    rect(w: float, h: float)
+    empty
+}
+
+fn area(s: Shape) -> float {
+    return match s {
+        circle(r) => 3.14 * r * r
+        rect(w, h) => w * h
+        empty => 0.0
+    }
+}
+```
+
+```c
+struct E_Shape {
+    int32_t tag;
+    union {
+        struct { double f_radius; } c_circle;
+        struct { double f_w; double f_h; } c_rect;
+    } u;
+};
+
+static E_Shape *case5Shape_rect(double f_w, double f_h) {
+    E_Shape *o = vx_alloc(sizeof(E_Shape));
+    o->tag = 1;
+    o->u.c_rect.f_w = f_w;
+    o->u.c_rect.f_h = f_h;
+    return o;
+}
+
+static double fn_area(E_Shape *v_s) {
+    return ({ E_Shape *_t1 = v_s; double _t2; double _t3 = {0}; double _t4 = {0}; double _t5 = {0};
+        if (_t1->tag == 0 && (_t3 = _t1->u.c_circle.f_radius, 1)) { double v_r = _t3; _t2 = ((3.14 * v_r) * v_r); }
+        else if (_t1->tag == 1 && (_t4 = _t1->u.c_rect.f_w, 1) && (_t5 = _t1->u.c_rect.f_h, 1)) { double v_w = _t4; double v_h = _t5; _t2 = (v_w * v_h); }
+        else { _t2 = 0.0; } _t2; });
+    __builtin_unreachable();
+}
+```
+
+(The body of `fn_area` is on one line in the real output; it is wrapped here.)
+
+- An enum is a tagged union: an `int32_t tag` numbering the cases in declaration order, and a union with one struct per case that carries values. Each case has a constructor function, `case5Shape_<case>`.
+- Enum values live on the heap, like structs, even for cases with no values. Enums whose cases carry no values have only the tag.
+- A `match` becomes a chain of `if` tests on the tag that bind the carried values as they go, wrapped in a statement expression so it can produce a value. Because the compiler has already proved the match exhaustive, the last arm needs no test.
+- Comparing cases with `<` compares the tags, which is why cases are ordered as declared.
+
+## Optionals
+
+```vex title="lookup.vx"
+struct User {
+    name: string
+}
+
+fn find(id: int) -> User? {
+    if id == 1 {
+        return User(name: "Ann")
+    }
+    return nil
+}
+
+fn port(text: string) -> int? {
+    if text == "" {
+        return nil
+    }
+    return int(text)
+}
+
+fn main() {
+    let name = find(2)?.name ?? "nobody"
+    if let p = port("8080") {
+        println(name, p)
+    }
+}
+```
+
+```c
+typedef struct { bool has; int64_t v; } opt_int;
+typedef struct { bool has; vx_str v; } opt_str;
+
+static S_User *fn_find(int64_t v_id) {
+    if (v_id == INT64_C(1)) {
+        return (new_S_User(VX_LIT("Ann")));
+    }
+    return ((S_User *){0});
+    __builtin_unreachable();
+}
+
+static opt_int fn_port(vx_str v_text) {
+    if (vx_str_eq(v_text, VX_LIT(""))) {
+        return ((opt_int){0});
+    }
+    return ((opt_int){true, vx_str_to_int(v_text, 16)});
+    __builtin_unreachable();
+}
+
+static void fn_main(void) {
+    vx_str v_name = ({ opt_str _t1 = ({ S_User *_t2 = fn_find(INT64_C(2)); ((_t2) != NULL) ? ((opt_str){true, _t2->f_name}) : (opt_str){0}; }); ((_t1).has) ? (_t1).v : VX_LIT("nobody"); });
+    {
+        opt_int _t3 = fn_port(VX_LIT("8080"));
+        if (((_t3).has)) {
+            int64_t v_p = (_t3).v;
+            vx_print(true, 2, (vx_str[]){v_name, vx_int_str(v_p)});
+        }
+    }
+}
+```
+
+Optionals cost nothing extra where they can:
+
+- An optional struct, enum, list or map is its pointer, with `NULL` for `nil`. `User?` is `S_User *`.
+- An optional `int`, `float`, `bool` or `string` is a small struct, `{ bool has; T v; }`, passed by value. No allocation is involved.
+- `?.` and `??` become conditional expressions, and `if let` becomes an `if` on `has` (or on the pointer) that declares the unwrapped variable inside.
+
+## Closures
+
+```vex title="counter.vx"
+fn apply(f: fn(int) -> int, x: int) -> int => f(x)
+
+fn main() {
+    var count = 0
+    let step = 10
+    let add = fn(x: int) -> int {
+        count += 1
+        return x + step
+    }
+    println(apply(add, 5), count)
+}
+```
+
+```c
+struct env_lam1 { int64_t *c0; int64_t c1; };
+static int64_t lam1(void *env_, int64_t v_x);
+
+static int64_t fn_apply(vx_fn v_f, int64_t v_x) {
+    return ({ vx_fn _t1 = v_f; ((int64_t (*)(void *, int64_t))_t1.fn)(_t1.env, v_x); });
+}
+
+static void fn_main(void) {
+    int64_t *v_count = vx_alloc(sizeof(int64_t));
+    *v_count = INT64_C(0);
+    int64_t v_step = INT64_C(10);
+    vx_fn v_add = ({ struct env_lam1 *_t1 = vx_alloc(sizeof(struct env_lam1)); _t1->c0 = v_count; _t1->c1 = v_step; (vx_fn){(void *)lam1, _t1}; });
+    ...
+}
+
+static int64_t lam1(void *env_, int64_t v_x) {
+    struct env_lam1 *_env = env_;
+    {
+        int64_t _t1 = (*_env->c0);
+        int64_t _t2 = INT64_C(1);
+        (*_env->c0) = vx_add(_t1, _t2, 7);
+    }
+    return vx_add(v_x, _env->c1, 8);
+    __builtin_unreachable();
+}
+```
+
+- A function value is a `vx_fn`: a code pointer and an environment pointer. Calling it casts the code pointer to the right C type and passes the environment first.
+- The closure body becomes a top-level C function, `lam1`, and what it captures goes into a heap-allocated environment struct.
+- A `let` that is captured is copied into the environment (`c1 = v_step`), since it can't change.
+- A `var` that a closure captures is moved to the heap when it is declared (`v_count` is an `int64_t *`), and the environment stores the pointer. That is how Vex closures capture variables by reference: the closure and the function share one `count`, and it lives as long as either needs it.
+- A named function used as a value, such as `apply(double, 5)`, becomes a `vx_fn` whose code is a small adapter, `fnv_fn_double`, and whose environment is `NULL`.
+
+## Errors
+
+```vex title="parse.vx"
+fn parse(text: string) throws -> int {
+    if text == "" {
+        throw Error("empty input")
+    }
+    return int(text)
+}
+
+fn main() {
+    let n = try parse("") catch e {
+        println(e.message)
+        0
+    }
+    println(n)
+}
+```
+
+```c
+struct S_Error {
+    vx_str f_message;
+};
+
+static int64_t fn_parse(vx_str v_text, void **vx_err) {
+    if (vx_str_eq(v_text, VX_LIT(""))) {
+        *vx_err = new_S_Error(VX_LIT("empty input"));
+        return (int64_t){0};
+    }
+    return vx_str_to_int(v_text, 5);
+    __builtin_unreachable();
+}
+
+static void fn_main(void) {
+    int64_t v_n = ({ __label__ _L_t1; void *_t1 = NULL; int64_t _t3;
+        _t3 = ({ int64_t _t2 = fn_parse(VX_LIT(""), &_t1); if (__builtin_expect(_t1 != NULL, 0)) { goto _L_t1; } _t2; });
+        if (0) { _L_t1: ; S_Error *v_e = _t1; vx_print(true, 1, (vx_str[]){v_e->f_message});
+_t3 = INT64_C(0);
+} _t3; });
+    vx_print(true, 1, (vx_str[]){vx_int_str(v_n)});
+}
+```
+
+(The `try ... catch` is wrapped here at the points where the real output has no line breaks.)
+
+- A function marked `throws` gets an extra last parameter, `void **vx_err`. `throw` stores the error there and returns a zero value.
+- After each throwing call, the caller checks the error slot once. `__builtin_expect` tells the C compiler the error path is rare, so the normal path stays fast.
+- `catch` is a label the check jumps to; `try` without `catch` returns the error to its own caller the same way; `try?` turns it into `nil`.
+- There is no unwinding, no `setjmp` and no hidden cost for code that doesn't throw: an error is a second return value.
+- `Error` is an ordinary struct with one field, `f_message`. A typed error from `throws(E)` is a pointer to the enum value instead.
+
+## Generics
+
+```vex title="largest.vx"
+fn largest<T: Comparable>(items: [T]) -> T {
+    var best = items[0]
+    for x in items {
+        if x > best {
+            best = x
+        }
+    }
+    return best
+}
+
+fn main() {
+    println(largest([3, 9, 2]), largest(["b", "a"]))
+}
+```
+
+```c
+static int64_t fn_largest__int(vx_list *v_items);
+static vx_str fn_largest__str(vx_list *v_items);
+
+static int64_t fn_largest__int(vx_list *v_items) {
+    int64_t v_best = (*VX_AT(int64_t, v_items, INT64_C(0), 2));
+    ...
+            if (v_x > v_best) {
+    ...
+}
+
+static vx_str fn_largest__str(vx_list *v_items) {
+    vx_str v_best = (*VX_AT(vx_str, v_items, INT64_C(0), 2));
+    ...
+            if (vx_str_cmp(v_x, v_best) > 0) {
+    ...
+}
+```
+
+Generic functions, structs and enums are specialized: the compiler writes a separate copy for each set of type arguments the program uses, here `fn_largest__int` and `fn_largest__str`. Each copy uses the real types, so `>` on `int` is a plain C comparison and there is no boxing. The cost is code size, which grows with the number of distinct uses.
+
+## Lists, maps and strings
+
+```vex title="collections.vx"
+fn main() {
+    var names = ["ann", "bob"]
+    names.push("cat")
+    var ages = ["ann": 31]
+    ages["bob"] = 25
+    for name in names {
+        println(name, ages[name] ?? 0)
+    }
+}
+```
+
+```c
+vx_list *v_names = vx_list_new(sizeof(vx_str), 2, (vx_str[]){VX_LIT("ann"), VX_LIT("bob")});
+VX_PUSH(vx_str, vx_list_mut(v_names, 3), VX_LIT("cat"));
+vx_map *v_ages = ({ vx_map *_t1 = vx_map_new(VX_KEY_STR, sizeof(vx_str), sizeof(int64_t)); ... });
+...
+for (int64_t _t9 = 0; _t9 < _t8 && _t9 < _t7->len; _t9++) {
+    vx_str v_name = ((vx_str*)_t7->data)[_t9];
+    vx_print(true, 2, (vx_str[]){v_name, vx_int_str(({ opt_int _t10 = ({ vx_str _t11 = v_name; int64_t *_t12 = vx_map_find(v_ages, &_t11); _t12 ? ((opt_int){true, *_t12}) : (opt_int){0}; }); ((_t10).has) ? (_t10).v : INT64_C(0); }))});
+}
+```
+
+- A list is a `vx_list *`: a length, a capacity, an element size and a flat array of elements. A `[int]` stores the `int64_t` values directly, not pointers to them.
+- Indexing goes through `VX_AT`, which compares the index with the length as one unsigned comparison and calls the error path only when it is out of range.
+- `vx_list_mut` checks that the list isn't a frozen constant before changing it.
+- A `for` loop reads the length once, which is why items pushed during the loop aren't visited, and also re-checks the current length, which is why removing items ends the loop early instead of reading past the end.
+- A map is a `vx_map *`, a hash table that keeps insertion order. Reading `m[key]` calls `vx_map_find`, which returns a pointer or `NULL`, turned into an optional.
+- Strings are `vx_str` values passed by value. Literals point at constant data with no allocation (`VX_LIT`); new strings are allocated on the collected heap. Strings aren't NUL-terminated; the runtime makes a C string when it calls a C function that needs one.
+
+## See also
+
+- [The vex command](/docs/tools/cli)
+- [C interop](/docs/projects/c-interop)
+- [Memory](/docs/language/memory)
+- [Errors](/docs/language/errors)
+- [Generics](/docs/language/generics)

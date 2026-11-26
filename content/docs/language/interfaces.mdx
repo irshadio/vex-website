@@ -1,0 +1,690 @@
+---
+title: Interfaces
+description: Declaring interfaces with methods, properties and default methods, implementing them in structs and enums, using interfaces as types and as constraints, interface inheritance and generic interfaces.
+---
+
+An interface is a list of methods and properties that a type promises to have. Code written against the interface works with every type that keeps the promise: a `[Shape]` can hold circles and rectangles, and a function taking a `Shape` accepts either.
+
+```vex title="shapes.vx"
+interface Shape {
+    fn area() -> float
+    fn name() -> string => "shape"                  // a default
+    fn summary() -> string => "{name()}: {area()}"
+}
+
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.14 * radius * radius
+    fn name() -> string => "circle"                // replaces the default
+}
+
+struct Rect: Shape {
+    width: float
+    height: float
+    fn area() -> float => width * height
+}
+
+fn main() {
+    let shapes: [Shape] = [Circle(radius: 1), Rect(width: 2, height: 3)]
+    for s in shapes {
+        println(s.summary())
+    }
+}
+```
+
+```text title="Output"
+circle: 3.14
+shape: 6.0
+```
+
+## Declaring an interface
+
+An interface lists method signatures without bodies, and property requirements with `get` and `set`:
+
+```vex
+interface Storage {
+    fn read(key: string) -> string?
+    fn write(key: string, value: string) throws
+    get count -> int
+}
+```
+
+- A method without a body is required. A method with a body is a [default](#default-methods).
+- `get name -> T` requires a readable property and `set name(value: T)` a writable one. See [Properties](#properties).
+- Interface methods can take parameters with defaults and can throw.
+
+Interfaces can't have fields, static members, or methods with their own type parameters:
+
+```vex title="iface_limits.vx"
+interface Named {
+    name: string
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: interfaces can't have fields
+ --> iface_limits.vx:2:5
+  |
+2 |     name: string
+  |     ^^^^ require a getter instead, e.g. get name -> string
+```
+
+```vex title="iface_static.vx"
+interface Factory {
+    static fn make() -> Factory
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: interfaces can't have static methods
+ --> iface_static.vx:2:5
+  |
+2 |     static fn make() -> Factory
+  |     ^^^^^^
+```
+
+`fn f<T>(x: T) -> T` inside an interface is reported as `interface methods and accessors can't have their own type parameters yet`.
+
+## Implementing an interface
+
+A struct or enum names the interfaces it implements after a `:`, separated by commas. The compiler checks right there that every required member exists with the right type:
+
+```vex title="missing.vx"
+interface Shape {
+    fn area() -> float
+    get name -> string
+}
+
+struct Square: Shape {
+    side: float
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: Square doesn't implement 'area' from Shape
+ --> missing.vx:6:8
+  |
+6 | struct Square: Shape {
+  |        ^^^^^^ add fn area() -> float
+
+error: Square doesn't implement getter 'name' from Shape
+ --> missing.vx:6:8
+  |
+6 | struct Square: Shape {
+  |        ^^^^^^ add get name -> string, or a field name: string
+
+2 errors
+```
+
+The parameter types and result must match exactly:
+
+```vex title="mismatch.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> int => 1
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: 'area' doesn't match Shape: expected fn() -> float, found fn() -> int
+ --> mismatch.vx:7:8
+  |
+7 |     fn area() -> int => 1
+  |        ^^^^
+```
+
+A method that implements an interface can't be `static` or `async`: `'load' can't be async, since it implements Loader`.
+
+### Conformance is declared, not inferred
+
+A type implements an interface only when it lists it. Having methods with the right names isn't enough, so adding a method to a struct never changes which interfaces it implements by accident:
+
+```vex title="not_declared.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Square {
+    side: float
+    fn area() -> float => side * side
+}
+
+fn main() {
+    let s: Shape = Square(side: 2)
+}
+```
+
+```text title="Output"
+error: expected Shape, found Square
+  --> not_declared.vx:11:20
+   |
+11 |     let s: Shape = Square(side: 2)
+   |                    ^^^^^^^^^^^^^^^ declare it: struct Square: Shape
+```
+
+The method that meets a requirement can come from an [extension](/docs/language/extensions) in the same module, as long as the struct lists the interface in its own declaration.
+
+## Default methods
+
+A method with a body is a default. A type that leaves it out gets it, and a type that writes its own replaces it. A default can call the interface's other members, and those calls go to the implementing type's versions:
+
+```vex title="defaults.vx"
+interface Greeter {
+    get name -> string
+    fn greeting() -> string => "Hello"
+    fn greet() -> string => "{greeting()}, I'm {name}"
+}
+
+struct English: Greeter {
+    name: string
+}
+
+struct Spanish: Greeter {
+    name: string
+    fn greeting() -> string => "Hola"
+}
+
+fn main() {
+    let people: [Greeter] = [English(name: "Ann"), Spanish(name: "Bea")]
+    for p in people {
+        println(p.greet())
+    }
+}
+```
+
+```text title="Output"
+Hello, I'm Ann
+Hola, I'm Bea
+```
+
+Defaults are how Vex shares behavior between types, in place of inheritance.
+
+When a type gets a default with the same name from two interfaces, it must choose:
+
+```vex title="two_defaults.vx"
+interface A {
+    fn f() -> int => 1
+}
+
+interface B {
+    fn f() -> int => 2
+}
+
+struct S: A, B {}
+
+fn main() {}
+```
+
+```text title="Output"
+error: S gets a default 'f' from both A and B
+ --> two_defaults.vx:9:8
+  |
+9 | struct S: A, B {}
+  |        ^ write its own fn f() -> int to choose
+```
+
+## Properties
+
+`get name -> T` in an interface requires a property that can be read. A type meets it with either a getter or a stored field of that type. `set name(value: T)` requires one that can be assigned, met by a setter or a field:
+
+```vex title="properties.vx"
+interface Sized {
+    get size -> int
+}
+
+interface Resizable: Sized {
+    set size(value: int)
+}
+
+struct Text: Resizable {
+    value: string
+    get size -> int => value.len                   // a getter
+    set size(n: int) {
+        value = "{n}"
+    }
+}
+
+struct Block: Resizable {
+    size: int                                      // a field meets get and set
+}
+
+fn grow(xs: [Resizable]) {
+    for x in xs {
+        x.size += 1
+        println(x.size)
+    }
+}
+
+fn main() {
+    grow([Block(size: 1), Text(value: "ab")])
+}
+```
+
+```text title="Output"
+2
+1
+```
+
+`Text` turns `size + 1 = 3` into the text `"3"`, whose length is 1.
+
+A property requirement can have a default getter:
+
+```vex title="default_getter.vx"
+interface Named {
+    get name -> string => "anonymous"
+    fn hello() -> string => "hello, {name}"
+}
+
+struct Anon: Named {}
+
+struct Person: Named {
+    name: string
+}
+
+fn main() {
+    let xs: [Named] = [Anon(), Person(name: "Bob")]
+    for x in xs {
+        println(x.hello())
+    }
+}
+```
+
+```text title="Output"
+hello, anonymous
+hello, Bob
+```
+
+A field that has the right name but the wrong type is an error: `field 'size' doesn't match Sized: expected int, found string`.
+
+## Interfaces as types
+
+An interface is a type. A value of any type that implements it can be stored in a variable, field, list, map, optional or parameter of the interface type:
+
+```vex title="as_types.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+}
+
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.14 * radius * radius
+}
+
+struct Canvas {
+    shapes: [Shape] = []
+    selected: Shape? = nil
+}
+
+fn totalArea(shapes: [Shape]) -> float {
+    var total = 0.0
+    for s in shapes {
+        total += s.area()
+    }
+    return total
+}
+
+fn main() {
+    let canvas = Canvas()
+    canvas.shapes.push(Square(side: 2))
+    canvas.shapes.push(Circle(radius: 1))
+    canvas.selected = canvas.shapes[0]
+    println(totalArea(canvas.shapes))
+    println(canvas.selected?.area() ?? 0.0)
+    let byName: [string: Shape] = ["sq": Square(side: 3)]
+    println(byName["sq"]?.area())
+    println(canvas.shapes)
+}
+```
+
+```text title="Output"
+7.140000000000001
+4.0
+9.0
+[Square(side: 2.0), Circle(radius: 1.0)]
+```
+
+### Mixed lists need a written type
+
+A list literal without a written type takes the type of its first element, so mixing types is an error until you say the list holds the interface:
+
+```vex title="mixed_list.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+}
+
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.14 * radius * radius
+}
+
+fn main() {
+    let xs = [Square(side: 1), Circle(radius: 1)]
+}
+```
+
+```text title="Output"
+error: list item 2: expected Square, found Circle
+  --> mixed_list.vx:16:32
+   |
+16 |     let xs = [Square(side: 1), Circle(radius: 1)]
+   |                                ^^^^^^^^^^^^^^^^^
+```
+
+Write `let xs: [Shape] = [...]`. A list literal passed straight to a `[Shape]` parameter gets its type from the parameter.
+
+A `[Square]` that already exists isn't a `[Shape]`, though. Lists can be changed, and a `[Shape]` view would let code push a `Circle` into a list of squares:
+
+```vex title="invariant.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+}
+
+fn total(xs: [Shape]) -> float {
+    var t = 0.0
+    for x in xs {
+        t += x.area()
+    }
+    return t
+}
+
+fn main() {
+    println(total([Square(side: 2)]))    // fine: the literal is built as [Shape]
+    let squares = [Square(side: 3)]
+    println(total(squares))
+}
+```
+
+```text title="Output"
+error: argument 'xs': expected [Shape], found [Square]
+  --> invariant.vx:21:19
+   |
+21 |     println(total(squares))
+   |                   ^^^^^^^
+```
+
+Declare it as `let squares: [Shape] = [...]`, or make the function generic: `fn total<T: Shape>(xs: [T])` accepts a `[Square]` directly (see [Generics](/docs/language/generics#interface-constraints)).
+
+### What you can do with an interface value
+
+- Call the interface's methods and read or assign its properties.
+- Print it: it prints as the value inside.
+- Pass it on as any interface it extends.
+
+Members that aren't part of the interface aren't reachable, and there is no way to get the concrete type back. Vex has no `is`, no casts and no downcasting; struct patterns can't match an interface value. If code needs to know the concrete type, add a method to the interface, or use an [enum](/docs/language/enums) instead.
+
+```vex title="no_downcast.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+    fn grow() { side *= 2 }
+}
+
+fn main() {
+    let sh: Shape = Square(side: 1)
+    sh.grow()
+}
+```
+
+```text title="Output"
+error: Shape has no method 'grow'
+  --> no_downcast.vx:13:8
+   |
+13 |     sh.grow()
+   |        ^^^^
+```
+
+Interface values can't be compared with `==`, even when the type inside defines `operator ==`: `values of type Shape can't be compared with ==`.
+
+An interface value refers to the same struct, not a copy. A change made through the struct is seen through the interface:
+
+```vex title="shared.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+    fn grow() { side *= 2 }
+}
+
+fn main() {
+    let s = Square(side: 1)
+    let sh: Shape = s
+    s.grow()
+    println(sh.area())
+}
+```
+
+```text title="Output"
+4.0
+```
+
+## Interface types or generics?
+
+There are two ways to write code that works with any `Shape`:
+
+```vex
+interface Shape {
+    fn area() -> float
+}
+
+fn total(xs: [Shape]) -> float {             // an interface type
+    var t = 0.0
+    for x in xs {
+        t += x.area()
+    }
+    return t
+}
+
+fn totalOf<T: Shape>(xs: [T]) -> float {     // a generic with a constraint
+    var t = 0.0
+    for x in xs {
+        t += x.area()
+    }
+    return t
+}
+```
+
+| | `[Shape]` (interface type) | `<T: Shape>` (generic) |
+|---|---|---|
+| Mixed types in one list | yes | no: all items are the same `T` |
+| Accepts an existing `[Square]` | no | yes |
+| Returns the concrete type | no, a `Shape` | yes, a `T` |
+| Calls | through a table of the type's methods, like Go interfaces | direct, specialized for each type |
+| Code size | one copy | one copy per type |
+
+Use an interface type for collections of different types, and a generic when the types are uniform or you need the concrete type back.
+
+## Interfaces that extend others
+
+An interface can list other interfaces after a `:`. It requires their members too, and its values can be used as any of them:
+
+```vex title="extend.vx"
+interface Drawable {
+    fn draw() -> string
+}
+
+interface Named {
+    get name -> string
+    fn greet() -> string => "I am {name}"
+}
+
+interface Shape: Drawable, Named {
+    fn area() -> float
+    fn describe() -> string => "{name} with area {area()}: {draw()}"
+}
+
+struct Square: Shape {                         // needs draw, name and area
+    side: float
+    get name -> string => "square"
+    fn draw() -> string => "[]"
+    fn area() -> float => side * side
+}
+
+fn main() {
+    let sq: Shape = Square(side: 3)
+    println(sq.describe())
+    println(sq.greet())
+    let d: Drawable = sq                       // a Shape is a Drawable
+    println(d.draw(), d)
+}
+```
+
+```text title="Output"
+square with area 9.0: []
+I am square
+[] Square(side: 3.0)
+```
+
+An interface can't extend itself, and a name listed twice is an error.
+
+## Enums implementing interfaces
+
+Enums implement interfaces the same way, usually with a `match self` in each method. Enums can have getters but not setters, since their values never change:
+
+```vex title="enum_iface.vx"
+interface Drawable {
+    fn draw() -> string
+}
+
+enum Suit: Drawable {
+    hearts
+    spades
+    fn draw() -> string => match self {
+        hearts => "♥"
+        spades => "♠"
+    }
+}
+
+struct Square: Drawable {
+    side: float
+    fn draw() -> string => "[{side}]"
+}
+
+fn main() {
+    let items: [Drawable] = [Suit.hearts, Square(side: 2), Suit.spades]
+    for i in items {
+        println(i.draw())
+    }
+}
+```
+
+```text title="Output"
+♥
+[2.0]
+♠
+```
+
+## Generic interfaces
+
+An interface can take type parameters. A struct implements it for one type, or stays generic and passes its own parameter on. Defaults work in both cases:
+
+```vex title="generic_iface.vx"
+interface Store<T> {
+    fn get(key: string) -> T?
+    fn put(key: string, value: T)
+    fn getOr(key: string, fallback: T) -> T => get(key) ?? fallback
+}
+
+struct Cache: Store<int> {                     // for one type
+    items: [string: int] = [:]
+    fn get(key: string) -> int? => items[key]
+    fn put(key: string, value: int) { items[key] = value }
+}
+
+struct MapStore<T>: Store<T> {                 // generic itself
+    items: [string: T] = [:]
+    fn get(key: string) -> T? => items[key]
+    fn put(key: string, value: T) { items[key] = value }
+}
+
+fn fill<S: Store<int>>(s: S) {
+    s.put("a", 1)
+    s.put("b", 2)
+}
+
+fn main() {
+    let c = Cache()
+    fill(c)
+    let st: Store<int> = c
+    println(st.get("b"), st.getOr("z", 0))
+
+    let names = MapStore<string>()
+    names.put("k", "v")
+    let gs: Store<string> = names
+    println(gs.getOr("k", "-"), gs.getOr("z", "-"))
+}
+```
+
+```text title="Output"
+2 0
+v -
+```
+
+A type parameter's constraint can refer to itself, as in `fn largest<T: Ordered<T>>(xs: [T])`. See [Generics](/docs/language/generics#self-referencing-constraints).
+
+## Interfaces across modules
+
+`pub interface` makes an interface usable from other modules. Its methods are public with it, and so is a method a struct writes for one of its interfaces, even without `pub`. See [Modules](/docs/projects/modules).
+
+## Rules and edge cases
+
+- An interface holds methods (with or without default bodies) and `get`/`set` property requirements. No fields, no static members, no generic methods, no operators.
+- A type implements an interface only by listing it after `:`, in the type's own declaration.
+- Every required member must exist with exactly the declared type. A field can meet a `get` or `set` requirement.
+- Methods that implement an interface can't be `static` or `async`.
+- Defaults call the implementing type's versions of other members. Two defaults with the same name must be resolved by the type.
+- An interface value exposes only the interface's members, prints as the value inside, and can't be compared with `==` or downcast.
+- A list literal of mixed types needs a written interface type. An existing `[Square]` isn't a `[Shape]`.
+- Interface values can't be sent to [isolates](/docs/concurrency/isolates).
+- Interfaces can't be extended with `extension`; give the interface a default method instead.
+
+## Comparison
+
+| | Vex | Swift | Go | Kotlin | TypeScript |
+|---|---|---|---|---|---|
+| Conformance | declared: `struct S: I` | declared | implicit | declared | structural |
+| Default methods | yes | in extensions | no | yes | no |
+| Property requirements | `get` / `set` | `{ get set }` | no | `val` / `var` | yes |
+| Downcasting | no | `as?` | type assertion | `as?` / `is` | narrowing |
+| Generic interfaces | yes | associated types | yes | yes | yes |
+
+## See also
+
+- [Generics](/docs/language/generics)
+- [Structs](/docs/language/structs)
+- [Enums](/docs/language/enums)
+- [Extensions](/docs/language/extensions)
+- [Example: interfaces](/docs/examples/interfaces)

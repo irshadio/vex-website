@@ -1,0 +1,292 @@
+---
+title: vex:fs
+description: API reference for vex:fs, which reads, writes, appends, lists, creates and removes files and folders.
+---
+
+`vex:fs` reads and writes files and folders. Files are read and written as text, as a whole. Functions that can fail throw an `Error` whose message names the path and the reason the system gave, such as `can't read notes.txt: No such file or directory`.
+
+```vex title="notes.vx"
+import "vex:fs"
+
+fn main() throws {
+    try fs.makeDir("demo")
+    try fs.write("demo/notes.txt", "first line\n")
+    try fs.append("demo/notes.txt", "second line\n")
+    let text = try fs.read("demo/notes.txt")
+    for i, line in text.lines() {
+        println("{i + 1}: {line}")
+    }
+    println(try fs.list("demo"))
+}
+```
+
+```text title="Output"
+1: first line
+2: second line
+["notes.txt"]
+```
+
+Relative paths are resolved against the folder the program runs in, which [`os.cwd()`](/docs/stdlib/os#cwd) returns. Paths use `/` as the separator.
+
+## Summary
+
+| Group | Function | Result | Throws |
+|---|---|---|---|
+| Files | [`read(path)`](#read) | The file's contents | yes |
+| | [`write(path, text)`](#write) | Replaces the file's contents | yes |
+| | [`append(path, text)`](#append) | Adds to the end of the file | yes |
+| Checking | [`exists(path)`](#exists) | Whether something is at the path | no |
+| | [`isDir(path)`](#isdir) | Whether the path is a folder | no |
+| | [`size(path)`](#size) | The size in bytes | yes |
+| Folders | [`list(path)`](#list) | The names in a folder, sorted | yes |
+| | [`makeDir(path)`](#makedir) | Creates a folder and its parents | yes |
+| | [`remove(path)`](#remove) | Removes a file or empty folder | yes |
+
+## Files
+
+### read
+
+```vex
+pub fn read(path: string) throws -> string
+```
+
+Returns the contents of the file at `path`.
+
+- **Parameters:** `path`, the file to read.
+- **Returns:** The whole file as a string, line endings included. An empty file gives `""`.
+- **Errors:** Throws `can't read <path>: <reason>` when the file can't be opened or read, for example `No such file or directory`, `Permission denied` or `Is a directory`.
+
+The bytes are taken as they are, without checking that they are valid UTF-8. Use `lines()` to split the text into lines, which also drops `\r` from Windows line endings.
+
+### write
+
+```vex
+pub fn write(path: string, text: string) throws
+```
+
+Writes `text` to the file at `path`, replacing what it held.
+
+- **Parameters:** `path`, the file to write; `text`, its new contents.
+- **Returns:** nothing.
+- **Errors:** Throws `can't write <path>: <reason>`. The folder must already exist: writing into a missing folder fails with `No such file or directory`. Create it first with [`makeDir`](#makedir).
+
+The file is created if it doesn't exist. New files get the usual permissions for the user, normally readable by everyone and writable by the owner.
+
+### append
+
+```vex
+pub fn append(path: string, text: string) throws
+```
+
+Adds `text` to the end of the file at `path`, creating the file if needed.
+
+- **Parameters:** `path`, the file; `text`, what to add.
+- **Returns:** nothing.
+- **Errors:** Throws `can't write <path>: <reason>`, as `write` does.
+
+`append` adds exactly the text you give it. Include `"\n"` yourself when you are writing lines.
+
+```vex title="files.vx"
+import "vex:fs"
+
+fn main() throws {
+    try fs.makeDir("out")
+    try fs.write("out/log.txt", "started\n")
+    try fs.append("out/log.txt", "working\n")
+    try fs.append("out/new.txt", "created by append\n")
+    print(try fs.read("out/log.txt"))
+    print(try fs.read("out/new.txt"))
+
+    try fs.read("out/missing.txt") catch e {
+        println(e.message)
+    }
+    try fs.write("out/no/such/file.txt", "x") catch e {
+        println(e.message)
+    }
+    let fallback = try? fs.read("out/missing.txt") ?? "default"
+    println(fallback)
+}
+```
+
+```text title="Output"
+started
+working
+created by append
+can't read out/missing.txt: No such file or directory
+can't write out/no/such/file.txt: No such file or directory
+default
+```
+
+## Checking
+
+### exists
+
+```vex
+pub fn exists(path: string) -> bool
+```
+
+Reports whether a file or folder exists at `path`.
+
+- **Parameters:** `path`, the path to check.
+- **Returns:** `true` if anything is there, `false` otherwise, including when a folder on the way can't be searched.
+- **Errors:** None.
+
+### isDir
+
+```vex
+pub fn isDir(path: string) -> bool
+```
+
+Reports whether `path` is a folder.
+
+- **Parameters:** `path`, the path to check.
+- **Returns:** `true` for a folder, `false` for a file or when nothing is there.
+- **Errors:** None.
+
+Both functions follow symbolic links, so a link to a folder counts as a folder.
+
+### size
+
+```vex
+pub fn size(path: string) throws -> int
+```
+
+Returns the size of the file at `path` in bytes.
+
+- **Parameters:** `path`, the file.
+- **Returns:** The size in bytes, not characters: `"é"` takes 2 bytes. For a folder it returns what the file system reports for the folder entry itself, which is not the size of its contents and differs between systems.
+- **Errors:** Throws `can't read <path>: <reason>` when nothing is at the path or it can't be reached.
+
+```vex title="exists.vx"
+import "vex:fs"
+
+fn main() throws {
+    try fs.makeDir("data")
+    try fs.write("data/a.txt", "héllo\n")
+    println(fs.exists("data"), fs.exists("data/a.txt"), fs.exists("data/nope"))
+    println(fs.isDir("data"), fs.isDir("data/a.txt"), fs.isDir("data/nope"))
+    println(try fs.size("data/a.txt"), "héllo\n".len)
+    try fs.size("data/nope") catch e {
+        println(e.message)
+    }
+}
+```
+
+```text title="Output"
+true true false
+true false false
+7 6
+can't read data/nope: No such file or directory
+```
+
+## Folders
+
+### list
+
+```vex
+pub fn list(path: string) throws -> [string]
+```
+
+Returns the names of the entries in the folder `path`, sorted.
+
+- **Parameters:** `path`, the folder.
+- **Returns:** The names of its files and folders, without the folder path in front and without `.` and `..`. Hidden entries, whose names start with `.`, are included. The names are sorted by their bytes, so uppercase names come before lowercase ones. An empty folder gives `[]`.
+- **Errors:** Throws `can't list <path>: <reason>`, such as `No such file or directory` or `Not a directory`.
+
+`list` doesn't look inside subfolders. To walk a tree, call it again for each name where `isDir` is true:
+
+```vex title="tree.vx"
+import "vex:fs"
+
+fn walk(dir: string, depth: int) throws {
+    for name in try fs.list(dir) {
+        let path = "{dir}/{name}"
+        var indent = ""
+        for i in 0..depth {
+            indent += "  "
+        }
+        println(indent + name)
+        if fs.isDir(path) {
+            try walk(path, depth + 1)
+        }
+    }
+}
+
+fn main() throws {
+    try fs.makeDir("site/docs/guide")
+    try fs.write("site/index.txt", "home")
+    try fs.write("site/docs/guide/start.txt", "start")
+    try fs.write("site/docs/About.txt", "about")
+    try walk("site", 0)
+}
+```
+
+```text title="Output"
+docs
+  About.txt
+  guide
+    start.txt
+index.txt
+```
+
+### makeDir
+
+```vex
+pub fn makeDir(path: string) throws
+```
+
+Creates the folder `path`, and any missing folders above it.
+
+- **Parameters:** `path`, the folder to create.
+- **Returns:** nothing.
+- **Errors:** Throws `can't create <path>: <reason>` when a folder can't be created, or when something on the path is a file (`Not a directory`).
+
+Like `mkdir -p`, it is not an error if the folder already exists, so you can call it before every write without checking first.
+
+### remove
+
+```vex
+pub fn remove(path: string) throws
+```
+
+Removes the file or empty folder at `path`.
+
+- **Parameters:** `path`, the file or folder.
+- **Returns:** nothing.
+- **Errors:** Throws `can't remove <path>: <reason>`: `No such file or directory` when nothing is there, and `Directory not empty` for a folder that still has entries.
+
+There is no recursive remove. Remove the entries first, using `list`, or run `rm -r` with [`os.run`](/docs/stdlib/os#run).
+
+```vex title="cleanup.vx"
+import "vex:fs"
+
+fn main() throws {
+    try fs.makeDir("tmp/cache")
+    try fs.makeDir("tmp/cache")
+    try fs.write("tmp/cache/a.txt", "x")
+    try fs.remove("tmp/cache") catch e {
+        println(e.message)
+    }
+    try fs.remove("tmp/cache/a.txt")
+    try fs.remove("tmp/cache")
+    println(try fs.list("tmp"))
+}
+```
+
+```text title="Output"
+can't remove tmp/cache: Directory not empty
+[]
+```
+
+## Limits
+
+- Files are read and written whole. There are no file handles, streaming reads or seeking yet.
+- There is no binary data type: `read` returns a `string`, so use it for text.
+- There is no rename, copy, file metadata other than size, or path joining. Build paths with interpolation, as in `"{dir}/{name}"`, and use [`os.run`](/docs/stdlib/os#run) for the rest.
+
+## See also
+
+- [vex:os](/docs/stdlib/os)
+- [Errors](/docs/language/errors)
+- [String members](/docs/stdlib/built-ins#string-members)
+- [Standard library overview](/docs/stdlib)

@@ -1,0 +1,272 @@
+---
+title: vex:os
+description: API reference for vex:os, which reads command-line arguments and environment variables, finds the working folder, exits, and runs shell commands.
+---
+
+`vex:os` gives a program access to its surroundings: the arguments it was started with, environment variables, the folder it runs in, its exit status, and other programs it can start through the shell.
+
+```vex title="greet.vx"
+import "vex:os"
+
+fn main() {
+    let args = os.args()
+    if args.len == 0 {
+        println("usage: greet <name>")
+        os.exit(2)
+    }
+    let greeting = os.env("GREETING") ?? "Hello"
+    println("{greeting}, {args[0]}")
+}
+```
+
+```sh
+vex run greet.vx Ann
+GREETING=Hi vex run greet.vx Ann
+```
+
+```text title="Output"
+Hello, Ann
+Hi, Ann
+```
+
+## Summary
+
+| Group | Function | Result |
+|---|---|---|
+| Arguments | [`args()`](#args) | The command-line arguments |
+| Environment | [`env(name)`](#env) | A variable's value, or `nil` |
+| | [`setEnv(name, value)`](#setenv) | Sets a variable |
+| Process | [`cwd()`](#cwd) | The current folder; throws |
+| | [`exit(code)`](#exit) | Ends the program with an exit status |
+| Commands | [`run(command)`](#run) | Runs a shell command; returns its exit status; throws |
+| | [`output(command)`](#output) | Runs a shell command; returns what it printed; throws |
+
+Functions marked "throws" need `try`, `try?` or `try ... catch`. They throw a plain `Error` whose message names what failed and the reason the system gave.
+
+## Arguments
+
+### args
+
+```vex
+pub fn args() -> [string]
+```
+
+Returns the arguments the program was started with, without the program's own name.
+
+- **Parameters:** none.
+- **Returns:** A new list of strings, in order. Empty when there were no arguments.
+- **Errors:** None.
+
+With a built program, the arguments are the words after its name: `./tool a b` gives `["a", "b"]`. With `vex run`, they are the words after the file or folder; a `--` right after the file is removed, which lets you pass arguments that start with `-`. A later `--` reaches the program like any other argument. See [Passing arguments](/docs/tools/cli#passing-arguments-to-the-program).
+
+```vex title="args.vx"
+import "vex:os"
+
+fn main() {
+    let args = os.args()
+    println(args.len, args)
+}
+```
+
+```sh
+vex run args.vx one "two words" -- --flag
+```
+
+```text title="Output"
+4 ["one", "two words", "--", "--flag"]
+```
+
+There is no flag parser in the standard library yet. Loop over the list and match on the strings you expect.
+
+## Environment
+
+### env
+
+```vex
+pub fn env(name: string) -> string?
+```
+
+Returns the environment variable `name`, or `nil` if it isn't set.
+
+- **Parameters:** `name`, the variable's name, such as `"HOME"`.
+- **Returns:** The value as a string, which may be `""` if the variable is set to nothing, or `nil` when it isn't set at all.
+- **Errors:** None.
+
+Give a default with `??`, or unwrap it with `if let` or `guard let`.
+
+### setEnv
+
+```vex
+pub fn setEnv(name: string, value: string)
+```
+
+Sets the environment variable `name` to `value`, for this program and the programs it starts afterwards with [`run`](#run) and [`output`](#output).
+
+- **Parameters:** `name`, the variable's name; `value`, its new value. An existing value is replaced.
+- **Returns:** nothing.
+- **Errors:** None. The change never reaches the shell that started the program.
+
+There is no function to unset a variable yet.
+
+```vex title="env.vx"
+import "vex:os"
+
+fn main() throws {
+    println(os.env("VEX_DEMO") ?? "unset", os.env("NOT_SET_ANYWHERE"))
+    os.setEnv("GREETING", "hello")
+    println(os.env("GREETING"))
+    let status = try os.run("echo $GREETING from the shell")
+    println(status)
+}
+```
+
+```sh
+VEX_DEMO=yes vex run env.vx
+```
+
+```text title="Output"
+yes nil
+hello
+hello from the shell
+0
+```
+
+## Process
+
+### cwd
+
+```vex
+pub fn cwd() throws -> string
+```
+
+Returns the folder the program runs in, the current working directory, as an absolute path.
+
+- **Parameters:** none.
+- **Returns:** The path, without a trailing `/`.
+- **Errors:** Throws `can't read the current folder: <reason>` if the system can't report it, for example when the folder has been deleted while the program runs.
+
+Relative paths given to [`vex:fs`](/docs/stdlib/fs) are resolved against this folder. It is the folder you ran the program from, not the folder of the source file or the executable.
+
+```vex title="where.vx"
+import "vex:os"
+
+fn main() throws {
+    let dir = try os.cwd()
+    println(dir.startsWith("/"), dir.endsWith("/"))
+}
+```
+
+```text title="Output"
+true false
+```
+
+### exit
+
+```vex
+pub fn exit(code: int)
+```
+
+Stops the program at once with exit status `code`.
+
+- **Parameters:** `code`, the exit status. 0 means success; any other value means failure. Shells see only the low 8 bits, so use 0 to 255.
+- **Returns:** never.
+- **Errors:** None.
+
+Output already printed is flushed first. Tasks and timers still pending are dropped, and nothing after the call runs. Under `vex run`, the program's exit status becomes the exit status of `vex` itself.
+
+```vex title="exit.vx"
+import "vex:os"
+
+fn main() {
+    println("checking")
+    os.exit(7)
+    println("not reached")
+}
+```
+
+```text title="Output"
+checking
+```
+
+```sh
+vex run exit.vx; echo "status $?"
+```
+
+```text
+checking
+status 7
+```
+
+A `fn main() throws` that lets an error escape exits with status 1 instead, after printing `error: <message>`.
+
+## Commands
+
+<Callout type="warn" title="Shell injection">
+`run` and `output` pass the command to `/bin/sh` exactly as written. Never build a command from text a user typed or a file provided: a value such as `x; rm -rf ~` would run as a second command.
+</Callout>
+
+### run
+
+```vex
+pub fn run(command: string) throws -> int
+```
+
+Runs `command` with the shell and returns its exit status. The command shares the program's terminal: it reads the same standard input and prints straight to the same standard output and error.
+
+- **Parameters:** `command`, a shell command line. Pipes, redirections and `&&` work, since the shell interprets it.
+- **Returns:** The command's exit status, 0 to 255. A command stopped by a signal gives 128 plus the signal number, the same convention shells use. A command that doesn't exist gives 127, the status the shell reports.
+- **Errors:** Throws `can't run '<command>': <reason>` only if the shell itself can't be started. A command that runs and fails is not an error: check the status.
+
+`run` waits for the command to finish, and it blocks the whole isolate meanwhile, including other async tasks.
+
+### output
+
+```vex
+pub fn output(command: string) throws -> string
+```
+
+Runs `command` with the shell and returns what it printed to standard output.
+
+- **Parameters:** `command`, a shell command line.
+- **Returns:** Everything the command wrote to standard output, including the final line ending. Its standard error still goes to the terminal; add `2>&1` to the command to capture it too.
+- **Errors:** Throws `can't run '<command>': <reason>` if the shell can't be started, and `'<command>' failed with exit status <n>` if the command exits with any status other than 0. The output is lost in that case; use `run` with a redirect to a file if you need both.
+
+```vex title="commands.vx"
+import "vex:os"
+
+fn main() throws {
+    let status = try os.run("echo from the shell; exit 3")
+    println("status", status)
+
+    let out = try os.output("printf 'a\\nb\\n'")
+    println(out.lines())
+
+    let failed = try? os.output("exit 4")
+    println(failed)
+
+    try os.output("echo hi; exit 5") catch e {
+        println(e.message)
+    }
+    try os.output("nosuchcommand 2>/dev/null") catch e {
+        println(e.message)
+    }
+}
+```
+
+```text title="Output"
+from the shell
+status 3
+["a", "b"]
+nil
+'echo hi; exit 5' failed with exit status 5
+'nosuchcommand 2>/dev/null' failed with exit status 127
+```
+
+Use `lines()` or `trim()` on the result of `output` to drop the final line ending, as in `try os.output("git rev-parse HEAD").trim()`.
+
+## See also
+
+- [vex:fs](/docs/stdlib/fs)
+- [The vex command](/docs/tools/cli)
+- [Errors](/docs/language/errors)
+- [Optionals](/docs/language/optionals)

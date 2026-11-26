@@ -1,0 +1,522 @@
+---
+title: Extensions
+description: Adding methods, getters, setters, static members and operators to existing types, including int, float, bool, string, lists and maps, and how extensions are scoped across modules.
+---
+
+An extension adds members to a type that already exists. You can extend your own structs and enums, types from other modules, and the built-in types `int`, `float`, `bool`, `string`, lists and maps. Calls to the new members look exactly like calls to the type's own.
+
+```vex title="shout.vx"
+extension string {
+    fn shout() -> string => upper() + "!"
+    get isBlank -> bool => trim().len == 0
+}
+
+extension int {
+    get squared -> int => self * self
+    fn isEven() -> bool => self % 2 == 0
+}
+
+fn main() {
+    println("hi".shout(), "  ".isBlank, "x".isBlank)
+    println(7.squared, (1 + 3).isEven())
+}
+```
+
+```text title="Output"
+HI! true false
+49 true
+```
+
+## Writing an extension
+
+`extension TypeName { ... }` holds the new members. Inside, the value is `self`, and its members can be used without `self.`, as in a struct: `upper()` means `self.upper()`, and in a list extension `len` means `self.len`.
+
+What an extension can add depends on the type:
+
+| Type | Methods | Getters | Setters | Static methods and constants | Operators |
+|---|---|---|---|---|---|
+| Structs | yes | yes | yes | yes | yes |
+| Enums | yes | yes | no | yes | no |
+| `int`, `float`, `bool`, `string` | yes | yes | no | no | no |
+| Lists and maps | yes | yes | no | no | no |
+
+Methods can have default parameters, throw, be `async` and be generic, like any method.
+
+## Extending structs and enums
+
+An extension of a struct or enum can add methods, getters, setters (structs only), static methods, static constants and operators (structs only):
+
+```vex title="struct_ext.vx"
+struct Counter {
+    count: int = 0
+}
+
+extension Counter {
+    get doubled -> int => count * 2
+    set doubled(v: int) {
+        count = v / 2
+    }
+    fn reset() {
+        count = 0
+    }
+    static fn startingAt(n: int) -> Counter => Counter(count: n)
+    static const limit = 10
+    operator +(other: Counter) -> Counter => Counter(count: count + other.count)
+}
+
+enum Direction { up, down }
+
+extension Direction {
+    fn flipped() -> Direction => match self {
+        up => .down
+        down => .up
+    }
+}
+
+fn main() {
+    let c = Counter.startingAt(3)
+    c.doubled = 8
+    println(c.count, c.doubled, Counter.limit)
+    println(c + Counter(count: 1))
+    c.reset()
+    println(c, Direction.up.flipped())
+}
+```
+
+```text title="Output"
+4 8 10
+Counter(count: 5)
+Counter(count: 0) Direction.down
+```
+
+### Extensions can't add fields
+
+An extension can't add stored data, since every existing value of the type would need room for it. Compute the value with a getter instead:
+
+```vex title="no_fields.vx"
+struct Point { x: int }
+
+extension Point {
+    y: int
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: extensions can't add fields
+ --> no_fields.vx:4:5
+  |
+4 |     y: int
+  |     ^ compute it instead: get y -> T { ... }
+```
+
+### Generic structs and enums
+
+An extension of a generic type names it without type arguments, and its members use the type's own parameters:
+
+```vex title="generic_ext.vx"
+struct Box<T> {
+    value: T
+}
+
+extension Box {
+    fn get() -> T => value
+    fn describe() -> string => "box of {value}"
+}
+
+fn main() {
+    println(Box(value: 3).get(), Box(value: "a").describe())
+}
+```
+
+```text title="Output"
+3 box of a
+```
+
+Writing `extension<T> Box<T>` is an error: `an extension of a generic struct or enum names it without type arguments`. You can't extend only `Box<int>`.
+
+### Meeting an interface
+
+A method added by an extension can meet a requirement of an interface the struct already lists after `:`. This lets you keep the interface methods in their own block, or in another file of the same module:
+
+```vex title="meet_iface.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Square: Shape {
+    side: float
+}
+
+extension Square {
+    fn area() -> float => side * side
+}
+
+fn main() {
+    let shapes: [Shape] = [Square(side: 2)]
+    println(shapes[0].area())
+}
+```
+
+```text title="Output"
+4.0
+```
+
+The struct must still declare the interface itself. `extension Square: Shape { ... }` isn't valid syntax.
+
+## Extending built-in types
+
+`int`, `float`, `bool` and `string` get methods and getters:
+
+```vex title="builtins.vx"
+extension float {
+    get half -> float => self / 2.0
+}
+
+extension bool {
+    fn toInt() -> int => match self {
+        true => 1
+        false => 0
+    }
+}
+
+extension int {
+    fn times(body: fn(int)) {
+        for i in 0..self {
+            body(i)
+        }
+    }
+}
+
+fn main() {
+    println(3.0.half, true.toInt())
+    3.times(fn(i) { print(i, "") })
+    println()
+}
+```
+
+```text title="Output"
+1.5 1
+0 1 2 
+```
+
+Built-in types can't get static members, constants or setters:
+
+```vex title="builtin_limits.vx"
+extension string {
+    static fn make() -> string => ""
+    static const empty = ""
+    set loud(v: string) {}
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: only extensions of structs and enums can add static members
+ --> builtin_limits.vx:2:15
+  |
+2 |     static fn make() -> string => ""
+  |               ^^^^ make it a top-level function
+
+error: only extensions of structs and enums can add constants
+ --> builtin_limits.vx:3:18
+  |
+3 |     static const empty = ""
+  |                  ^^^^^ move it to the top level
+
+error: only extensions of structs and enums can add setters
+ --> builtin_limits.vx:4:9
+  |
+4 |     set loud(v: string) {}
+  |         ^^^^ make it a method
+
+3 errors
+```
+
+### Lists and maps
+
+A list or map extension is either for one element type, such as `extension [int]`, or for all of them, with type parameters and optional constraints after `extension`:
+
+```vex title="collections.vx"
+extension [int] {
+    fn sum() -> int {
+        var total = 0
+        for x in self {
+            total += x
+        }
+        return total
+    }
+}
+
+extension<T: Comparable> [T] {
+    fn largest() -> T? {
+        if len == 0 {
+            return nil
+        }
+        var best = self[0]
+        for x in self {
+            if x > best {
+                best = x
+            }
+        }
+        return best
+    }
+}
+
+extension<K: Hashable, V> [K: V] {
+    get size -> int => len
+}
+
+extension [string: int] {
+    fn total() -> int {
+        var t = 0
+        for _, v in self {
+            t += v
+        }
+        return t
+    }
+}
+
+fn main() {
+    println([1, 2, 3].sum())
+    println([3, 9, 2].largest() ?? 0, ["b", "c", "a"].largest() ?? "")
+    let empty: [int] = []
+    println(empty.largest() ?? -1)
+    println(["a": 1, "b": 2].size, ["a": 2, "b": 3].total())
+}
+```
+
+```text title="Output"
+6
+9 c
+-1
+2 5
+```
+
+The constraint decides which lists get the member: `largest()` exists on `[int]` and `[string]`, but not on a list of a struct that isn't `Comparable`. The constraints are the same as for [generics](/docs/language/generics#constraints).
+
+When an extension for one type and an extension for all lists both add a member with the same name, the one for the specific type wins:
+
+```vex title="specific.vx"
+extension<T> [T] {
+    fn describe() -> string => "a list of {len}"
+}
+
+extension [int] {
+    fn describe() -> string => "{len} ints"
+}
+
+fn main() {
+    println([1, 2].describe(), ["a"].describe())
+}
+```
+
+```text title="Output"
+2 ints a list of 1
+```
+
+Two generic extensions that both match are ambiguous, and using the member is an error that names both lines: `'first2' of [int] is declared by more than one extension, on lines 32 and 35`.
+
+### Type aliases
+
+An extension can name a [type alias](/docs/language/types), and then extends the type the alias stands for:
+
+```vex title="alias_ext.vx"
+typedef Names = [string]
+
+extension Names {
+    fn joined(sep: string = ", ") -> string {
+        var out = ""
+        for n in self {
+            if out.len > 0 {
+                out += sep
+            }
+            out += n
+        }
+        return out
+    }
+}
+
+fn main() {
+    let names: Names = ["ann", "bo"]
+    println(names.joined(), names.joined(sep: "/"))
+    println(["x", "y"].joined())                 // any [string] has it
+}
+```
+
+```text title="Output"
+ann, bo ann/bo
+x, y
+```
+
+## What can't be extended
+
+Interfaces, optionals, records and function types can't be extended:
+
+```vex title="cant_extend.vx"
+interface Shape {
+    fn area() -> float
+}
+
+extension Shape {
+    fn twice() -> float => 2.0
+}
+
+extension int? {
+    fn f() {}
+}
+
+extension fn() {
+    fn h() {}
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: Shape can't be extended
+ --> cant_extend.vx:5:11
+  |
+5 | extension Shape {
+  |           ^^^^^ give the interface a default method instead
+
+error: int? can't be extended
+ --> cant_extend.vx:9:11
+  |
+9 | extension int? {
+  |           ^^^^ extend a struct, an enum, int, float, bool, string, a list or a map
+
+error: fn() can't be extended
+  --> cant_extend.vx:13:11
+   |
+13 | extension fn() {
+   |           ^^^^ extend a struct, an enum, int, float, bool, string, a list or a map
+
+3 errors
+```
+
+To add behavior to an optional, unwrap it first; extension members of the inner type work through `?.`, as in `maybe?.shout()`.
+
+## Extensions add, they don't replace
+
+An extension can't change what a type already has. A member with the same name as an existing field, method or built-in member is an error, and so is the same member added twice:
+
+```vex title="no_override.vx"
+struct Point {
+    x: int
+}
+
+extension Point {
+    fn x() -> int => 1
+}
+
+extension string {
+    fn upper() -> string => self
+    fn shout() -> string => self
+}
+
+extension string {
+    fn shout() -> string => self
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: 'x' is already a field of Point
+ --> no_override.vx:6:8
+  |
+6 |     fn x() -> int => 1
+  |        ^
+
+error: string already has a member 'upper'
+  --> no_override.vx:10:8
+   |
+10 |     fn upper() -> string => self
+   |        ^^^^^ choose another name
+
+error: 'shout' is already declared for string on line 11
+  --> no_override.vx:15:8
+   |
+15 |     fn shout() -> string => self
+   |        ^^^^^
+
+3 errors
+```
+
+This keeps a call's meaning stable: `s.upper()` always runs the built-in `upper`, wherever you read it.
+
+## Extensions and modules
+
+An extension works everywhere in the module that declares it. Other modules see only its `pub` members, and only in files that import the extension's module. `pub extension` makes every member public:
+
+<Files>
+  <File name="package.toml" />
+  <File name="main.vx" />
+  <Folder name="text" defaultOpen>
+    <File name="text.vx" />
+  </Folder>
+</Files>
+
+```vex title="text/text.vx"
+pub extension string {
+    fn shout() -> string => upper() + "!"
+    get isBlank -> bool => trim().len == 0
+}
+
+extension string {
+    fn wrap() -> string => "[" + self + "]"     // private to this module
+    pub fn wrapped() -> string => wrap()        // public
+}
+```
+
+```vex
+import "text"
+
+fn main() {
+    println("hi".shout(), "  ".isBlank, "a".wrapped())
+}
+```
+
+```text title="Output"
+HI! true [a]
+```
+
+Using a private member from another module is an error:
+
+```text
+error: method 'wrap' of the extension is private to text
+ --> main.vx:4:17
+  |
+4 |     println("a".wrap())
+  |                 ^^^^ mark it pub in text to use it from other modules
+```
+
+A file that doesn't import `text` doesn't see `shout` at all: `string has no method 'shout'`. Two modules can each add a private member with the same name without clashing.
+
+Extensions of types from other modules are written with the module name: `extension shapes.Point { ... }`. They can only use that type's `pub` fields and methods. See [Modules](/docs/projects/modules).
+
+## Extension members as values
+
+Extension methods can be torn off like built-in ones: with `let xs = [1, 2, 3]`, `xs.tail` is a function bound to `xs`. See [Closures](/docs/language/closures).
+
+## Rules and edge cases
+
+- Extensions add methods and getters to every extendable type, and setters, static members and operators to structs (enums get static members but not setters or operators).
+- Extendable: structs, enums, `int`, `float`, `bool`, `string`, lists, maps, and type aliases of those. Not extendable: interfaces, optionals, records, function types.
+- No fields. No replacing or shadowing existing members.
+- A generic struct or enum is extended by its bare name; its type parameters are in scope.
+- List and map extensions are for one element type or for all, with `extension<T: C> [T]`. The specific one wins over the generic one; two matching generic ones are ambiguous.
+- An extension method can meet an interface requirement, but the struct must list the interface itself.
+- Members are private to the module unless marked `pub` (or the extension is `pub extension`), and other modules see them only in files that import the module.
+- `extension` is only a keyword at the start of a declaration, so it remains usable as a variable name.
+
+## See also
+
+- [Structs](/docs/language/structs)
+- [Interfaces](/docs/language/interfaces)
+- [Generics](/docs/language/generics)
+- [Modules](/docs/projects/modules)
+- [Built-ins](/docs/stdlib/built-ins)

@@ -1,0 +1,359 @@
+---
+title: Maps
+description: Creating maps, key and value rules, reading missing keys, adding, replacing and removing entries, every map member, iteration order, reference semantics and copying.
+---
+
+A map, written `[K: V]`, stores values under unique keys. Reading a key gives an optional, since the key may be missing, so a missing key can never crash your program. Maps keep their entries in the order the keys were first added, and like lists they are shared references.
+
+## Creating maps
+
+```vex title="create.vx"
+enum Size { small, large }
+
+fn main() {
+    let ages = ["ann": 31, "bob": 25]
+    let names = [3: "three", 1: "one"]
+    let flags = [true: "yes", false: "no"]
+    let sizes: [Size: string] = [.small: "S", .large: "L"]
+    let empty: [string: int] = [:]
+    println(ages, names, flags, sizes, empty)
+}
+```
+
+```text title="Output"
+["ann": 31, "bob": 25] [3: "three", 1: "one"] [true: "yes", false: "no"] [Size.small: "S", Size.large: "L"] [:]
+```
+
+- A map literal is `[key: value, ...]`. The empty map is `[:]`.
+- The key and value types are inferred from the entries, or from the expected type. An empty map needs its type written: `let m = [:]` gives `can't tell the type of an empty map`.
+- A key written twice in one literal is an error: `key "a" is already in this map on line 2`. Keys written differently but equal, such as `10` and `0b1010`, count as the same.
+
+### Key and value types
+
+Keys can be `int`, `string`, `bool`, or an enum whose cases carry no values. These are the types with a reliable equality and hash. Other key types are errors:
+
+```vex title="badkey.vx"
+struct Point {
+    x: int
+}
+
+fn main() {
+    let byPoint = [Point(x: 1): "p"]
+    let byFloat = [1.5: "x"]
+}
+```
+
+```text title="Output"
+error: Point can't be a map key
+ --> badkey.vx:6:20
+  |
+6 |     let byPoint = [Point(x: 1): "p"]
+  |                    ^^^^^^^^^^^ use int, string, bool or an enum whose cases carry no values
+
+error: float can't be a map key
+ --> badkey.vx:7:20
+  |
+7 |     let byFloat = [1.5: "x"]
+  |                    ^^^ use int, string, bool or an enum whose cases carry no values
+
+2 errors
+```
+
+Records, lists and enums whose cases carry values can't be keys either. To key by several values, build a string key such as `"{x},{y}"`.
+
+Values can be any type except an optional. A missing key already reads as `nil`, so a stored `nil` would be indistinguishable from a missing one:
+
+```vex title="optvalue.vx"
+fn main() {
+    let m: [string: int?] = [:]
+}
+```
+
+```text title="Output"
+error: map values can't be optional, since a missing key already reads as nil
+ --> optvalue.vx:2:21
+  |
+2 |     let m: [string: int?] = [:]
+  |                     ^^^^ remove the key instead of storing nil
+```
+
+## Reading values
+
+`m[key]` gives an optional of the value type: the value, or `nil` when the key is missing. Use `??` for a default or `if let` to act only when it's there:
+
+```vex title="read.vx"
+fn main() {
+    let ages = ["ann": 31, "bob": 25]
+    let a = ages["ann"]
+    let z = ages["zoe"]
+    println(a, z, ages["zoe"] ?? 0)
+    if let b = ages["bob"] {
+        println("bob is {b}")
+    }
+}
+```
+
+```text title="Output"
+31 nil 0
+bob is 25
+```
+
+The result is optional even when you know the key exists, so it can't be used directly as a plain value:
+
+```vex title="readopt.vx"
+fn main() {
+    let ages = ["ann": 31]
+    let next = ages["ann"] + 1
+}
+```
+
+```text title="Output"
+error: can't use '+' with int? and int
+ --> readopt.vx:3:16
+  |
+3 |     let next = ages["ann"] + 1
+  |                ^^^^^^^^^^^^^^^
+```
+
+Write `(ages["ann"] ?? 0) + 1`. The key must have the map's key type: `ages[1]` gives `map key: expected string, found int`.
+
+## Adding, replacing and removing
+
+```vex title="write.vx"
+fn main() {
+    var ages = ["ann": 31, "bob": 25]
+    ages["cat"] = 40
+    ages["ann"] = 32
+    println(ages)
+    println(ages.remove("bob"), ages.remove("bob"))
+    println(ages)
+}
+```
+
+```text title="Output"
+["ann": 32, "bob": 25, "cat": 40]
+25 nil
+["ann": 32, "cat": 40]
+```
+
+- `m[key] = value` adds the entry, or replaces the value if the key exists. A replaced entry keeps its place in the order.
+- `m.remove(key)` removes the entry and returns its value, or `nil` if the key wasn't there.
+- Removing a key and adding it again puts it at the end.
+
+### Updating a value
+
+`m[key] += 1` isn't allowed, because the key may be missing:
+
+```vex title="plusassign.vx"
+fn main() {
+    var counts = ["a": 1]
+    counts["a"] += 1
+}
+```
+
+```text title="Output"
+error: the key may be missing, so '+=' can't be used on a map entry
+ --> plusassign.vx:3:5
+  |
+3 |     counts["a"] += 1
+  |     ^^^^^^^^^^^^^^^^ write m[k] = (m[k] ?? 0) + 1
+```
+
+Say what a missing key means with `??`. This is the usual counting pattern:
+
+```vex title="count.vx"
+fn main() {
+    var counts: [string: int] = [:]
+    for word in "the cat and the hat".split(" ") {
+        counts[word] = (counts[word] ?? 0) + 1
+    }
+    println(counts)
+}
+```
+
+```text title="Output"
+["the": 2, "cat": 1, "and": 1, "hat": 1]
+```
+
+### Values that are lists or structs
+
+When the values are lists, maps or structs, `m[key]` gives a reference to the stored object, wrapped in an optional. Change it through `?.`, or take it out with `??` and put it back:
+
+```vex title="nested.vx"
+fn main() {
+    var groups: [int: [string]] = [:]
+    for word in ["ox", "cat", "be", "dog"] {
+        var group = groups[word.len] ?? []
+        group.push(word)
+        groups[word.len] = group
+    }
+    groups[2]?.push("up")
+    println(groups)
+}
+```
+
+```text title="Output"
+[2: ["ox", "be", "up"], 3: ["cat", "dog"]]
+```
+
+`groups[2].push("up")` without the `?` is an error: `can't read 'push' from a [string]?: it may be nil`.
+
+## Map members
+
+| Member | Result | Description |
+|---|---|---|
+| `m.len` | `int` | Number of entries. A property: no `()`. |
+| `m.keys` | `[K]` | A new list of the keys, in order. A property. |
+| `m.values` | `[V]` | A new list of the values, in order. A property. |
+| `m.contains(key)` | `bool` | Whether the key is present. |
+| `m.remove(key)` | `V?` | Removes the entry; returns its value or `nil`. |
+| `m.copy()` | `[K: V]` | A new map with the same entries. |
+| `m[key]` | `V?` | The value, or `nil`. |
+| `m[key] = value` | | Adds or replaces an entry. |
+
+```vex title="members.vx"
+fn main() {
+    let stock = ["apples": 5, "pears": 0, "plums": 12]
+    println(stock.len, stock.keys, stock.values)
+    println(stock.contains("pears"), stock.contains("figs"))
+    let keys = stock.keys
+    keys.push("figs")
+    println(stock.len)
+}
+```
+
+```text title="Output"
+3 ["apples", "pears", "plums"] [5, 0, 12]
+true false
+3
+```
+
+`keys` and `values` are new lists each time you read them, so changing them doesn't affect the map.
+
+### Edge cases
+
+| Operation | Result |
+|---|---|
+| `m["missing"]` | `nil` |
+| `m.remove("missing")` | `nil`; the map is unchanged |
+| `empty.keys`, `empty.values` | `[]` |
+| `m["a"] += 1` | compile error; write `m["a"] = (m["a"] ?? 0) + 1` |
+| `m.keys()` | compile error: `keys is a property, not a method` |
+| `m.len = 3` | compile error: `len can't be changed` |
+| `m.get(k)`, `m.has(k)`, `m.set(k, v)`, `m.delete(k)` | compile errors with hints: use `m[k]`, `.contains(k)`, `m[k] = v`, `.remove(k)` |
+| changing a constant map | compile error, or `can't change a constant map; change a copy made with .copy()` when reached through another name |
+
+## Looping
+
+With two names, `for` gives each key and value; with one, each key. Entries come in the order their keys were first added:
+
+```vex title="loop.vx"
+fn main() {
+    let ages = ["ann": 31, "bob": 25, "cat": 40]
+    for name, age in ages {
+        println("{name}: {age}")
+    }
+    var total = 0
+    for name in ages {
+        total += ages[name] ?? 0
+    }
+    println(total)
+}
+```
+
+```text title="Output"
+ann: 31
+bob: 25
+cat: 40
+96
+```
+
+A loop sees the entries that existed when it started. Entries removed during the loop are skipped, and entries added during the loop aren't visited:
+
+```vex title="loopchange.vx"
+fn main() {
+    var m = ["a": 1, "b": 2, "c": 3]
+    for k, v in m {
+        if k == "a" {
+            m.remove("b")
+            m["d"] = 4
+        }
+        print("{k} ")
+    }
+    println(m)
+}
+```
+
+```text title="Output"
+a c ["a": 1, "c": 3, "d": 4]
+```
+
+To visit keys in sorted order, sort a copy of `m.keys` and look each one up.
+
+## Maps are shared references
+
+Like lists and structs, a map is shared by every name that refers to it:
+
+```vex title="shared.vx"
+fn main() {
+    var counts = ["a": 1]
+    let alias = counts
+    alias["b"] = 2
+    println(counts)
+    let backup = counts.copy()
+    backup["a"] = 100
+    println(counts["a"], backup["a"])
+}
+```
+
+```text title="Output"
+["a": 1, "b": 2]
+1 100
+```
+
+`copy()` is shallow: list, map or struct values are shared between the original and the copy. A map sent to another [isolate](/docs/concurrency/isolates) is copied deeply.
+
+## Collection if, for and spread
+
+Map literals support the same `if`, `for` and `...` elements as [lists](/docs/language/lists#collection-if-for-and-spread). Spreading a map sets its entries in order, so a later key replaces an earlier one:
+
+```vex title="spread.vx"
+fn main() {
+    let defaults = ["theme": "light", "lang": "en"]
+    let user = ["lang": "fr"]
+    let verbose = true
+    let settings = [...defaults, ...user, if verbose "log": "all"]
+    let squares = [for i in 1..=3 i: i * i]
+    println(settings, squares)
+}
+```
+
+```text title="Output"
+["theme": "light", "lang": "fr", "log": "all"] [1: 1, 2: 4, 3: 9]
+```
+
+## Rules and edge cases
+
+- Keys: `int`, `string`, `bool`, or an enum whose cases carry no values.
+- Values: anything but an optional.
+- Reading always gives an optional; writing never fails.
+- Maps can't be compared with `==` (`values of type [string: int] can't be compared with ==`) and have no operators.
+- An empty map prints as `[:]`.
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Dart | Go |
+|---|---|---|---|---|---|
+| Type | `[K: V]` | `[K: V]` | `MutableMap<K, V>` | `Map<K, V>` | `map[K]V` |
+| Missing key | `nil` | `nil` | `null` | `null` | zero value |
+| Order | insertion | unordered | insertion | insertion | random |
+| Semantics | reference | value | reference | reference | reference |
+| Optional values | not allowed | allowed | allowed | allowed | allowed |
+
+## See also
+
+- [Lists](/docs/language/lists)
+- [Optionals](/docs/language/optionals)
+- [Control flow](/docs/language/control-flow)
+- [Constants](/docs/language/constants)
+- [Built-ins](/docs/stdlib/built-ins)

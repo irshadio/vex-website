@@ -1,0 +1,1355 @@
+---
+title: Language tour
+description: A complete walk through Vex in one page, from variables to isolates and C interop, with runnable examples and their real output.
+---
+
+This tour shows every major feature of Vex with a short, complete program and its output. It moves fast: each section links to the page in the [language guide](/docs/language) that covers the topic in depth. Every program here compiles with the current compiler, so you can paste any of them into a `.vx` file and run it with `vex run`.
+
+If you haven't installed Vex yet, start with [Install](/docs/install) and [Your first program](/docs/first-program).
+
+## Hello, world
+
+```vex title="hello.vx"
+fn main() {
+    println("Hello, world!")
+}
+```
+
+```text title="Output"
+Hello, world!
+```
+
+A program starts at `fn main()`. A new line ends a statement, so there are no semicolons. `//` starts a line comment, `/* */` a block comment (which can nest), and `///` a doc comment.
+
+More: [Basics](/docs/language/basics).
+
+## Variables and constants
+
+`let` declares a name that can't be reassigned, `var` one that can. The type is inferred from the value, or written after a colon. `const` declares a value computed when the program is compiled.
+
+```vex title="variables.vx"
+const maxUsers = 100
+
+fn main() {
+    let name = "Vex"            // string, can't be reassigned
+    var count = 0               // int, can change
+    let price: float = 9.99     // type written out
+    let tags: [string] = []     // an empty list needs its type
+
+    count += 1
+    println(name, count, price, tags, maxUsers)
+}
+```
+
+```text title="Output"
+Vex 1 9.99 [] 100
+```
+
+`println` takes any number of values and prints them separated by spaces.
+
+Constants can be built from literals, other constants, operators, interpolation, records, enum cases, lists and maps. They can be used as patterns in `match`, and structs can have `static const` members. Constant lists and maps are frozen; `.copy()` gives a changeable copy.
+
+```vex title="constants.vx"
+const maxUsers = 100
+const limit = maxUsers * 2 + 1
+const greeting = "hello from vex"
+const primes = [2, 3, 5, 7]
+const okCode = 200
+
+struct Circle {
+    static const pi = 3.14159
+    radius: float
+
+    fn area() -> float => pi * radius * radius
+}
+
+fn status(code: int) -> string => match code {
+    okCode => "ok"
+    _ => "other"
+}
+
+fn main() {
+    println(limit, greeting, primes, Circle.pi, Circle(radius: 2).area())
+    println(status(200), status(500))
+    var mine = primes.copy()
+    mine.push(11)
+    println(mine)
+}
+```
+
+```text title="Output"
+201 hello from vex [2, 3, 5, 7] 3.14159 12.56636
+ok other
+[2, 3, 5, 7, 11]
+```
+
+Changing a constant list directly is a compile error:
+
+```vex title="frozen.vx"
+const primes = [2, 3, 5, 7]
+
+fn main() {
+    primes.push(11)
+}
+```
+
+```text
+error: can't change a constant list: 'primes' is constant
+ --> frozen.vx:4:5
+  |
+4 |     primes.push(11)
+  |     ^^^^^^ change a copy instead: var mine = primes.copy()
+```
+
+More: [Basics](/docs/language/basics), [Constants](/docs/language/constants).
+
+## Numbers
+
+`int` and `float` are both 64 bits. They never mix silently: convert with `float(x)` or `int(x)`. A whole-number literal adapts to `float` where a float is expected.
+
+```vex title="numbers.vx"
+fn main() {
+    let count = 3
+    let price = 2.5
+    let total = float(count) * price
+    println(total)
+    println(int(total))
+    println(7 / 2, 7 % 2, 7.0 / 2)
+    let big = 9223372036854775807
+    println(big &+ 1)
+    let mask = 0xFF
+    println(1_000_000, mask, 0b1010, 2.5e-3)
+}
+```
+
+```text title="Output"
+7.5
+7
+3 1 3.5
+-9223372036854775808
+1000000 255 10 0.0025
+```
+
+Mixing them is a compile error, with a hint:
+
+```vex title="mix.vx"
+fn main() {
+    let count = 3
+    let price = 2.5
+    println(count * price)
+}
+```
+
+```text
+error: can't use '*' with int and float
+ --> mix.vx:4:13
+  |
+4 |     println(count * price)
+  |             ^^^^^^^^^^^^^ convert the int with float(...)
+```
+
+Integer overflow stops the program instead of giving a wrong number. When you want wrap-around, as in hashes, use `&+`, `&-` and `&*`, as the program above does.
+
+```vex title="overflow.vx"
+fn main() {
+    let big = 9223372036854775807
+    println(big + 1)
+}
+```
+
+```text
+error: integer overflow: 9223372036854775807 + 1 doesn't fit in an int; use &+ to wrap around
+ --> overflow.vx:3
+```
+
+More: [Types](/docs/language/types), [Operators](/docs/language/operators).
+
+## Strings
+
+Strings are UTF-8 and immutable. `{expr}` inside a string inserts any value. `"""` starts a multi-line string whose indentation follows the closing quotes, and `r"..."` is a raw string with no escapes or interpolation.
+
+```vex title="strings.vx"
+fn main() {
+    let name = "Ann"
+    let items = 3
+    println("Hi {name}, you have {items * 2} points")
+
+    let s = "  Hello, Vex  "
+    println(s.trim().upper(), s.len, s.contains("Vex"))
+    println("a,b,c".split(","), "hello".replace("l", "L"))
+    println("hello".indexOf("l"), "hello".indexOf("z"), "hello".substring(1, 3))
+    println("héllo".len, "héllo".chars())
+
+    let usage = """
+        Usage: vex <command>
+          run    build and run {name}
+        """
+    println(usage)
+    println(r"\d+\.\d+ and {not interpolated}")
+}
+```
+
+```text title="Output"
+Hi Ann, you have 6 points
+HELLO, VEX 14 true
+["a", "b", "c"] heLLo
+2 nil el
+5 ["h", "é", "l", "l", "o"]
+Usage: vex <command>
+  run    build and run Ann
+\d+\.\d+ and {not interpolated}
+```
+
+`len` and all string indexes count Unicode code points, not bytes. `indexOf` returns an optional `int?`, which is `nil` when the text isn't found. `+` joins only strings with strings; for anything else, use interpolation.
+
+More: [Strings](/docs/language/strings), [Built-ins](/docs/stdlib/built-ins).
+
+## Control flow
+
+Conditions need no parentheses and must be `bool`. Braces are always required, and `else` goes on the same line as the closing `}`. `for` loops over ranges, lists and maps; `0..3` excludes the end and `1..=3` includes it.
+
+```vex title="control.vx"
+fn grade(score: int) -> string {
+    if score >= 90 {
+        return "A"
+    } else if score >= 75 {
+        return "B"
+    }
+    return "C"
+}
+
+fn main() {
+    println(grade(95), grade(80), grade(40))
+
+    var upTo: [int] = []
+    for i in 0..3 { upTo.push(i) }        // 0 to 2
+    var through: [int] = []
+    for i in 1..=3 { through.push(i) }    // 1 to 3
+    println(upTo, through)
+
+    let fruits = ["apple", "kiwi", "plum"]
+    for i, fruit in fruits {
+        println("{i}: {fruit}")
+    }
+
+    var odd: [int] = []
+    var n = 0
+    while true {
+        n += 1
+        if n % 2 == 0 { continue }
+        if n > 7 { break }
+        odd.push(n)
+    }
+    println(odd)
+}
+```
+
+```text title="Output"
+A B C
+[0, 1, 2] [1, 2, 3]
+0: apple
+1: kiwi
+2: plum
+[1, 3, 5, 7]
+```
+
+`if` is a statement, not an expression. To pick a value, use `match`, shown below.
+
+More: [Control flow](/docs/language/control-flow).
+
+## Functions
+
+Parameters have types, `-> T` gives the result type, and `=>` makes a one-line body. Parameters can have default values, and any argument can be passed by name, as in `greet(name: "Ann")`.
+
+```vex title="functions.vx"
+fn add(a: int, b: int) -> int {
+    return a + b
+}
+
+fn square(x: int) -> int => x * x
+
+fn greet(name: string, greeting: string = "Hi") {
+    println("{greeting}, {name}!")
+}
+
+fn main() {
+    println(add(2, 3), square(4))
+    greet("Sam")
+    greet("Sam", greeting: "Welcome")
+}
+```
+
+```text title="Output"
+5 16
+Hi, Sam!
+Welcome, Sam!
+```
+
+The compiler checks that a function with a result type returns a value on every path.
+
+More: [Functions](/docs/language/functions).
+
+## Closures
+
+A closure is a function without a name, written like a declaration. Parameter types can be left out where the expected type gives them. Closures capture variables by reference, and a `{ }` block after a call is passed as its last argument, a trailing block.
+
+```vex title="closures.vx"
+fn repeat(times: int, action: fn()) {
+    for i in 0..times { action() }
+}
+
+fn makeCounter() -> fn() -> int {
+    var count = 0
+    return fn() -> int {
+        count += 1
+        return count
+    }
+}
+
+fn main() {
+    let double = fn(x: int) -> int => x * 2
+    let nums = [1, 2, 3, 4, 5, 6]
+    let evens = nums.filter(fn(x) => x % 2 == 0)
+    let labels = evens.map(fn(x) => "#{double(x)}")
+    println(evens, labels)
+
+    var taps = 0
+    repeat(3) { taps += 1 }
+    println(taps)
+
+    let next = makeCounter()
+    next()
+    println(next())
+}
+```
+
+```text title="Output"
+[2, 4, 6] ["#4", "#8", "#12"]
+3
+2
+```
+
+Function types are written `fn(int) -> bool`, or `fn()` for a function that takes and returns nothing.
+
+**Tear-offs.** A method, static method, enum case or constructor named without a call is a function value. A method torn off a value stays bound to it. Constructors are written `Type.new`.
+
+```vex title="tearoffs.vx"
+struct User {
+    name: string
+    fn greet(other: string) -> string => "{name} greets {other}"
+}
+
+enum Shape {
+    circle(radius: float)
+}
+
+fn main() {
+    let names = ["ann", "bo"]
+    let host = User(name: "Kim")
+    println(names.map(host.greet))
+    println(names.map(User.new))
+    println([1.0, 2.5].map(Shape.circle))
+    let shout = "hi".upper
+    println(shout())
+}
+```
+
+```text title="Output"
+["Kim greets ann", "Kim greets bo"]
+[User(name: "ann"), User(name: "bo")]
+[Shape.circle(radius: 1.0), Shape.circle(radius: 2.5)]
+HI
+```
+
+More: [Closures](/docs/language/closures).
+
+## Lists and maps
+
+Lists `[T]` grow as needed and check every index. Maps `[K: V]` keep keys in the order they were added, and reading a key gives an optional, since the key may be missing. Inside list and map literals, `if`, `for` and `...` (spread) produce elements, as in Dart.
+
+```vex title="collections.vx"
+fn main() {
+    var nums = [3, 1, 2]
+    nums.push(4)
+    let last = nums.pop()
+    nums[0] = 10
+    println(nums, nums.len, nums.contains(2), last)
+
+    var ages = ["ann": 31, "bob": 25]
+    ages["cat"] = 40
+    println(ages["ann"], ages["zoe"] ?? 0, ages.len)
+    for name, age in ages {
+        println(name, age)
+    }
+
+    let loggedIn = true
+    let extras = ["help", "about"]
+    let menu = ["home", if loggedIn "profile" else "login", for n in [1, 2] "tab{n}", ...extras]
+    println(menu)
+}
+```
+
+```text title="Output"
+[10, 1, 2] 3 true 4
+31 0 3
+ann 31
+bob 25
+cat 40
+["home", "profile", "tab1", "tab2", "help", "about"]
+```
+
+Lists and maps are shared references: assigning one to another name doesn't copy it. Use `.copy()` for a separate collection.
+
+More: [Lists](/docs/language/lists), [Maps](/docs/language/maps).
+
+## Records
+
+A record groups a few values without declaring a type, which is handy for returning several values. Positional fields are read as `$1`, `$2` and so on; named fields by name. Records are values, compared field by field, and can be taken apart with patterns.
+
+```vex title="records.vx"
+fn divmod(a: int, b: int) -> (int, int) {
+    return (a / b, a % b)
+}
+
+fn bounds(xs: [int]) -> ({int min, int max}) {
+    return (min: xs[0], max: xs[xs.len - 1])
+}
+
+fn main() {
+    let r = divmod(17, 5)
+    println(r, r.$1, r.$2)
+
+    let (q, rem) = divmod(9, 4)
+    println(q, rem)
+
+    let b = bounds([1, 5, 9])
+    let (:min, :max) = b
+    println(b, min, max)
+    println((a: 1, b: 2) == (b: 2, a: 1))
+
+    for (name, score) in [("ann", 3), ("bob", 5)] {
+        println(name, score)
+    }
+}
+```
+
+```text title="Output"
+(3, 2) 3 2
+2 1
+(max: 9, min: 1) 1 9
+true
+ann 3
+bob 5
+```
+
+More: [Records](/docs/language/records).
+
+## Structs
+
+A struct has fields, which can have defaults, and methods. Methods use fields and other methods directly, without `self.`. `static fn` belongs to the type. A struct is created by calling its name with the fields as named arguments.
+
+```vex title="structs.vx"
+struct User {
+    name: string
+    age: int = 18
+
+    fn isAdult() -> bool => age >= 18
+    fn birthday() { age += 1 }
+
+    static fn guest() -> User => User(name: "Guest")
+}
+
+fn main() {
+    let ann = User(name: "Ann", age: 30)
+    ann.birthday()
+    println(ann)
+    println(User.guest().age)
+
+    let same = ann
+    same.name = "Annie"
+    println(ann.name)
+}
+```
+
+```text title="Output"
+User(name: "Ann", age: 31)
+18
+Annie
+```
+
+Struct values are shared references: `same` and `ann` are the same object. `let` stops the name from being reassigned, not the fields from changing.
+
+**Properties and operators.** A getter is read like a field and a setter runs on assignment. A `didSet` block after a field runs after each change, with the previous value in `oldValue`. Structs can define arithmetic, comparison and indexing operators.
+
+```vex title="properties.vx"
+struct Rect {
+    width: float
+    height: float
+
+    get area -> float => width * height
+}
+
+struct Temperature {
+    _celsius: float = 0
+
+    get celsius -> float => _celsius
+    set celsius(v: float) {
+        if v < -273.15 { _celsius = -273.15 } else { _celsius = v }
+    }
+}
+
+struct Counter {
+    count: int = 0 {
+        didSet { println("{oldValue} -> {count}") }
+    }
+}
+
+struct Vec {
+    x: float
+    y: float
+
+    operator +(other: Vec) -> Vec => Vec(x: x + other.x, y: y + other.y)
+    operator *(k: float) -> Vec => Vec(x: x * k, y: y * k)
+}
+
+fn main() {
+    println(Rect(width: 2, height: 3).area)
+
+    let t = Temperature()
+    t.celsius = -500
+    println(t.celsius)
+
+    let c = Counter()
+    c.count += 1
+    c.count = 5
+
+    let a = Vec(x: 1, y: 2)
+    let b = Vec(x: 3, y: 4)
+    println(a + b * 2.0)
+}
+```
+
+```text title="Output"
+6.0
+-273.15
+0 -> 1
+1 -> 5
+Vec(x: 7.0, y: 10.0)
+```
+
+More: [Structs](/docs/language/structs).
+
+## Enums and match
+
+An enum value is one of several cases. Cases are lowercase and can carry values. Enums can have methods. `match` picks the first arm that fits, can be used as a value, and must handle every case. Where the enum type is known, `.case` is enough.
+
+```vex title="enums.vx"
+enum Shape {
+    circle(radius: float)
+    rect(width: float, height: float)
+    empty
+
+    fn area() -> float => match self {
+        circle(r) => 3.14 * r * r
+        rect(w, h) => w * h
+        empty => 0.0
+    }
+}
+
+enum Light { red, yellow, green }
+
+fn main() {
+    let s: Shape = .rect(width: 2, height: 3)
+    println(s, s.area())
+    println(Shape.circle(radius: 1).area())
+
+    let light = Light.yellow
+    let action = match light {
+        red => "stop"
+        yellow => "slow down"
+        green => "go"
+    }
+    println(action, light == .yellow, Light.red < Light.green)
+}
+```
+
+```text title="Output"
+Shape.rect(width: 2.0, height: 3.0) 6.0
+3.14
+slow down true true
+```
+
+Leaving out a case is a compile error that names it:
+
+```vex title="lights.vx"
+enum Light { red, yellow, green }
+
+fn action(light: Light) -> string => match light {
+    red => "stop"
+    green => "go"
+}
+
+fn main() {
+    println(action(.red))
+}
+```
+
+```text
+error: match doesn't handle 'yellow'
+ --> lights.vx:3:38
+  |
+3 | fn action(light: Light) -> string => match light {
+  |                                      ^^^^^ add yellow => ..., or _ => ...
+```
+
+More: [Enums](/docs/language/enums).
+
+## Patterns
+
+Patterns test the shape of a value and take it apart in one step. They work in `match`, `if case`, `let`, `var` and `for`, and nest freely: literals, ranges, comparisons, enum cases, struct fields, records and lists, with `when` guards and `||` alternatives.
+
+```vex title="patterns.vx"
+struct Point {
+    x: int
+    y: int
+}
+
+fn describe(p: Point) -> string => match p {
+    Point(x: 0, y: 0) => "origin"
+    Point(x: 0, :y) => "on the y axis at {y}"
+    Point(:x, :y) when x == y => "on the diagonal"
+    _ => "somewhere else"
+}
+
+fn grade(score: int) -> string => match score {
+    90..=100 => "A"
+    80..90 => "B"
+    > 100 => "bonus"
+    _ => "C"
+}
+
+fn summary(xs: [int]) -> string => match xs {
+    [] => "empty"
+    [one] => "just {one}"
+    [first, ...rest] => "{first} then {rest.len} more"
+}
+
+fn main() {
+    println(describe(Point(x: 0, y: 0)), "|", describe(Point(x: 0, y: 4)), "|", describe(Point(x: 3, y: 3)))
+    println(grade(95), grade(85), grade(120), grade(10))
+    println(summary([]), "|", summary([7]), "|", summary([1, 2, 3]))
+
+    let pair = (3, true)
+    if pair case (n, true) when n > 1 {
+        println("matched {n}")
+    }
+}
+```
+
+```text title="Output"
+origin | on the y axis at 4 | on the diagonal
+A B bonus C
+empty | just 7 | 1 then 2 more
+matched 3
+```
+
+The compiler checks that a `match` covers every value, including nested shapes, and reports arms that can never run.
+
+More: [Patterns](/docs/language/patterns).
+
+## Optionals
+
+A type ending in `?` holds a value or `nil`. Every other type always holds a value, so there are no null crashes: you must check an optional before using it, with `if let`, `guard let`, `?.` or `??`. There is no force unwrap.
+
+```vex title="optionals.vx"
+struct User {
+    name: string
+    manager: User? = nil
+}
+
+fn findUser(id: int) -> User? {
+    if id == 1 { return User(name: "Ann", manager: User(name: "Bo")) }
+    return nil
+}
+
+fn greet(id: int) {
+    guard let user = findUser(id) else {
+        println("no user {id}")
+        return
+    }
+    println("hi {user.name}")
+}
+
+fn main() {
+    if let u = findUser(1) {
+        println(u.name)
+    }
+    greet(1)
+    greet(2)
+    println(findUser(1)?.manager?.name ?? "nobody")
+    println(findUser(2)?.manager?.name ?? "nobody")
+}
+```
+
+```text title="Output"
+Ann
+hi Ann
+no user 2
+Bo
+nobody
+```
+
+Reading a field straight from an optional is a compile error:
+
+```vex title="unchecked.vx"
+struct User {
+    name: string
+}
+
+fn findUser(id: int) -> User? => nil
+
+fn main() {
+    let u = findUser(1)
+    println(u.name)
+}
+```
+
+```text
+error: can't read 'name' from a User?: it may be nil
+ --> unchecked.vx:9:15
+  |
+9 |     println(u.name)
+  |               ^^^^ use ?.name, or unwrap it first with if let
+```
+
+More: [Optionals](/docs/language/optionals).
+
+## Errors
+
+A function that can fail declares `throws`, and every call to it needs `try`, so you can see each line that may fail. Handle an error with `try ... catch`, turn it into `nil` with `try?`, or pass it up with plain `try`. `throws(E)` names an enum of error kinds that callers can `match`.
+
+```vex title="errors.vx"
+fn parsePort(s: string) throws -> int {
+    if s == "" { throw Error("empty port") }
+    let n = int(s)
+    if n < 1 || n > 65535 { throw Error("port {n} out of range") }
+    return n
+}
+
+enum LoadError {
+    notFound(path: string)
+    denied
+}
+
+fn open(path: string) throws(LoadError) -> string {
+    if path == "secret" { throw .denied }
+    throw .notFound(path: path)
+}
+
+fn main() throws {
+    let port = try parsePort("8080")
+    let fallback = try parsePort("99999") catch e {
+        println("bad port: {e.message}")
+        3000
+    }
+    let maybe = try? parsePort("")
+    println(port, fallback, maybe)
+
+    try open("notes.txt") catch e {
+        match e {
+            notFound(p) => println("missing {p}")
+            denied => println("denied")
+        }
+    }
+
+    try parsePort("0")
+}
+```
+
+```text title="Output"
+bad port: port 99999 out of range
+8080 3000 nil
+missing notes.txt
+error: port 0 out of range
+```
+
+When an error reaches the top of `fn main() throws`, the program prints it and exits with code 1. Errors are returned like values rather than unwinding the stack, so code that doesn't throw pays nothing.
+
+More: [Errors](/docs/language/errors).
+
+## Generics
+
+Functions, structs, enums and methods take type parameters. The types are usually inferred. Constraints such as `Comparable`, `Equatable`, `Hashable` or an interface say what the generic code needs. Each use compiles to its own specialized copy, so generic code runs as fast as code written for one type.
+
+```vex title="generics.vx"
+fn largest<T: Comparable>(xs: [T]) -> T? {
+    if xs.len == 0 { return nil }
+    var best = xs[0]
+    for x in xs {
+        if x > best { best = x }
+    }
+    return best
+}
+
+struct Stack<T> {
+    items: [T] = []
+
+    fn push(item: T) { items.push(item) }
+    fn pop() -> T? {
+        if items.len == 0 { return nil }
+        return items.pop()
+    }
+}
+
+enum Result<T> {
+    ok(value: T)
+    err(message: string)
+
+    fn map<U>(f: fn(T) -> U) -> Result<U> => match self {
+        ok(v) => .ok(f(v))
+        err(m) => .err(m)
+    }
+}
+
+fn main() {
+    println(largest([4, 17, 9]), largest(["kiwi", "apple"]))
+
+    let s = Stack<string>()
+    s.push("a")
+    s.push("b")
+    println(s.pop(), s.items)
+
+    let r = Result.ok(5).map(fn(x) => "#{x}")
+    println(r)
+}
+```
+
+```text title="Output"
+17 kiwi
+b ["a"]
+Result<string>.ok(value: "#5")
+```
+
+Generic code is checked once, for every type that meets its constraints. Using `>` on an unconstrained `T` is an error that names the missing constraint:
+
+```vex title="bigger.vx"
+fn bigger<T>(a: T, b: T) -> T {
+    if a > b { return a }
+    return b
+}
+
+fn main() {
+    println(bigger(1, 2))
+}
+```
+
+```text
+error: values of type T can't be ordered with >
+ --> bigger.vx:2:8
+  |
+2 |     if a > b { return a }
+  |        ^^^^^ require it: <T: Comparable>
+```
+
+More: [Generics](/docs/language/generics).
+
+## Interfaces
+
+An interface lists methods and properties. A struct or enum names the interfaces it implements after a `:`, and the compiler checks it there. Methods with a body are defaults. Interfaces work as types, such as `[Shape]`, and as generic constraints.
+
+```vex title="interfaces.vx"
+interface Shape {
+    fn area() -> float
+    fn name() -> string => "shape"
+    fn summary() -> string => "{name()}: {area()}"
+}
+
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.14 * radius * radius
+    fn name() -> string => "circle"
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+}
+
+interface Sized {
+    get size -> int
+}
+
+enum Suit: Sized {
+    hearts
+    spades
+    get size -> int => 1
+}
+
+struct Block: Sized {
+    size: int
+}
+
+fn total(xs: [Sized]) -> int {
+    var n = 0
+    for x in xs { n += x.size }
+    return n
+}
+
+fn main() {
+    let shapes: [Shape] = [Circle(radius: 1), Square(side: 2)]
+    for s in shapes {
+        println(s.summary())
+    }
+    println(total([Suit.hearts, Block(size: 4)]))
+}
+```
+
+```text title="Output"
+circle: 3.14
+shape: 4.0
+5
+```
+
+A property in an interface can be met by a getter or by a stored field, as `Block` does. A missing method is reported at the declaration:
+
+```vex title="missing.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Square: Shape {
+    side: float
+}
+
+fn main() {
+    println(Square(side: 1))
+}
+```
+
+```text
+error: Square doesn't implement 'area' from Shape
+ --> missing.vx:5:8
+  |
+5 | struct Square: Shape {
+  |        ^^^^^^ add fn area() -> float
+```
+
+More: [Interfaces](/docs/language/interfaces).
+
+## Extensions
+
+`extension` adds methods and getters to a type that already exists, including built-in types such as `string`, `int` and lists. Inside, members of the type are used without `self.`, as in a struct.
+
+```vex title="extensions.vx"
+extension string {
+    fn shout() -> string => upper() + "!"
+    get isBlank -> bool => trim().len == 0
+}
+
+extension<T: Comparable> [T] {
+    fn largest() -> T? {
+        if len == 0 { return nil }
+        var best = self[0]
+        for x in self {
+            if x > best { best = x }
+        }
+        return best
+    }
+}
+
+extension int {
+    get isEven -> bool => self % 2 == 0
+}
+
+fn main() {
+    println("hi".shout(), "   ".isBlank, [3, 9, 2].largest(), 4.isEven)
+}
+```
+
+```text title="Output"
+HI! true 9 true
+```
+
+Extensions can't add fields or replace existing members.
+
+More: [Extensions](/docs/language/extensions).
+
+## Type aliases
+
+`typedef` gives a long type a short name. An alias is the same type as the one it names, and it can take type parameters.
+
+```vex title="aliases.vx"
+typedef Handler = fn(string) -> bool
+typedef Pair<T> = (T, T)
+
+fn on(event: string, handler: Handler) -> bool => handler(event)
+
+fn main() {
+    let p: Pair<int> = (1, 2)
+    println(p, on("tap", fn(e) => e == "tap"))
+}
+```
+
+```text title="Output"
+(1, 2) true
+```
+
+More: [Types](/docs/language/types).
+
+## Builder blocks
+
+When a function's last parameter is a list, a trailing block builds that list: each line is one element, and `let`, `if`, `for` and `...` work inside. It works for any list type, including lists of your own structs.
+
+```vex title="builders.vx"
+struct Item {
+    label: string
+}
+
+struct Menu {
+    title: string
+    items: [Item]
+}
+
+fn main() {
+    let admin = true
+    let pages = ["Home", "Docs"]
+    let menu = Menu(title: "Main") {
+        Item(label: "Start")
+        for p in pages {
+            Item(label: p)
+        }
+        if admin {
+            Item(label: "Settings")
+        }
+    }
+    println(menu.items.map(fn(i) => i.label))
+}
+```
+
+```text title="Output"
+["Start", "Home", "Docs", "Settings"]
+```
+
+More: [Closures](/docs/language/closures).
+
+## Async and await
+
+An `async fn` can wait with `await` without blocking the program; other tasks and timers run meanwhile. Calling an async function without `await` starts it and gives a `Future<T>`, so several can run at once. `all` waits for a list of futures. The event loop is built into every program.
+
+```vex title="async.vx"
+import "vex:time"
+
+async fn fetch(url: string) throws -> string {
+    await time.sleep(100)
+    return "page of {url}"
+}
+
+async fn main() throws {
+    let page = try await fetch("a.com")
+    println(page)
+
+    let start = time.nanos()
+    let a = fetch("b.com")
+    let b = fetch("c.com")
+    let pages = try await all([a, b])
+    let ms = (time.nanos() - start) / 1_000_000
+    println(pages, ms < 150)
+}
+```
+
+```text title="Output"
+page of a.com
+["page of b.com", "page of c.com"] true
+```
+
+The two fetches sleep at the same time, so together they take about 100 ms, not 200. Async code runs on one thread; for parallel work, use isolates.
+
+More: [Async](/docs/concurrency/async), [vex:time](/docs/stdlib/time).
+
+## Isolates
+
+Isolates run code in parallel on other cores. Each has its own memory, so there are no locks and no data races: values are copied between isolates. `isolate.run` runs one function and gives back its result. `isolate.spawn` starts a long-running isolate, and channels carry messages to and from it.
+
+```vex title="isolates.vx"
+import "vex:isolate"
+
+fn countPrimes(limit: int) -> int {
+    var count = 0
+    for n in 2..limit {
+        var prime = true
+        var d = 2
+        while d * d <= n {
+            if n % d == 0 {
+                prime = false
+                break
+            }
+            d += 1
+        }
+        if prime { count += 1 }
+    }
+    return count
+}
+
+fn worker(jobs: Channel<int>, out: Channel<string>) {
+    while let n = jobs.receiveSync() {
+        out.send("{n} squared is {n * n}")
+    }
+    out.close()
+}
+
+async fn main() {
+    let limit = 100_000
+    let primes = await isolate.run(fn() -> int {
+        return countPrimes(limit)
+    })
+    println("primes below {limit}: {primes}")
+
+    let jobs = Channel<int>()
+    let out = Channel<string>()
+    isolate.spawn(fn() { worker(jobs, out) })
+    jobs.send(3)
+    jobs.send(4)
+    jobs.close()
+    while let msg = await out.receive() {
+        println(msg)
+    }
+}
+```
+
+```text title="Output"
+primes below 100000: 9592
+3 squared is 9
+4 squared is 16
+```
+
+The compiler rejects values that can't be copied between isolates, such as functions and futures, at compile time.
+
+More: [Isolates](/docs/concurrency/isolates), [vex:isolate](/docs/stdlib/isolate).
+
+## Modules
+
+A folder is a module, and a project is a folder with a `package.toml`. Files in one folder share their names. Code in another module uses a name through the module, as in `models.Cart`, and only names marked `pub` are visible there. Imports name the standard library with `vex:`, and project folders by their path relative to the importing file.
+
+Here is part of the `store` example from the language repository:
+
+<Files>
+  <Folder name="store" defaultOpen>
+    <File name="package.toml" />
+    <File name="main.vx" />
+    <File name="totals.vx" />
+    <Folder name="models" defaultOpen>
+      <File name="item.vx" />
+      <File name="cart.vx" />
+      <File name="shapes.vx" />
+    </Folder>
+    <Folder name="format" defaultOpen>
+      <File name="receipt.vx" />
+    </Folder>
+  </Folder>
+</Files>
+
+```vex title="models/cart.vx"
+pub struct Cart {
+    pub owner: string
+
+    // Private: other modules go through the methods.
+    items: [Item] = []
+
+    pub fn add(item: Item) {
+        items.push(item)
+    }
+
+    pub fn list() -> [Item] => items
+
+    pub fn total() -> int {
+        var sum = 0
+        for it in items {
+            sum += it.price
+        }
+        return sum
+    }
+}
+```
+
+```vex title="main.vx"
+import "vex:math"
+import "models"
+import "format" as fmt
+
+fn main() {
+    let cart = models.Cart(owner: "Ana")
+    cart.add(models.Item(name: "pen", price: 3, kind: .tool))
+    cart.add(models.Item(name: "notebook", price: 12, kind: .paper))
+    cart.add(models.Item(name: "ruler", price: 5, kind: models.Kind.tool))
+    println(fmt.receipt(cart))
+
+    // Interfaces and generics work across modules too.
+    let shapes: [models.Shape] = [models.Square(side: 3), models.Rect(w: 2, h: 5)]
+    var area = 0
+    for s in shapes {
+        area += s.area()
+    }
+    println("area: {area}")
+    let best = models.Pair<string, int>(first: "most", second: math.max(area, 20))
+    println(best.describe())
+
+    printTotals(cart)
+}
+```
+
+Running `vex run store` prints:
+
+```text title="Output"
+Receipt for Ana
+  pen.......   3 (tool)
+  notebook..  12 (paper)
+  ruler.....   5 (tool)
+area: 19
+most: 20
+total: 20, clamped: 15
+```
+
+`printTotals` lives in `totals.vx`, in the same root folder as `main.vx`, so it needs no import. `as fmt` renames an import.
+
+More: [Modules](/docs/projects/modules), [Standard library](/docs/stdlib).
+
+## C interop
+
+`extern fn` declares a C function, which Vex calls directly with no header and no glue code. Strings, sized numbers such as `int32`, optional strings and closures convert at the call.
+
+```vex title="extern.vx"
+extern fn strlen(s: string) -> int
+extern fn getenv(name: string) -> string?
+extern fn abs(x: int32) -> int32
+
+fn main() {
+    println(strlen("hello"))
+    println(getenv("VEX_TOUR_MISSING") ?? "not set")
+    println(["a", "bb", "ccc"].map(strlen))
+    println(abs(-7))
+}
+```
+
+```text title="Output"
+5
+not set
+[1, 2, 3]
+7
+```
+
+A project can build its own C files, listed in the `[c]` section of `package.toml`. `as "name"` calls a C function under a different name, a `fn` parameter passes a Vex closure to C as a callback, and `export fn` lets C call Vex.
+
+```toml title="package.toml"
+[package]
+name = "cdemo"
+
+[c]
+sources = ["native/counter.c"]
+```
+
+```c title="native/counter.c"
+#include <stdint.h>
+
+static int64_t count = 0;
+
+int64_t counter_next(void) {
+    return ++count;
+}
+
+void each_up_to(int64_t n, void (*cb)(void *ctx, int64_t i), void *ctx) {
+    for (int64_t i = 1; i <= n; i++) cb(ctx, i);
+}
+
+int64_t vex_twice(int64_t x);
+
+int64_t call_twice(int64_t x) {
+    return vex_twice(x);
+}
+```
+
+```vex title="main.vx"
+extern fn next() -> int as "counter_next"
+extern fn each_up_to(n: int, f: fn(int))
+extern fn call_twice(x: int) -> int
+
+export fn vex_twice(x: int) -> int => x * 2
+
+fn main() {
+    next()
+    println(next())
+
+    var sum = 0
+    each_up_to(4, fn(i: int) { sum += i })
+    println(sum)
+
+    println(call_twice(21))
+}
+```
+
+```text title="Output"
+2
+10
+42
+```
+
+More: [C interop](/docs/projects/c-interop).
+
+## Memory
+
+Memory is managed by a tracing garbage collector compiled into every program. Objects nobody can reach are freed, including objects that refer to each other in a cycle, so there is nothing to free by hand and no `weak` keyword.
+
+```vex title="cycles.vx"
+struct Node {
+    value: int
+    next: Node? = nil
+}
+
+fn main() {
+    var total = 0
+    for i in 0..1_000_000 {
+        let a = Node(value: i)
+        let b = Node(value: i, next: a)
+        a.next = b
+        total += b.value
+    }
+    println(total)
+}
+```
+
+```text title="Output"
+499999500000
+```
+
+Each pass through the loop creates a two-node cycle that becomes unreachable at the end of the iteration. The collector reclaims them as the program runs, so its memory stays small.
+
+More: [Memory](/docs/language/memory), [Memory management](/docs/internals/memory).
+
+## Built-in functions
+
+These are always available, with no import:
+
+| Function | What it does |
+|---|---|
+| `print(a, b, ...)`, `println(...)` | Print values separated by spaces; `println` adds a new line. |
+| `input(prompt)` | Read a line from standard input; the prompt is optional. |
+| `int(x)`, `float(x)`, `str(x)` | Convert between types. `int` and `float` of text that isn't a number stop the program. |
+| `panic(msg)` | Stop the program with a message. |
+| `assert(cond, msg)` | Stop the program when `cond` is false; the message is optional. |
+
+More: [Built-ins](/docs/stdlib/built-ins).
+
+## Where to go next
+
+<Cards>
+  <Card title="Language guide" href="/docs/language" description="Each part of the language in depth, with every rule and edge case." />
+  <Card title="Standard library" href="/docs/stdlib" description="Built-ins and the vex: modules." />
+  <Card title="The vex command" href="/docs/tools/cli" description="Every subcommand and flag." />
+  <Card title="Examples" href="/docs/examples" description="Complete programs with their output." />
+</Cards>
+
+## See also
+
+- [Your first program](/docs/first-program)
+- [Language guide](/docs/language)
+- [Examples](/docs/examples)
+- [Compile errors](/docs/tools/compile-errors)

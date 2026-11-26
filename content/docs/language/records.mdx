@@ -1,0 +1,308 @@
+---
+title: Records
+description: Records group a few values without declaring a type. Creating them, positional and named fields, record types, taking records apart, equality, immutability and when to use a struct instead.
+---
+
+A record groups a fixed number of values into one, without declaring a type first. The most common use is returning several values from a function. Records are values: they're compared by their contents and can't be changed, only replaced. The syntax follows Dart 3 records.
+
+## Creating records
+
+A record is a list of values in parentheses. Fields are positional, named, or a mix of both:
+
+```vex title="create.vx"
+fn main() {
+    let point = (3, 4)
+    let user = (name: "Ann", age: 31)
+    let mixed = (1, 2, label: "pair")
+    let single = (5,)
+    println(point, user, mixed, single)
+}
+```
+
+```text title="Output"
+(3, 4) (age: 31, name: "Ann") (1, 2, label: "pair") (5,)
+```
+
+- A record needs at least one field. `()` gives `expected an expression inside ( )`.
+- A record with one positional field needs a trailing comma: `(5,)`. Without it, `(5)` is just `5` in parentheses.
+- A field name can't appear twice: `(x: 1, x: 2)` gives `field 'x' is given twice`.
+- Every field needs a value: `(1, println("x"))` gives `this expression has no value to store in a record`.
+
+## Reading fields
+
+Positional fields are named `$1`, `$2` and so on, counting from 1. Named fields are read by name:
+
+```vex title="fields.vx"
+fn main() {
+    let point = (3, 4)
+    let user = (name: "Ann", age: 31)
+    let mixed = (1, 2, label: "pair")
+    println(point.$1, point.$2, user.name, mixed.$2, mixed.label)
+}
+```
+
+```text title="Output"
+3 4 Ann 2 pair
+```
+
+A field that doesn't exist is a compile error that names the record type: `(int, string) has no field '$3'`. `$0`, `$01` and `p.0` aren't valid either.
+
+## Record types
+
+A record type is written like a record, with types in place of values. Named fields go inside braces, type first:
+
+| Type | Example value |
+|---|---|
+| `(int, string)` | `(1, "a")` |
+| `({int x, int y})` | `(x: 1, y: 2)` |
+| `(int, {string name})` | `(3, name: "vex")` |
+| `(int,)` | `(1,)` |
+| `([string], {bool done})` | `(["a"], done: true)` |
+
+```vex title="types.vx"
+fn divmod(a: int, b: int) -> (int, int) {
+    return (a / b, a % b)
+}
+
+fn bounds(xs: [int]) -> ({int min, int max}) {
+    return (min: xs[0], max: xs[xs.len - 1])
+}
+
+fn main() {
+    let r = divmod(17, 5)
+    let b = bounds([1, 5, 9])
+    let p: ({float x, float y}) = (y: 2, x: 1)
+    println(r, b.min, b.max, p)
+}
+```
+
+```text title="Output"
+(3, 2) 1 9 (x: 1.0, y: 2.0)
+```
+
+- The type is the shape. Any `(int, string)` is the same type as any other `(int, string)`, wherever it was written, with no declaration needed.
+- The order of named fields doesn't matter: `(y: 2, x: 1)` has the same type as `(x: 1, y: 2)`. The order of positional fields does.
+- An expected type flows into the fields, so `(y: 2, x: 1)` stored as `({float x, float y})` has float fields.
+- Give a long record type a name with `typedef Point = ({float x, float y})`. See [Types](/docs/language/types#type-aliases).
+
+## Taking records apart
+
+A `let` or `var` with a record pattern takes a record apart into variables:
+
+```vex title="destructure.vx"
+fn divmod(a: int, b: int) -> (int, int) {
+    return (a / b, a % b)
+}
+
+fn bounds(xs: [int]) -> ({int min, int max}) {
+    return (min: xs[0], max: xs[xs.len - 1])
+}
+
+fn main() {
+    let (q, rem) = divmod(9, 4)
+    println(q, rem)
+
+    let b = bounds([1, 5, 9])
+    let (:min, :max) = b
+    println(min, max)
+
+    var (min: lo, max: _) = b
+    lo += 100
+    println(lo)
+}
+```
+
+```text title="Output"
+2 1
+1 9
+101
+```
+
+| Pattern | Binds |
+|---|---|
+| `(a, b)` | the positional fields to `a` and `b` |
+| `(:min, :max)` | the named fields to variables of the same names |
+| `(min: lo, max: hi)` | the named fields to other names |
+| `(a, _)`, `(min: _, :max)` | `_` skips a field |
+| `((a, b), c)` | nested records |
+
+- A pattern names every field of the record. Leaving one out is an error with a hint: `the pattern must match every field of ({int x, int y})`, `name every field: (:x, :y)`.
+- Named fields are matched by name, so a positional pattern doesn't match a record with named fields.
+- `let` patterns make constants and `var` patterns make variables you can change.
+- Only records can be taken apart this way: `let (u, v) = 5` gives `only records can be taken apart, found int`.
+
+### In loops and match
+
+Record patterns also work in `for` loops, `match` arms and `if case`:
+
+```vex title="patterns.vx"
+fn main() {
+    let scores = [("ann", 3), ("bob", 5)]
+    var total = 0
+    for (name, score) in scores {
+        total += score
+        print("{name} ")
+    }
+    println(total)
+
+    for r in [(x: 0, y: 2), (x: 1, y: 1)] {
+        match r {
+            (x: 0, :y) => println("on the y axis at {y}")
+            (:x, :y) => println("at {x}, {y}")
+        }
+    }
+}
+```
+
+```text title="Output"
+ann bob 8
+on the y axis at 2
+at 1, 1
+```
+
+See [Patterns](/docs/language/patterns) for literals, ranges and guards inside record patterns.
+
+## Records are values
+
+Two records are equal with `==` when their fields are equal, and the order of named fields doesn't matter:
+
+```vex title="equal.vx"
+enum Color { red, green }
+
+fn main() {
+    println((1, "x") == (1, "x"), (1, "x") != (1, "y"))
+    println((a: Color.red, b: 2) == (b: 2, a: Color.red))
+    let pairs = [("a", 1), ("b", 2)]
+    println(pairs.contains(("b", 2)), pairs.contains(("b", 3)))
+}
+```
+
+```text title="Output"
+true true
+true
+true false
+```
+
+`==` works when every field can be compared with `==`. A record holding a list or a function can't be: `values of type (int, fn()) can't be compared with ==`. Records can't be ordered with `<`.
+
+### Fields can't change
+
+A record's fields are fixed. To change one, build a new record and assign it to a `var`:
+
+```vex title="immutable.vx"
+fn main() {
+    var pos = (x: 0, y: 0)
+    pos = (x: pos.x + 1, y: pos.y)
+    println(pos)
+    pos.x = 5
+}
+```
+
+```text title="Output"
+error: record fields can't be changed
+ --> immutable.vx:5:9
+  |
+5 |     pos.x = 5
+  |         ^ make a new record instead
+```
+
+### References inside records
+
+A record is a value, but a list, map or struct stored in it is still a reference. Copying the record copies the reference, not the list:
+
+```vex title="refinside.vx"
+fn main() {
+    let r = (n: 1, xs: [1])
+    let s = r
+    s.xs.push(2)
+    println(r, s)
+}
+```
+
+```text title="Output"
+(n: 1, xs: [1, 2]) (n: 1, xs: [1, 2])
+```
+
+The field `xs` can't be made to point at another list, but the list it points at can change.
+
+## Records with other features
+
+Records work with [generics](/docs/language/generics), [optionals](/docs/language/optionals), lists, `contains`, `map` and [isolates](/docs/concurrency/isolates):
+
+```vex title="combine.vx"
+fn swap<A, B>(p: (A, B)) -> (B, A) => (p.$2, p.$1)
+
+fn find(name: string) -> (int, {string name})? {
+    if name == "" { return nil }
+    return (name.len, name: name)
+}
+
+fn main() {
+    println(swap((1, "one")))
+    println(find("vex"), find(""))
+    if let f = find("abc") {
+        println(f.name, f.$1)
+    }
+    let pts = [(1, 2), (3, 4)]
+    println(pts.map(fn(p) => p.$1 + p.$2))
+}
+```
+
+```text title="Output"
+("one", 1)
+(3, name: "vex") nil
+abc 3
+[3, 7]
+```
+
+Records can't be map keys yet: `(int, int) can't be a map key`. Build a string key such as `"{x},{y}"` instead.
+
+## How records print
+
+Records print like their values: positional fields first, in order, then named fields in alphabetical order. A one-field positional record keeps its comma.
+
+```vex title="print.vx"
+fn main() {
+    println((b: 1, a: 2, c: (z: 1, y: 2)))
+    println((1, name: "a", 2), (7,))
+}
+```
+
+```text title="Output"
+(a: 2, b: 1, c: (y: 2, z: 1))
+(1, 2, name: "a") (7,)
+```
+
+## Records or structs
+
+| Use a record when | Use a [struct](/docs/language/structs) when |
+|---|---|
+| A function returns a few values | The data has a name in your domain |
+| The grouping is local and short-lived | It needs methods, defaults or computed properties |
+| Value semantics and `==` by contents fit | It's shared and changed in place |
+| Two or three fields | Many fields, or fields that change |
+
+## Rules and edge cases
+
+- Positional fields count from `$1`. Names starting with `$` are reserved for them: `let $1 = 3` gives `names starting with $ are the positional fields of records`.
+- A record type writes each field name once: `({int x, int x})` gives `field 'x' is written twice`.
+- Mismatched shapes are type errors: `expected (int, string), found (int, int)`.
+- Records can't be extended with methods yet.
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Dart | TypeScript |
+|---|---|---|---|---|---|
+| Name | record | tuple | `Pair`, `Triple` | record | tuple, object |
+| Positional | `(1, "a")` | `(1, "a")` | `Pair(1, "a")` | `(1, "a")` | `[1, "a"]` |
+| Named | `(x: 1, y: 2)` | `(x: 1, y: 2)` | data class | `(x: 1, y: 2)` | `{x: 1, y: 2}` |
+| Positional access | `.$1` | `.0` | `.first` | `.$1` | `[0]` |
+| Equality by contents | yes | yes, for up to 6 fields | yes | yes | no |
+
+## See also
+
+- [Functions](/docs/language/functions)
+- [Patterns](/docs/language/patterns)
+- [Structs](/docs/language/structs)
+- [Types](/docs/language/types)
+- [Generics](/docs/language/generics)
