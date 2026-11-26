@@ -97,6 +97,15 @@ html > body[data-scroll-locked] {
   background: transparent !important;
 }
 
+/* Playground editor tokens carry both themes' colors. */
+.vx-token {
+  color: var(--light);
+}
+
+.dark .vx-token {
+  color: var(--dark);
+}
+
 .vx-caret {
   display: inline-block;
   width: 8px;

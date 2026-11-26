@@ -182,12 +182,12 @@ export function Playground({ examples }: { examples: PlaygroundExample[] }) {
       </div>
 
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-1">
-        <div className="min-h-0 overflow-auto bg-code [font-variant-ligatures:none]">
+        <div className="min-h-0 overflow-auto bg-white [font-variant-ligatures:none] dark:bg-code">
           <Editor value={source} onChange={setSource} onRun={run} />
         </div>
 
-        <div className="flex min-h-0 flex-col border-t border-slate-800 bg-term lg:border-t-0 lg:border-l">
-          <div role="tablist" aria-label="Results" className="flex shrink-0 border-b border-slate-800 bg-[#0f172a] px-2">
+        <div className="flex min-h-0 flex-col border-t border-fd-border bg-slate-50 lg:border-t-0 lg:border-l dark:border-slate-800 dark:bg-term">
+          <div role="tablist" aria-label="Results" className="flex shrink-0 border-b border-fd-border bg-white px-2 dark:border-slate-800 dark:bg-[#0f172a]">
             {tabs.map((t) => (
               <button
                 key={t.id}
@@ -197,12 +197,12 @@ export function Playground({ examples }: { examples: PlaygroundExample[] }) {
                 onClick={() => setPanel(t.id)}
                 className={cn(
                   'relative px-4 py-3 text-[13px] font-medium transition-colors',
-                  panel === t.id ? 'text-white' : 'text-slate-400 hover:text-slate-200',
-                  t.id === 'problems' && problems > 0 && panel !== t.id && 'text-rose-300',
+                  panel === t.id ? 'text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200',
+                  t.id === 'problems' && problems > 0 && panel !== t.id && 'text-rose-600 dark:text-rose-300',
                 )}
               >
                 {t.label}
-                {panel === t.id && <span className="absolute inset-x-3 -bottom-px h-0.5 bg-sky" />}
+                {panel === t.id && <span className="absolute inset-x-3 -bottom-px h-0.5 bg-ocean dark:bg-sky" />}
               </button>
             ))}
           </div>
@@ -211,7 +211,7 @@ export function Playground({ examples }: { examples: PlaygroundExample[] }) {
             {panel === 'output' ? (
               <TerminalView terminal={terminal} onInput={(lines) => setTerminal({ kind: 'input', lines })} onRun={run} />
             ) : check && !check.ok ? (
-              <pre className="whitespace-pre-wrap text-rose-300">{check.messages}</pre>
+              <pre className="whitespace-pre-wrap text-rose-600 dark:text-rose-300">{check.messages}</pre>
             ) : (
               <p className="font-sans text-sm text-slate-500">{check ? 'No problems.' : 'Checking…'}</p>
             )}
@@ -232,14 +232,14 @@ function TerminalView({ terminal, onInput, onRun }: { terminal: Terminal; onInpu
       <p className="text-slate-500">$ vex run main.vx</p>
       {terminal.kind === 'session' ? (
         <>
-          <pre className={cn('whitespace-pre-wrap', terminal.error ? 'text-rose-300' : 'text-slate-300')}>
+          <pre className={cn('whitespace-pre-wrap', terminal.error ? 'text-rose-600 dark:text-rose-300' : 'text-slate-800 dark:text-slate-300')}>
             {terminal.events.map((e, i) =>
               'in' in e ? (
-                <span key={i} className="text-sky">
+                <span key={i} className="text-ocean dark:text-sky">
                   {e.in + '\n'}
                 </span>
               ) : 'err' in e ? (
-                <span key={i} className="text-rose-300">
+                <span key={i} className="text-rose-600 dark:text-rose-300">
                   {e.err}
                 </span>
               ) : (
@@ -281,7 +281,7 @@ function InputLines({ lines, onChange, onRun }: { lines: string[]; onChange: (li
         This program reads from the keyboard. Type each line it asks for and press Enter, then press Ctrl + Enter to run it.
       </p>
       {lines.map((l, i) => (
-        <p key={i} className="whitespace-pre text-sky">
+        <p key={i} className="whitespace-pre text-ocean dark:text-sky">
           {l || ' '}
         </p>
       ))}
@@ -292,7 +292,7 @@ function InputLines({ lines, onChange, onRun }: { lines: string[]; onChange: (li
         onKeyDown={onKeyDown}
         aria-label="Input line"
         spellCheck={false}
-        className="w-full bg-transparent text-sky caret-sky outline-none"
+        className="w-full bg-transparent text-ocean caret-ocean outline-none dark:text-sky dark:caret-sky"
       />
     </>
   );
