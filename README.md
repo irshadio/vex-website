@@ -44,7 +44,49 @@ For a program that calls `input()`, the visitor types its lines in the output te
 { "session": [{ "out": "Name? " }, { "in": "Ann" }, { "out": "Hi, Ann\n" }, { "err": "..." }], "exitCode": 0 }
 ```
 
-`scripts/sync-content.mjs` records the examples' sessions the same way (`recordSession`). The service must compile with `vex build` and run the program in a sandbox with limits on time, memory, processes, files and network.
+`scripts/sync-content.mjs` records the examples' sessions the same way (`recordSession`).
+
+### Run service
+
+`run-service/` is that service, in Go. It builds each program with `vex build` and runs it:
+
+- as user `nobody` in a temporary folder, with an empty environment;
+- with limits of 5 seconds of CPU time, 10 seconds overall, 256 MB of memory (Linux only), 64 KB of output, 1 MB files, 64 open files and a process count per user;
+- refusing `vex:os`, `vex:fs` and `extern fn`, which reach the machine running it;
+- with 30 runs per minute per visitor and 4 programs at a time.
+
+To try it locally:
+
+```sh
+node scripts/build-run-service.mjs
+PORT=8080 VEX=../VEX/bin/vex PROCESSES=100000 START_WAIT_MS=6000 run-service/dist/run-service
+NEXT_PUBLIC_VEX_RUN_URL=http://localhost:8080/run npm run dev
+```
+
+On macOS, the first start of each new program waits a few seconds for the system's malware scan, so `START_WAIT_MS` gives it longer before typing input; the process limit counts all of your own processes, so `PROCESSES` is raised.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `8080` | Port to listen on |
+| `VEX` | `vex` | The compiler |
+| `ALLOWED_ORIGINS` | `*` | Comma-separated sites that may call the service |
+| `MEMORY_MB` | `256` | Memory per program |
+| `PROCESSES` | `256` | Processes and threads for all programs together |
+| `MAX_CONCURRENT` | `4` | Programs running at once |
+| `RUNS_PER_MINUTE` | `30` | Runs per visitor |
+| `START_WAIT_MS` | `3000` | Time a silent program gets to start before input is typed |
+
+To deploy on Google Cloud Run, which runs every container in a gVisor sandbox:
+
+```sh
+node scripts/build-run-service.mjs --linux
+gcloud run deploy vex-run --source run-service --region <region> \
+  --set-env-vars ALLOWED_ORIGINS=<site origin> \
+  --memory 2Gi --cpu 2 --concurrency 4 --timeout 60 \
+  --allow-unauthenticated
+```
+
+Give the service no outbound internet: route its egress through a VPC network without Cloud NAT (`--network <vpc> --subnet <subnet> --vpc-egress all-traffic`). Then build the site with `NEXT_PUBLIC_VEX_RUN_URL=<service URL>/run`.
 
 ## Layout
 
@@ -57,6 +99,7 @@ For a program that calls `input()`, the visitor types its lines in the output te
 | `components/ui/` | Shared UI components |
 | `components/playground/` | The playground editor and panels |
 | `playground/` | The WebAssembly wrapper around the Vex compiler |
-| `scripts/` | Content sync and the playground build |
+| `run-service/` | The service that runs playground programs |
+| `scripts/` | Content sync, and the playground and run service builds |
 | `lib/generated/` | Generated data: examples, roadmap, benchmarks |
 | `lib/vex/` | The Vex syntax grammar and code theme |
