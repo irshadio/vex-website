@@ -10,6 +10,7 @@
     "lint": "eslint",
     "sync": "node scripts/sync-content.mjs",
     "playground": "node scripts/build-playground.mjs",
+    "run-service": "node scripts/build-run-service.mjs",
     "bench": "node benchmarks/run.mjs"
   },
   "dependencies": {
