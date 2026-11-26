@@ -21,7 +21,7 @@ The output is a single self-contained C file in two parts:
 Every name the runtime uses starts with `vx_`, which is why Vex reserves that prefix. `vex build` compiles the file with `-std=gnu11 -fwrapv -O3 -w -pthread` and links `-lm`. You can do the same by hand:
 
 ```sh
-cc -std=gnu11 -fwrapv -O2 -pthread hello.c -o hello -lm
+cc -std=gnu11 -fwrapv -O3 -w -pthread hello.c -o hello -lm
 ```
 
 The code uses GNU C extensions that both clang and GCC support: statement expressions (`({ ... })`), `__label__`, `__builtin_expect` and the overflow builtins.
