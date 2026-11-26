@@ -172,7 +172,7 @@ Prints the C code that `vex build` would compile, to standard output. The output
 
 ```sh
 vex emit-c hello.vx > hello.c
-cc -std=gnu11 -fwrapv -O2 -pthread hello.c -o hello -lm
+cc -std=gnu11 -fwrapv -O3 -w -pthread hello.c -o hello -lm
 ```
 
 [Generated C](/docs/tools/generated-c) explains how each Vex construct appears in it.

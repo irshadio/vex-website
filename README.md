@@ -25,6 +25,12 @@ npm run bench       # benchmark results
 
 The rest of the documentation is written by hand. Every Vex code block in it is compiled and run with the `vex` compiler, and the output shown is the real output.
 
+After the language changes, check that the documentation still matches it:
+
+```sh
+npm run verify-docs  # runs every complete program and compares it with the Output block under it
+```
+
 ## Playground
 
 `/playground` runs the Vex compiler in the browser, built from `playground/main.go` into `public/playground/`. It checks programs as you type. Example programs replay the terminal session recorded by `npm run sync`, which builds each example and types its `.in` lines at its prompts.
