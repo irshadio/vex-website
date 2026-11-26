@@ -9,6 +9,7 @@ export function baseOptions(): BaseLayoutProps {
     nav: {
       title: <Logo />,
     },
+    themeSwitch: { mode: 'light-dark-system' },
     githubUrl: langRepo,
   };
 }
