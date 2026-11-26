@@ -1,0 +1,595 @@
+---
+title: Enums
+description: Enums with plain cases and cases that carry values, the .case shorthand, methods and static members, equality and ordering, and exhaustive match.
+---
+
+An enum is a type whose value is exactly one of a fixed list of cases. A case can be a plain name, like `red`, or carry values, like `circle(radius: float)`. Together with [`match`](#matching-on-an-enum), enums let the compiler check that your code handles every possibility.
+
+```vex title="shapes.vx"
+enum Shape {
+    circle(radius: float)
+    rect(width: float, height: float)
+    empty
+
+    fn area() -> float => match self {
+        circle(r) => 3.14 * r * r
+        rect(w, h) => w * h
+        empty => 0.0
+    }
+}
+
+fn main() {
+    let shapes = [Shape.circle(radius: 1), .rect(width: 2, height: 3), .empty]
+    for s in shapes {
+        println(s, s.area())
+    }
+}
+```
+
+```text title="Output"
+Shape.circle(radius: 1.0) 3.14
+Shape.rect(width: 2.0, height: 3.0) 6.0
+Shape.empty 0.0
+```
+
+## Declaring an enum
+
+Cases go one per line, or separated by commas. By convention case names are `lowerCamelCase`.
+
+```vex
+enum Light { red, yellow, green }
+
+enum Direction {
+    north
+    east
+    south
+    west
+}
+```
+
+A case that carries values lists them in parentheses, each with a name and a type, like function parameters:
+
+```vex
+enum Payment {
+    cash
+    card(number: string, expires: string)
+    voucher(code: string, amount: float)
+}
+```
+
+Case values can't have defaults, and every value needs a name:
+
+```vex title="case_values.vx"
+enum Shape { circle(float) }
+
+fn main() {}
+```
+
+```text title="Output"
+error: case value 'float' needs a type
+ --> case_values.vx:1:26
+  |
+1 | enum Shape { circle(float) }
+  |                          ^ write it as float: int
+```
+
+An enum must have at least one case, and there are no raw values: `enum Level { low = 1 }` is a syntax error. If you need a number or a string for each case, write a method that returns it (see [Methods](#methods)).
+
+## Creating values
+
+A case is reached through the enum's name. A case without values is used as is; a case with values is called like a function, with named or positional arguments:
+
+```vex title="create.vx"
+enum Shape {
+    circle(radius: float)
+    rect(width: float, height: float)
+    empty
+}
+
+fn main() {
+    let a = Shape.circle(radius: 2)
+    let b = Shape.circle(1.5)                     // positional
+    let c = Shape.rect(width: 2, height: 3)
+    let d = Shape.empty                           // no ()
+    println(a, b, c, d)
+}
+```
+
+```text title="Output"
+Shape.circle(radius: 2.0) Shape.circle(radius: 1.5) Shape.rect(width: 2.0, height: 3.0) Shape.empty
+```
+
+The compiler checks how each case is used:
+
+```vex title="case_errors.vx"
+enum Shape {
+    circle(radius: float)
+    empty
+}
+
+fn main() {
+    let a = Shape.circel(radius: 1)
+    let b: Shape = .circle
+    let c = Shape.empty()
+}
+```
+
+```text title="Output"
+error: Shape has no case 'circel'
+ --> case_errors.vx:7:19
+  |
+7 |     let a = Shape.circel(radius: 1)
+  |                   ^^^^^^ did you mean 'circle'?
+
+error: case 'circle' carries values, so it must be called
+ --> case_errors.vx:8:21
+  |
+8 |     let b: Shape = .circle
+  |                     ^^^^^^ give its values: .circle(radius: ...)
+
+error: case 'empty' carries no values
+ --> case_errors.vx:9:19
+  |
+9 |     let c = Shape.empty()
+  |                   ^^^^^ write it without (): Shape.empty
+
+3 errors
+```
+
+### The `.case` shorthand
+
+When the compiler already knows which enum is expected, you can leave out its name and write `.case`. This works in a typed `let` or `var`, an assignment, a function argument, a `return`, a list or map of that enum, a `==` comparison, and a `match` arm's result:
+
+```vex title="shorthand.vx"
+enum Light { red, yellow, green }
+
+fn stopAt(light: Light) -> bool => light == .red
+
+fn next(light: Light) -> Light {
+    if light == .red {
+        return .green
+    }
+    return .red
+}
+
+fn main() {
+    var l: Light = .yellow
+    l = .red
+    let all: [Light] = [.red, .yellow, .green]
+    println(stopAt(.red), next(l), all)
+}
+```
+
+```text title="Output"
+true Light.green [Light.red, Light.yellow, Light.green]
+```
+
+Without an expected type, the compiler can't tell which enum you mean:
+
+```vex title="no_type.vx"
+enum Shape { circle(radius: float), empty }
+
+fn main() {
+    let c = .empty
+}
+```
+
+```text title="Output"
+error: can't tell which enum '.empty' belongs to
+ --> no_type.vx:4:13
+  |
+4 |     let c = .empty
+  |             ^^^^^^ write the enum name, e.g. Shape.empty
+```
+
+A list starting with a full `Shape.circle(...)` gives the other items their type, so `[Shape.circle(radius: 1), .rect(width: 2, height: 3)]` works.
+
+## Matching on an enum
+
+`match` picks the arm whose case fits and binds the values the case carries. This is the only way to read those values: an enum has no `.radius` member.
+
+```vex title="match.vx"
+enum Payment {
+    cash
+    card(number: string, expires: string)
+    voucher(code: string, amount: float)
+}
+
+fn describe(p: Payment) -> string => match p {
+    cash => "cash"
+    card(number, _) => "card ending {number.substring(number.len - 4, number.len)}"
+    voucher(amount: a) => "voucher worth {a}"
+}
+
+fn main() {
+    println(describe(.cash))
+    println(describe(.card(number: "4111111111111111", expires: "12/29")))
+    println(describe(.voucher(code: "XMAS", amount: 25)))
+}
+```
+
+```text title="Output"
+cash
+card ending 1111
+voucher worth 25.0
+```
+
+- Bindings follow the order of the case's values: `card(number, expires)`. The names you bind don't have to match the declaration.
+- `_` skips a value you don't need.
+- `name: pattern` picks values by name, in any order, and leaves out the rest: `voucher(amount: a)`.
+- Values can themselves be patterns: `circle(0.0)`, or a nested enum or struct. See [Patterns](/docs/language/patterns).
+
+Reading a value with `.` is an error that points you to `match`:
+
+```vex title="dot_value.vx"
+enum Shape { circle(radius: float), empty }
+
+fn main() {
+    let s = Shape.circle(radius: 1)
+    println(s.radius)
+}
+```
+
+```text title="Output"
+error: Shape has no member 'radius'
+ --> dot_value.vx:5:15
+  |
+5 |     println(s.radius)
+  |               ^^^^^^ read the values a case carries with match, e.g. match v { circle(r) => r, ... }
+```
+
+To test for one case without a full match, use `if case`:
+
+```vex title="if_case.vx"
+enum Shape {
+    circle(radius: float)
+    empty
+}
+
+fn main() {
+    let s = Shape.circle(radius: 3)
+    if s case circle(r) when r > 1 {
+        println("big circle, radius {r}")
+    }
+    if s case empty {
+        println("empty")
+    } else {
+        println("not empty")
+    }
+}
+```
+
+```text title="Output"
+big circle, radius 3.0
+not empty
+```
+
+### Exhaustiveness
+
+A `match` on an enum must handle every case, or end with `_`. When it doesn't, the compiler names the missing cases:
+
+```vex title="missing_case.vx"
+enum Shape {
+    circle(radius: float)
+    rect(width: float, height: float)
+    empty
+}
+
+fn main() {
+    let s = Shape.empty
+    match s {
+        empty => println(0)
+    }
+}
+```
+
+```text title="Output"
+error: match doesn't handle 'circle' and 'rect'
+ --> missing_case.vx:9:5
+  |
+9 |     match s {
+  |     ^^^^^ add the missing arms, or _ => ...
+```
+
+This applies to statement matches as well as matches used as values. The check is the main reason to prefer a match over a chain of `if` tests: when you add a case to an enum later, the compiler lists every match that needs updating. For that reason, prefer listing the cases over `_` when there are only a few.
+
+Arms that can never run are errors too. That includes a `_` after every case is already handled:
+
+```vex title="unreachable.vx"
+enum Light { red, green }
+
+fn main() {
+    let l = Light.red
+    match l {
+        red => println("stop")
+        green => println("go")
+        _ => println("?")
+    }
+}
+```
+
+```text title="Output"
+error: this arm is never reached: earlier arms match everything it does
+ --> unreachable.vx:8:9
+  |
+8 |         _ => println("?")
+  |         ^ remove it, or move it above the arms that cover it
+```
+
+Other mistakes the compiler catches in enum arms:
+
+```vex title="arm_errors.vx"
+enum Shape {
+    circle(radius: float)
+    rect(width: float, height: float)
+}
+
+fn main() {
+    let s = Shape.circle(radius: 1)
+    match s {
+        rect(w) => println(w)
+        circle(r) => println(r)
+        circle(_) => println(0)
+    }
+}
+```
+
+```text title="Output"
+error: case 'rect' carries 2 values, found 1
+ --> arm_errors.vx:9:9
+  |
+9 |         rect(w) => println(w)
+  |         ^^^^^^^ write rect(width, height), using _ for values you don't need
+
+error: case 'circle' is already handled on line 10
+  --> arm_errors.vx:11:9
+   |
+11 |         circle(_) => println(0)
+   |         ^^^^^^^^^ remove one of the arms
+
+2 errors
+```
+
+Arms with a `when` condition don't count toward exhaustiveness, since the condition may be false.
+
+## Methods
+
+Enums can have methods, getters and static members, like structs. Inside a method, `self` is the enum value, and the usual way to use it is `match self`:
+
+```vex title="light.vx"
+enum Light {
+    red, yellow, green
+
+    static const all: [Light] = [.red, .yellow, .green]
+
+    fn next() -> Light => match self {
+        red => .green
+        green => .yellow
+        yellow => .red
+    }
+
+    fn isStop() -> bool => self == .red
+
+    get label -> string => match self {
+        red => "Stop"
+        yellow => "Slow"
+        green => "Go"
+    }
+
+    static fn parse(s: string) -> Light? => match s {
+        "red" => .red
+        "yellow" => .yellow
+        "green" => .green
+        _ => nil
+    }
+}
+
+fn main() {
+    for l in Light.all {
+        println(l, l.next(), l.isStop(), l.label)
+    }
+    println(Light.parse("green"), Light.parse("blue"))
+}
+```
+
+```text title="Output"
+Light.red Light.green true Stop
+Light.yellow Light.red false Slow
+Light.green Light.yellow false Go
+Light.green nil
+```
+
+This is also how you attach a number or a string to each case, since Vex enums have no raw values: write a getter like `label` above.
+
+Enums can't have setters or operators, and a `const` inside an enum must be `static const`. Methods and cases share one namespace: a method can't have the same name as a case.
+
+## Enums never change
+
+An enum value is fixed once created. There are no fields to assign, and a case can't be reassigned:
+
+```vex title="assign_case.vx"
+enum E { a, b }
+
+fn main() {
+    E.a = E.b
+}
+```
+
+```text title="Output"
+error: can't assign to enum case 'a'
+ --> assign_case.vx:4:5
+  |
+4 |     E.a = E.b
+  |     ^^^
+```
+
+To "change" an enum, make a new value, as `next()` does above, and store it in a `var`. A value that a case carries can still be a list or a struct, and that list or struct can change, since it is shared like any other (see [Memory](/docs/language/memory)).
+
+## Equality and ordering
+
+Enums whose cases carry no values compare with `==` and `!=`, and order with `<`, `<=`, `>` and `>=`. Cases are ordered as they are declared:
+
+```vex title="compare.vx"
+enum Level { low, mid, high }
+
+fn main() {
+    let l = Level.mid
+    println(l == .mid, l != Level.low)
+    println(Level.low < Level.high, Level.high > .mid, Level.low >= Level.mid)
+}
+```
+
+```text title="Output"
+true true
+true true false
+```
+
+These enums are also `Equatable`, `Comparable` and `Hashable`, so they work with `list.contains`, as map keys, and with [generic](/docs/language/generics) constraints:
+
+```vex title="keys.vx"
+enum Level { low, mid, high }
+
+fn main() {
+    let names = [Level.low: "L", Level.high: "H"]
+    println(names, names[.low] ?? "?", names[.mid] ?? "?")
+    println([Level.low, Level.mid].contains(.mid))
+}
+```
+
+```text title="Output"
+[Level.low: "L", Level.high: "H"] L ?
+true
+```
+
+Once any case carries values, the enum can't be compared with `==` at all, even between cases without values. Use `match` or `if case` instead:
+
+```vex title="payload_eq.vx"
+enum Shape { circle(radius: float), empty }
+
+fn main() {
+    let s = Shape.empty
+    println(s == Shape.empty)
+}
+```
+
+```text title="Output"
+error: values of type Shape can't be compared with ==
+ --> payload_eq.vx:5:13
+  |
+5 |     println(s == Shape.empty)
+  |             ^^^^^^^^^^^^^^^^
+```
+
+There's no conversion from an enum to a number: `int(Level.high)` is reported as `can't convert Level to int`.
+
+## Printing
+
+An enum prints as `Enum.case`, followed by its values in the same format as a struct's fields. `str(...)` and interpolation give the same text:
+
+```vex title="print.vx"
+enum Light { red, green }
+enum Shape { circle(radius: float), labeled(name: string, size: int) }
+
+fn main() {
+    println(Light.red, [Light.red, .green])
+    println(Shape.circle(radius: 2), Shape.labeled(name: "a", size: 3))
+    let s = "now: {Light.green}"
+    println(s, str(Light.red))
+}
+```
+
+```text title="Output"
+Light.red [Light.red, Light.green]
+Shape.circle(radius: 2.0) Shape.labeled(name: "a", size: 3)
+now: Light.green Light.red
+```
+
+A generic enum includes its type arguments: `Result<int>.ok(value: 5)`.
+
+## Recursive enums
+
+A case can carry the enum itself, which makes trees and expressions easy to model:
+
+```vex title="expr.vx"
+enum Expr {
+    num(value: int)
+    add(left: Expr, right: Expr)
+    mul(left: Expr, right: Expr)
+
+    fn eval() -> int => match self {
+        num(v) => v
+        add(l, r) => l.eval() + r.eval()
+        mul(l, r) => l.eval() * r.eval()
+    }
+
+    fn show() -> string => match self {
+        num(v) => "{v}"
+        add(l, r) => "({l.show()} + {r.show()})"
+        mul(l, r) => "{l.show()} * {r.show()}"
+    }
+}
+
+fn main() {
+    let e = Expr.mul(left: .add(left: .num(value: 2), right: .num(value: 3)), right: .num(value: 4))
+    println(e.show(), "=", e.eval())
+}
+```
+
+```text title="Output"
+(2 + 3) * 4 = 20
+```
+
+## Cases as functions
+
+A case that carries values can be used as a function value, which is handy with `map`:
+
+```vex title="case_fn.vx"
+enum Shape { circle(radius: float), empty }
+
+fn main() {
+    let circles = [1.0, 2.5].map(Shape.circle)
+    println(circles)
+}
+```
+
+```text title="Output"
+[Shape.circle(radius: 1.0), Shape.circle(radius: 2.5)]
+```
+
+## Enums and other features
+
+- **Generic enums**, such as `enum Result<T> { ok(value: T), err(message: string) }`. See [Generics](/docs/language/generics).
+- **Interfaces.** `enum Suit: Drawable { ... }`. See [Interfaces](/docs/language/interfaces).
+- **Typed errors.** `throws(LoadError)` names an enum of the ways a function can fail. See [Errors](/docs/language/errors).
+- **Extensions** can add methods, getters and static members to an enum. See [Extensions](/docs/language/extensions).
+- **Constants.** `const defaultLight = Light.red`. See [Constants](/docs/language/constants).
+- **Modules.** Cases are public whenever their enum is `pub`, and can't be marked `pub` on their own.
+
+## Rules and edge cases
+
+- An enum needs at least one case. Case values need a name and a type, and can't have defaults.
+- No raw values: write a method or getter that maps each case to a number or string.
+- A case without values is written without `()`; a case with values must be called.
+- `.case` needs an expected type.
+- The values a case carries are read with `match` or `if case`, never with `.`.
+- A `match` on an enum must name every case or end with `_`. A `_` after all cases are named is an error, and so is an arm that repeats a case.
+- Arms with `when` don't count toward covering a case.
+- `==`, `!=`, ordering, map keys and `Hashable` work only when no case carries values.
+- Enum values never change. Enums can't have setters or operators, and their constants must be `static const`.
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Rust | TypeScript |
+|---|---|---|---|---|---|
+| Cases with values | `circle(radius: float)` | `case circle(radius: Double)` | sealed class subclasses | `Circle { radius: f64 }` | union of object types |
+| Exhaustive match | yes | yes | `when` on sealed | yes | with `never` checks |
+| Raw values | no | yes | properties | discriminants | string literals |
+| Shorthand | `.red` | `.red` | no | no | no |
+
+## See also
+
+- [Patterns](/docs/language/patterns)
+- [Structs](/docs/language/structs)
+- [Errors](/docs/language/errors)
+- [Generics](/docs/language/generics)
+- [Example: enums](/docs/examples/enums)

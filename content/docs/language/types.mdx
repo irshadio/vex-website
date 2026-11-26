@@ -1,0 +1,378 @@
+---
+title: Types
+description: The built-in types (int, float, bool, string, lists, maps, records, optionals, function types), number semantics, conversions, type inference rules and type aliases.
+---
+
+Vex is statically typed: every value has a type known at compile time, and the compiler rejects a program that mixes types in ways that don't fit. You write few types yourself, because the compiler infers them from values. This page lists the built-in types, explains how numbers behave, how to convert between types, how inference works, and how to name a type with `typedef`.
+
+## Overview
+
+| Type | Written | Example value | Details |
+|---|---|---|---|
+| Integer | `int` | `42`, `-7`, `0xFF` | 64-bit signed. [Integers](#integers) |
+| Floating point | `float` | `3.14`, `2.5e-3` | 64-bit IEEE 754. [Floats](#floats) |
+| Boolean | `bool` | `true`, `false` | [Booleans](#booleans) |
+| Text | `string` | `"hi {name}"` | UTF-8, immutable. [Strings](/docs/language/strings) |
+| List | `[T]` | `[1, 2, 3]` | Ordered, growable, shared reference. [Lists](/docs/language/lists) |
+| Map | `[K: V]` | `["a": 1]` | Ordered by insertion, shared reference. [Maps](/docs/language/maps) |
+| Record | `(int, string)`, `({int x, int y})` | `(1, "a")`, `(x: 1, y: 2)` | Fixed group of values. [Records](/docs/language/records) |
+| Optional | `T?` | `nil`, or a `T` | [Optionals](/docs/language/optionals) |
+| Function | `fn(int) -> bool` | `fn(x) => x > 0` | [Closures](/docs/language/closures) |
+| Struct | `User` | `User(name: "Ann")` | Shared reference. [Structs](/docs/language/structs) |
+| Enum | `Shape` | `Shape.circle(radius: 1)` | Value. [Enums](/docs/language/enums) |
+| Interface | `Shape` | any value that implements it | [Interfaces](/docs/language/interfaces) |
+| Future | `Future<T>`, `Future<T, E>` | the result of an `async fn` call | [Async](/docs/concurrency/async) |
+| Channel | `Channel<T>` | `Channel<int>()` | [Isolates](/docs/concurrency/isolates) |
+| Error | `Error` | `Error("disk full")` | The built-in error type. [Errors](/docs/language/errors) |
+
+There is no `char` type (a character is a one-character `string`), no separate unsigned or sized integer types for Vex code, and no `void` type: a function that returns nothing leaves out its result type. Sized C types such as `int32` and `uint8` exist only in `extern fn` and `export fn` signatures; see [C interop](/docs/projects/c-interop).
+
+## Integers
+
+`int` is a 64-bit signed integer, from `-9223372036854775808` to `9223372036854775807`. It's the only integer type in Vex code, so you never choose between `Int32`, `Int64` and `UInt`.
+
+### Integer literals
+
+```vex title="intlit.vx"
+fn main() {
+    println(1_000_000, 0xFF, 0b1010, 0o17, -42)
+}
+```
+
+```text title="Output"
+1000000 255 10 15 -42
+```
+
+- `_` separates digits anywhere between two digits: `1_000_000`, `0xFF_FF`. A `_` at the start or end of the digits, or two in a row, is an error: `misplaced digit separator in 1__000`.
+- `0x` (hexadecimal), `0b` (binary) and `0o` (octal) prefixes are case-insensitive: `0XFF` works.
+- A decimal number can't start with `0`: `007` is an error with the hint `write 7, or 0o7 for octal`.
+- A literal too big for `int` is a compile error: `number 9223372036854775808 is too big for int`. `-9223372036854775808` is allowed.
+
+### Overflow is an error
+
+Arithmetic that doesn't fit in 64 bits stops the program instead of wrapping around to a wrong number:
+
+```vex title="overflow.vx"
+fn main() {
+    var big = 9223372036854775807
+    println(big &+ 1)
+    println(big + 1)
+}
+```
+
+```text title="Output"
+-9223372036854775808
+error: integer overflow: 9223372036854775807 + 1 doesn't fit in an int; use &+ to wrap around
+ --> overflow.vx:4
+```
+
+The wrapping operators `&+`, `&-` and `&*` wrap around instead, for hashes and random number generators. Integer division truncates toward zero, and dividing by zero stops the program. [Operators](/docs/language/operators#integer-arithmetic) has the full rules, including `%` with negative numbers.
+
+## Floats
+
+`float` is a 64-bit IEEE 754 double, the same as `double` in C and `Double` in Swift. It's the only floating-point type in Vex code.
+
+### Float literals
+
+A float literal has a `.` with digits on both sides, or an exponent: `3.14`, `0.5`, `2.5e-3`, `1e6`, `1E3`, `1e+3`. `_` works between digits as in integers: `1_000.000_1`.
+
+- `.5` and `1.` aren't numbers. Write `0.5` and `1.0`.
+- A literal too big for a float is an error (`number 1e400 is too big for float`), and so is one so small it would be 0 (`number 1e-400 is too small for float, so it would be 0`).
+
+### Float arithmetic
+
+Floats follow IEEE 754. Dividing by zero doesn't stop the program: it gives infinity, or `nan` (not a number) for `0.0 / 0.0`.
+
+```vex title="floats.vx"
+fn main() {
+    let zero = 0.0
+    println(7.0 / 2.0, 0.1 + 0.2, 1.0 / zero, -1.0 / zero, zero / zero)
+    let n = zero / zero
+    println(n == n, 0.1 + 0.2 == 0.3, -0.0 == 0.0)
+}
+```
+
+```text title="Output"
+3.5 0.30000000000000004 inf -inf nan
+false false true
+```
+
+- `%` doesn't work on floats. Use `math.trunc` from [`vex:math`](/docs/stdlib/math) to build one if you need it.
+- `nan` is not equal to anything, itself included.
+- Floats have no members; rounding, square roots and the like are in [`vex:math`](/docs/stdlib/math).
+
+### How floats print
+
+`println`, `str` and string interpolation format a float with the fewest digits that read back as exactly the same number, and always show it as a float:
+
+- A whole number keeps a `.0`: `10.0`, not `10`.
+- Numbers whose decimal exponent is from -5 to 16 print in plain notation: `0.00001`, `12345678901234568.0`.
+- Smaller or larger numbers use an exponent with a sign and at least two digits: `1e-06`, `1.5e+17`.
+- Infinity and not-a-number print as `inf`, `-inf` and `nan`. Negative zero prints as `-0.0`.
+
+```vex title="floatprint.vx"
+fn main() {
+    println(2.5, 10.0, 1.0 / 3.0, 100.0 * 1.1)
+    println(0.00001, 0.000001, 12345678901234567.0, 1.5e17, 2.0e-10)
+}
+```
+
+```text title="Output"
+2.5 10.0 0.3333333333333333 110.00000000000001
+0.00001 1e-06 12345678901234568.0 1.5e+17 2e-10
+```
+
+## Booleans
+
+`bool` has two values, `true` and `false`. Conditions in `if`, `while`, `guard` and `&&`/`||` must be `bool`; nothing else counts as true or false.
+
+```vex title="truthy.vx"
+fn main() {
+    let items = [1, 2]
+    if items.len {
+        println("has items")
+    }
+}
+```
+
+```text title="Output"
+error: if condition must be bool, found int
+ --> truthy.vx:3:8
+  |
+3 |     if items.len {
+  |        ^^^^^^^^^ compare it, e.g. x != 0
+```
+
+Write `if items.len > 0`. Booleans compare with `==` and `!=`, but not with `<`.
+
+## Strings
+
+`string` holds UTF-8 text and can't be changed in place; methods return new strings. `len` counts Unicode code points. Strings join with `+` only to other strings, and everything else goes in through interpolation: `"{count} items"`. See [Strings](/docs/language/strings).
+
+## Collections and records
+
+- `[T]` is a list of `T`. `[int?]` is a list of optional ints; `[int]?` is an optional list.
+- `[K: V]` is a map from `K` to `V`. Keys can be `int`, `string`, `bool` or an enum whose cases carry no values. Values can be anything except an optional.
+- `(int, string)` is a record with two positional fields; `({int x, int y})` one with named fields; `(int, {string name})` mixes both.
+
+Lists and maps are shared references; records are values. See [Lists](/docs/language/lists), [Maps](/docs/language/maps) and [Records](/docs/language/records).
+
+## Optionals
+
+A type followed by `?` holds a value of that type or `nil`. Every other type always holds a value, so `nil` can only appear where the type says it can.
+
+```vex
+let found: int? = nil
+let name: string? = "Ann"
+```
+
+A type can be optional only once: `int??` is an error (`a type can only be optional once`). `?` comes last in a type, so `(fn() -> int)?` needs parentheses for an optional function that returns a value, while `fn()?` doesn't. See [Optionals](/docs/language/optionals).
+
+## Function types
+
+A function type lists its parameter types and its result: `fn(int, string) -> bool`. A function that returns nothing is written without the arrow: `fn(string)`, or `fn()` for one that takes nothing either. A function that can throw has `throws` before the arrow: `fn(int) throws -> int`.
+
+```vex title="fntypes.vx"
+fn main() {
+    let check: fn(int, string) -> bool = fn(n, s) => s.len == n
+    let log: fn(string) = fn(s) { println("log: {s}") }
+    log("ready")
+    println(check(2, "ab"), check)
+}
+```
+
+```text title="Output"
+log: ready
+true <fn(int, string) -> bool>
+```
+
+A function value prints as its type in angle brackets. Function values can't be compared with `==`. See [Closures](/docs/language/closures).
+
+## Conversions
+
+Numbers never convert silently. `int` and `float` don't mix in arithmetic or comparisons, and nothing converts to `string` by itself. The compiler tells you which conversion to write:
+
+```vex title="mix.vx"
+fn main() {
+    let count = 3
+    let price = 2.5
+    let total = count * price
+}
+```
+
+```text title="Output"
+error: can't use '*' with int and float
+ --> mix.vx:4:17
+  |
+4 |     let total = count * price
+  |                 ^^^^^^^^^^^^^ convert the int with float(...)
+```
+
+The reason is that a silent conversion can lose information (a float's fraction, or precision in a large int), and Vex would rather make each one visible.
+
+Three built-in functions convert:
+
+| Call | From | Result |
+|---|---|---|
+| `int(x)` | `int`, `float`, `string` | `int` |
+| `float(x)` | `int`, `float`, `string` | `float` |
+| `str(x)` | any value | `string`, the same text `println` shows |
+
+```vex title="convert.vx"
+fn main() {
+    let count = 7
+    println(float(count) / 2.0, count / 2)
+    println(int(3.9), int(-3.9), int("42"), int(" -5 "), int("+7"))
+    println(float("2.5"), float("1e3"), float(" 2 "), float(".5"))
+    println(str(3.0) + "!", str([1, 2]), str(true))
+}
+```
+
+```text title="Output"
+3.5 3
+3 -3 42 -5 7
+2.5 1000.0 2.0 0.5
+3.0! [1, 2] true
+```
+
+### Conversion rules
+
+- `int(f)` drops the fraction, rounding toward zero: `int(3.9)` is `3` and `int(-3.9)` is `-3`. Use `math.round`, `math.floor` or `math.ceil` from [`vex:math`](/docs/stdlib/math) first for other rounding.
+- `int(f)` of a float outside the `int` range, infinity or `nan` stops the program: `can't convert inf to int: it's out of range`.
+- `int(s)` and `float(s)` ignore spaces, tabs and line breaks around the number, and accept a leading `+` or `-`.
+- `int(s)` accepts decimal digits only. `"3.5"`, `"0x10"`, `"1_000"` and `""` stop the program with `can't convert "3.5" to int`. A number too big for `int` gives `can't convert "99999999999999999999" to int: the number is too big`.
+- `float(s)` accepts decimal numbers with an optional fraction and exponent. `"abc"`, `"inf"`, `"nan"`, hex, and numbers too big for a float stop the program with `can't convert "abc" to float`.
+- `int` and `float` don't take `bool` (`can't convert bool to int`) or optionals (`can't convert int? to int`). Unwrap an optional first with `??` or `if let`.
+- There are no `bool(...)` or `string(...)` functions.
+
+A failed conversion is a runtime error, not an exception you can catch. To check user input before converting, test it first, for example with `s.trim() != ""` and a check of each character.
+
+## Type inference
+
+The compiler works out each variable's type from its value. You write a type only where the value doesn't decide it.
+
+### Rules
+
+1. **A variable takes the type of its value.** `let n = 5` is an `int`; `let xs = ["a"]` is a `[string]`.
+2. **A whole-number literal adapts to `float` where a float is expected.** `let price: float = 10`, `price * 2` and `1 + 2.5` all work. This applies only to literals: an `int` variable never becomes a `float`.
+3. **An expected type flows into the value.** In `let xs: [float] = [1, 2]`, the elements become floats; in `let s: Shape = .circle(radius: 1)` the enum is known. Arguments, `return` values and fields give the same context.
+4. **A plain value becomes an optional where one is expected.** `let age: int? = 31`, and returning an `int` from a function that returns `int?`.
+5. **A list mixing `nil` and values becomes a list of optionals.** `[nil, 1]` is an `[int?]`.
+6. **Empty collections and `nil` need a type.** `[]`, `[:]` and `nil` alone are errors, since nothing says what they hold.
+7. **A closure's parameter types come from the expected function type.** `xs.filter(fn(x) => x > 0)` knows `x` is the element type. Without an expected type, write them.
+8. **A function's parameters and result are always written.** Only local variables, closures and constants are inferred.
+
+```vex title="inferred.vx"
+fn main() {
+    let xs: [float] = [1, 2]
+    let mixed = [nil, 1]
+    let age: int? = 31
+    let half = 1 + 0.5
+    println(xs, mixed, age, half)
+}
+```
+
+```text title="Output"
+[1.0, 2.0] [nil, 1] 31 1.5
+```
+
+When the compiler can't decide, it says what to write:
+
+```vex title="empty.vx"
+fn main() {
+    let empty = []
+    let none = nil
+}
+```
+
+```text title="Output"
+error: can't tell the type of an empty list
+ --> empty.vx:2:17
+  |
+2 |     let empty = []
+  |                 ^^ give the type, e.g. let xs: [int] = []
+
+error: can't tell the type of nil
+ --> empty.vx:3:16
+  |
+3 |     let none = nil
+  |                ^^^ write the type, e.g. let user: User? = nil
+
+2 errors
+```
+
+## Type aliases
+
+`typedef` gives a type a shorter or clearer name. The alias is the same type as the one it names, so values pass between them freely.
+
+```vex title="typedef.vx"
+typedef Scores = [string: int]
+typedef Point = ({float x, float y})
+typedef Pair<T> = (T, T)
+typedef Check = fn(int) -> bool
+typedef UserId = int
+
+fn total(s: Scores) -> int {
+    var sum = 0
+    for _, v in s { sum += v }
+    return sum
+}
+
+fn countIf(xs: [int], check: Check) -> int => xs.filter(check).len
+
+fn main() {
+    let s: Scores = ["ann": 3, "bob": 5]
+    let p: Point = (x: 1.0, y: 2.5)
+    let pair: Pair<int> = (1, 2)
+    let id: UserId = 42
+    let plain: int = id + 1
+    println(total(s), p.y, pair.$2, plain)
+    println(countIf([1, 5, 10], fn(x) => x > 3))
+}
+```
+
+```text title="Output"
+8 2.5 2 43
+2
+```
+
+- An alias can take type parameters, with constraints: `typedef Cache<K: Hashable> = [K: string]`. See [Generics](/docs/language/generics).
+- An alias of a struct creates values and reaches static members: after `typedef Pt = Point`, `Pt(x: 1, y: 2)` works. An alias of an enum reaches its cases, and an alias of an interface can be implemented and used as a constraint.
+- `pub typedef` makes the alias visible to other modules. See [Modules](/docs/projects/modules).
+- Aliases are declared at the top level and can't refer to themselves (`typedef Loop refers to itself`). Use a struct or enum for a type that contains itself.
+- An alias doesn't create a new type. `typedef UserId = int` still accepts any `int`, as the example shows.
+- Built-in type names can't be redefined: `typedef int = string` gives `'int' is a built-in type and can't be used as a type name`.
+
+<Callout type="warn" title="Planned">
+Distinct wrapper types, where `UserId` and `int` don't mix, are planned as extension types. They don't exist yet.
+</Callout>
+
+## Comparing values
+
+`==` and `!=` work on `int`, `float`, `bool`, `string`, enums whose cases carry no values, records whose fields can all be compared, and structs that define `operator ==`. Optionals compare only with `nil`. `<`, `<=`, `>` and `>=` work on `int`, `float`, `string` and enums whose cases carry no values. Lists, maps, functions and interface values can't be compared. [Operators](/docs/language/operators#comparison) has the details.
+
+## Rules and edge cases
+
+- `int` and `float` never mix: `can't use '*' with int and float`, `can't compare int with float`, `expected float, found int`. Literals adapt; variables don't.
+- `string + int` is an error: `can't use '+' with string and int`, with the hint to use interpolation.
+- Conditions must be `bool`: `if condition must be bool, found int`.
+- `void` is not a type: `'void' is not a type`, with the hint `leave out the return type for functions that return nothing`.
+- A type name that doesn't exist gives `unknown type 'Pont'`, with a suggestion when a similar name exists.
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Go | TypeScript |
+|---|---|---|---|---|---|
+| Integer types | `int` (64-bit) | `Int`, `Int8`...`UInt64` | `Int`, `Long`... | `int`, `int8`...`uint64` | `number`, `bigint` |
+| Integer overflow | stops the program | traps | wraps | wraps | becomes a float |
+| Implicit int to float | literals only | literals only | no | constants only | one type |
+| Null | `T?` only | `T?` only | `T?` only | any pointer | `T \| null` |
+| Type alias | `typedef` | `typealias` | `typealias` | `type X = Y` | `type` |
+
+## See also
+
+- [Operators](/docs/language/operators)
+- [Strings](/docs/language/strings)
+- [Optionals](/docs/language/optionals)
+- [Records](/docs/language/records)
+- [Built-ins](/docs/stdlib/built-ins)

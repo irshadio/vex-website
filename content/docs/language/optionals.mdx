@@ -1,0 +1,570 @@
+---
+title: Optionals
+description: "Optional types T?, nil, and every way to get a value out safely: if let, guard let, while let, ?. chaining and the ?? default."
+---
+
+A type ending in `?` holds either a value of that type or `nil`. Every other type always has a value. The compiler makes you check an optional before you use the value inside, so a missing value can't crash the program.
+
+```vex title="find.vx"
+struct User {
+    name: string
+    manager: User? = nil
+}
+
+fn findUser(users: [User], name: string) -> User? {
+    for u in users {
+        if u.name == name {
+            return u
+        }
+    }
+    return nil
+}
+
+fn main() {
+    let ann = User(name: "Ann")
+    let bob = User(name: "Bob", manager: ann)
+    let users = [ann, bob]
+
+    if let u = findUser(users, "Bob") {
+        println("found {u.name}")
+    }
+    let boss = findUser(users, "Bob")?.manager?.name ?? "nobody"
+    println("Bob reports to {boss}")
+    println(findUser(users, "Zed"))
+}
+```
+
+```text title="Output"
+found Bob
+Bob reports to Ann
+nil
+```
+
+## Optional types and nil
+
+Write `?` after any type to make it optional: `int?`, `string?`, `User?`, `[int]?`. `nil` is the absence of a value.
+
+```vex title="declare.vx"
+fn main() {
+    let age: int? = 31                    // a plain value becomes an optional where one is expected
+    var picked: string? = nil             // nil needs a known type
+    println(age, picked)
+    picked = "blue"
+    println(picked)
+    picked = nil
+    println(picked)
+}
+```
+
+```text title="Output"
+31 nil
+blue
+nil
+```
+
+`nil` needs a type to belong to, and it can only go where an optional is expected:
+
+```vex title="nil_errors.vx"
+fn main() {
+    let a = nil
+    let b: int = nil
+}
+```
+
+```text title="Output"
+error: can't tell the type of nil
+ --> nil_errors.vx:2:13
+  |
+2 |     let a = nil
+  |             ^^^ write the type, e.g. let user: User? = nil
+
+error: nil can't be used as int, which always has a value
+ --> nil_errors.vx:3:18
+  |
+3 |     let b: int = nil
+  |                  ^^^ make the type optional: int?
+
+2 errors
+```
+
+A function returning `T?` can return a plain `T` or `nil`; the value is wrapped for you. The same happens when you pass a `T` to a `T?` parameter, or store it in a `T?` field or list.
+
+### Where the ? goes
+
+`?` applies to the whole type to its left, and comes last:
+
+| Type | Meaning |
+|---|---|
+| `[int?]` | a list whose elements may be `nil` |
+| `[int]?` | a list, or `nil` |
+| `[string: int]` | lookups give `int?` already; values can't be optional |
+| `fn()?` | an optional function |
+| `(fn() -> int)?` | an optional function that returns `int`; the parentheses are required |
+
+A type can be optional only once: `int??` is reported as `a type can only be optional once`.
+
+### Where optionals come from
+
+Besides your own functions, optionals come from:
+
+- map lookups: `ages["ann"]` is `int?`
+- `map.remove(key)`
+- `string.indexOf(x)`
+- `?.` chains and `try?` (see [Errors](/docs/language/errors))
+- `extern fn` declarations that return `string?` or a handle `Db?` (see [C interop](/docs/projects/c-interop))
+
+## You must check before using
+
+An optional value can't be used as if it were the plain type. Reading a field, calling a method, doing arithmetic or passing it where a plain type is expected are all errors:
+
+```vex title="unchecked.vx"
+struct User {
+    name: string
+}
+
+fn find(id: int) -> User? => nil
+
+fn main() {
+    let u = find(1)
+    println(u.name)
+    let n: int? = 5
+    println(n + 1)
+}
+```
+
+```text title="Output"
+error: can't read 'name' from a User?: it may be nil
+ --> unchecked.vx:9:15
+  |
+9 |     println(u.name)
+  |               ^^^^ use ?.name, or unwrap it first with if let
+
+error: can't use '+' with int? and int
+  --> unchecked.vx:11:13
+   |
+11 |     println(n + 1)
+   |             ^^^^^
+
+2 errors
+```
+
+There is no force unwrap operator (no `!` as in Swift or Kotlin's `!!`). Every optional is checked with one of the forms below. If a missing value really is a bug, write that decision down: `guard let x = maybe else { panic("...") }`.
+
+## if let
+
+`if let name = optional { ... }` runs the block only when the value isn't `nil`, with `name` bound to the plain value inside. An `else` block runs when it is `nil`:
+
+```vex title="if_let.vx"
+fn main() {
+    let ages = ["ann": 31, "bob": 25]
+    if let a = ages["ann"] {
+        println("ann is {a}")                 // a is an int here
+    }
+    if let z = ages["zoe"] {
+        println("zoe is {z}")
+    } else {
+        println("no age for zoe")
+    }
+    if let a = ages["cat"] {
+        println(a)
+    } else if let b = ages["bob"] {
+        println("bob is {b}")
+    }
+}
+```
+
+```text title="Output"
+ann is 31
+no age for zoe
+bob is 25
+```
+
+- The name is a new constant, only visible inside the block. It may reuse the optional's name: `if let user = user { ... }`.
+- `if let` takes one binding. Nest two `if let`s to unwrap two values.
+- The shorthand `if let name { }` doesn't exist; write `if let name = name { }`.
+- The value must be optional:
+
+```vex title="if_let_plain.vx"
+fn main() {
+    let n = 5
+    if let x = n {
+        println(x)
+    }
+}
+```
+
+```text title="Output"
+error: if let needs an optional value, but this is int
+ --> if_let_plain.vx:3:16
+  |
+3 |     if let x = n {
+  |                ^ it always has a value, so a plain let works
+```
+
+## guard let
+
+`guard let name = optional else { ... }` is the early-exit form. When the value is `nil`, the `else` block runs and must leave: with `return`, `break`, `continue`, `throw` or `panic(...)`. After the `guard`, `name` is the plain value for the rest of the enclosing block:
+
+```vex title="guard.vx"
+fn parseAge(text: string) -> int? {
+    if text == "" || text.contains(" ") {
+        return nil
+    }
+    return int(text)
+}
+
+fn describe(text: string) -> string {
+    guard let age = parseAge(text) else {
+        return "'{text}' isn't an age"
+    }
+    // age is an int from here on
+    if age < 18 {
+        return "{age}: minor"
+    }
+    return "{age}: adult"
+}
+
+fn main() {
+    for t in ["31", "", "12", "4 2"] {
+        println(describe(t))
+    }
+}
+```
+
+```text title="Output"
+31: adult
+'' isn't an age
+12: minor
+'4 2' isn't an age
+```
+
+`guard let` keeps the main path of a function unindented: check the inputs at the top, then work with plain values.
+
+An `else` block that can fall through is an error, since the name would have no value after it:
+
+```vex title="guard_leave.vx"
+fn main() {
+    let maybe: int? = nil
+    guard let y = maybe else {
+        println("none")
+    }
+}
+```
+
+```text title="Output"
+error: the else block of guard must leave, so 'y' always has a value after it
+ --> guard_leave.vx:3:30
+  |
+3 |     guard let y = maybe else {
+  |                              ^ end it with return, break, continue or panic(...)
+```
+
+## while let
+
+`while let name = optional { ... }` evaluates the optional before each pass and stops at the first `nil`. It is the natural loop for linked structures and for functions that return `nil` when they run out:
+
+```vex title="while_let.vx"
+struct Node {
+    value: int
+    next: Node? = nil
+}
+
+fn main() {
+    let list = Node(value: 1, next: Node(value: 2, next: Node(value: 3)))
+    var cur: Node? = list
+    var total = 0
+    while let n = cur {
+        total += n.value
+        cur = n.next
+    }
+    println(total)
+}
+```
+
+```text title="Output"
+6
+```
+
+`break` and `continue` work inside as in any loop.
+
+## Optional chaining with ?.
+
+`a?.b` reads `b` from `a` when `a` has a value, and gives `nil` when `a` is `nil`. The result is always optional. It works for fields, getters and method calls:
+
+```vex title="chaining.vx"
+struct Person {
+    name: string
+    manager: Person? = nil
+    email: string? = nil
+
+    fn greet() {
+        println("hi, {name}")
+    }
+}
+
+fn main() {
+    let maya = Person(name: "Maya", email: "maya@example.com")
+    let omar = Person(name: "Omar", manager: maya)
+    let lena = Person(name: "Lena", manager: omar)
+
+    println(lena.manager?.name)                 // string?
+    println(lena.manager?.manager?.name)        // each optional step needs ?.
+    println(maya.manager?.manager?.name)        // stops at the first nil
+    println(lena.manager?.email)                // a field that is itself optional
+
+    let nobody: Person? = nil
+    nobody?.greet()                             // not called
+    lena.manager?.greet()                       // called
+}
+```
+
+```text title="Output"
+Omar
+Maya
+nil
+nil
+hi, Omar
+```
+
+- A method call through `?.` runs only when the value isn't `nil`. Its result, if any, becomes optional.
+- **Each step after an optional needs its own `?.`**. `?.` doesn't skip the rest of the chain the way Swift's does. In `s?.upper().len`, `s?.upper()` is a `string?`, so `.len` must be `?.len`:
+
+```vex title="chain_step.vx"
+fn main() {
+    let s: string? = "a"
+    let t = s?.upper().len
+}
+```
+
+```text title="Output"
+error: can't read 'len' from a string?: it may be nil
+ --> chain_step.vx:3:24
+  |
+3 |     let t = s?.upper().len
+  |                        ^^^ use ?.len, or unwrap it first with if let
+```
+
+The fixed version is `s?.upper()?.len`.
+
+- `?.` is only for optional values: `"hi"?.len` is an error that suggests `.`.
+- You can't assign through `?.`: `user?.name = "x"` is an error. Unwrap with `if let` first, then assign.
+- There is no optional indexing (`xs?[0]`) and no optional call (`f?()`). Unwrap first with `if let`.
+- `x?.method` without a call gives a function bound to the value, or `nil` (see [Closures](/docs/language/closures)).
+
+## Default values with ??
+
+`a ?? b` gives the value inside `a`, or `b` when `a` is `nil`. When `b` is a plain value the result is plain, so `??` is the usual way to leave optional-land:
+
+```vex title="default.vx"
+fn expensive() -> int {
+    println("computing the default")
+    return 0
+}
+
+fn main() {
+    let ages = ["ann": 31]
+    let a = ages["ann"] ?? 0                    // int, not int?
+    let z = ages["zoe"] ?? 0
+    println(a, z)
+
+    let present: int? = 1
+    println(present ?? expensive())             // the right side doesn't run
+    let missing: int? = nil
+    println(missing ?? expensive())             // it runs only for nil
+
+    let first: int? = nil
+    let second: int? = nil
+    println(first ?? second ?? 7)               // tries each in turn
+}
+```
+
+```text title="Output"
+31 0
+1
+computing the default
+0
+7
+```
+
+- The right side runs only when the left side is `nil`.
+- `??` groups to the right, so `a ?? b ?? c` tries `a`, then `b`, then `c`. If the last one is optional, so is the result.
+- The left side must be optional, and the default must have the matching type:
+
+```vex title="default_errors.vx"
+struct User {
+    name: string
+}
+
+fn main() {
+    let n = 5
+    let c = n ?? 0
+    let u: User? = nil
+    let h = u?.name ?? 3
+}
+```
+
+```text title="Output"
+error: ?? needs an optional on the left, but this is int
+ --> default_errors.vx:7:13
+  |
+7 |     let c = n ?? 0
+  |             ^ it always has a value, so ?? isn't needed
+
+error: the default after ?? must be string, found int
+ --> default_errors.vx:9:24
+  |
+9 |     let h = u?.name ?? 3
+  |                        ^ convert it with str(...) or "{...}"
+
+2 errors
+```
+
+`?.` and `??` are often used together: `user?.manager?.name ?? "nobody"`.
+
+## Comparing with nil
+
+An optional can be compared with `nil` using `==` and `!=`. It can't be compared with a plain value or another optional, and comparing doesn't unwrap it:
+
+```vex title="nil_compare.vx"
+fn main() {
+    var selected: string? = nil
+    println(selected == nil)
+    selected = "Lena"
+    println(selected != nil)
+}
+```
+
+```text title="Output"
+true
+true
+```
+
+```vex title="compare_errors.vx"
+fn main() {
+    let a: int? = 5
+    println(a == 5)
+    if a != nil {
+        println(a + 1)
+    }
+}
+```
+
+```text title="Output"
+error: can't compare int? with int
+ --> compare_errors.vx:3:13
+  |
+3 |     println(a == 5)
+  |             ^^^^^^
+
+error: can't use '+' with int? and int
+ --> compare_errors.vx:5:17
+  |
+5 |         println(a + 1)
+  |                 ^^^^^
+
+2 errors
+```
+
+To use the value after a check, use `if let`, which checks and unwraps in one step. To compare with a value, give a default first: `(a ?? 0) == 5`.
+
+Comparing a plain value with `nil` is an error too: `can't compare int with nil: only optional values can be nil`.
+
+## Printing
+
+An optional prints as its value, or `nil`:
+
+```vex title="print.vx"
+fn main() {
+    let a: int? = 3
+    let s: string? = nil
+    println(a, s, "{s}", [s, "x"])
+}
+```
+
+```text title="Output"
+3 nil nil [nil, "x"]
+```
+
+Note that a string inside an optional prints without quotes on its own, like any string, and with quotes inside a list.
+
+## Optional fields
+
+A field of optional type usually defaults to `nil`, so callers can leave it out:
+
+```vex title="fields.vx"
+struct Person {
+    name: string
+    email: string? = nil
+
+    fn contact() -> string => email ?? "no email"
+}
+
+fn main() {
+    println(Person(name: "Omar").contact())
+    println(Person(name: "Maya", email: "maya@example.com").contact())
+}
+```
+
+```text title="Output"
+no email
+maya@example.com
+```
+
+An optional field without a default must be passed explicitly, even as `nil`.
+
+## Optionals in collections
+
+A list can hold optionals: `[int?]`. Map values can't be optional, since a missing key already reads as `nil`. A `...?` spread adds the elements of an optional list, or nothing when it is `nil`:
+
+```vex title="collections.vx"
+fn main() {
+    let maybes: [int?] = [1, nil, 3]
+    var total = 0
+    for m in maybes {
+        total += m ?? 0
+    }
+    println(maybes, total)
+
+    let extra: [int]? = nil
+    let more: [int]? = [8, 9]
+    println([0, ...?extra, ...?more])
+}
+```
+
+```text title="Output"
+[1, nil, 3] 4
+[0, 8, 9]
+```
+
+## Rules and edge cases
+
+- Only `T?` can hold `nil`. A plain `T` always has a value, and `nil` needs a known optional type.
+- A `T` is accepted wherever `T?` is expected.
+- No force unwrap. Use `if let`, `guard let`, `while let`, `?.` or `??`.
+- `if let` and `while let` take a single binding, and the value must be optional.
+- The `else` of `guard let` must leave the enclosing block.
+- Each step after an optional in a chain needs `?.`; the result of `?.` is always optional.
+- No assignment through `?.`, no optional indexing and no optional calls.
+- `??` evaluates its right side only for `nil`, and groups to the right.
+- Optionals compare with `nil` only; `x != nil` doesn't unwrap `x`.
+- `T??` doesn't exist, and map values can't be optional.
+- `nil` isn't a `match` pattern.
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Dart | TypeScript |
+|---|---|---|---|---|---|
+| Optional type | `T?` | `T?` | `T?` | `T?` | `T \| null` |
+| Unwrap in a block | `if let x = y` | `if let x = y` | `y?.let { }` / smart cast | type promotion | narrowing |
+| Smart cast after `!= nil` | no | no | yes | yes | yes |
+| Force unwrap | none | `y!` | `y!!` | `y!` | `y!` |
+| Chaining | `?.` on every step | `?.` once | `?.` on every step | `?.` once | `?.` once |
+| Default | `??` | `??` | `?:` | `??` | `??` |
+
+## See also
+
+- [Errors](/docs/language/errors)
+- [Patterns](/docs/language/patterns)
+- [Maps](/docs/language/maps)
+- [Operators](/docs/language/operators)
+- [Example: optionals](/docs/examples/optionals)

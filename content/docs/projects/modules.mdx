@@ -1,0 +1,603 @@
+---
+title: Modules and projects
+description: How Vex organizes code into folders as modules, how imports and pub visibility work, and every section and key of package.toml.
+---
+
+A folder is a module. All `.vx` files in one folder share their names and use each other without imports. A **project** is a folder with a `package.toml` file; its top folder is the **root module**, which holds `main`. Every other folder you import becomes a module of its own.
+
+There is no `module` or `package` declaration inside source files, and no header files. Where a file lives decides which module it belongs to.
+
+## Single files and projects
+
+Vex runs two kinds of programs.
+
+**A single file.** `vex run hello.vx` compiles that one file. It needs no `package.toml`. It can still import the standard library and folders next to it:
+
+```vex title="hello.vx"
+import "util"          // the folder util/ next to hello.vx
+import "util/text"     // the folder util/text/
+
+fn main() {
+    println(util.twice(4), text.shout("hi"))
+}
+```
+
+```text title="Output"
+8 HI!
+```
+
+A single file can't use the `[c]` section, since it has no `package.toml`. Its folder acts as the project boundary for imports.
+
+**A project.** A folder with a `package.toml`. Every `.vx` file at its top level is part of the root module.
+
+```sh
+vex run              # the project in the current folder
+vex run store        # the project in store/
+vex run -- a b       # the project in the current folder, with arguments a and b
+vex build store      # builds an executable named after the package
+```
+
+`vex run` with no argument in a folder without `package.toml` fails with a message that shows a file to create:
+
+```text
+vex: no package.toml in .; create one with:
+
+[package]
+name = "sf"
+```
+
+The suggested name is the folder's name, made into a valid package name.
+
+## A project layout
+
+The `store` example from the [language repository](https://github.com/irshadio/vex-lang) is a small project with three modules:
+
+<Files>
+  <Folder name="store" defaultOpen>
+    <File name="package.toml" />
+    <File name="main.vx" />
+    <File name="totals.vx" />
+    <Folder name="models" defaultOpen>
+      <File name="cart.vx" />
+      <File name="item.vx" />
+      <File name="shapes.vx" />
+    </Folder>
+    <Folder name="format" defaultOpen>
+      <File name="receipt.vx" />
+    </Folder>
+  </Folder>
+</Files>
+
+- `main.vx` and `totals.vx` are the root module. `main.vx` calls `printTotals`, which `totals.vx` declares, without importing anything.
+- `models/` is the module `models`: three files that share their names.
+- `format/` is the module `format`. Its file imports `../models`, since paths are relative to the importing file.
+
+```toml title="package.toml"
+# A project: this folder is the root module, which holds main, and each
+# folder inside it is a module of its own.
+[package]
+name = "store"
+version = "0.1.0"
+```
+
+```vex title="models/item.vx"
+pub enum Kind {
+    tool
+    paper
+}
+
+pub struct Item {
+    pub name: string
+    pub price: int
+    pub kind: Kind
+}
+```
+
+```vex title="models/cart.vx"
+pub struct Cart {
+    pub owner: string
+
+    // Private: other modules go through the methods.
+    items: [Item] = []
+
+    pub fn add(item: Item) {
+        items.push(item)
+    }
+
+    pub fn list() -> [Item] => items
+
+    pub fn total() -> int {
+        var sum = 0
+        for it in items {
+            sum += it.price
+        }
+        return sum
+    }
+}
+```
+
+`cart.vx` uses `Item` with no import and no prefix: it is in the same folder.
+
+```vex title="format/receipt.vx"
+import "vex:strings"
+import "../models"
+
+pub fn receipt(cart: models.Cart) -> string {
+    var lines = ["Receipt for {cart.owner}"]
+    for it in cart.list() {
+        lines.push(line(it))
+    }
+    return strings.join(lines, "\n")
+}
+
+fn line(it: models.Item) -> string {
+    let kind = match it.kind {
+        tool => "tool"
+        paper => "paper"
+    }
+    return "  " + strings.padRight(it.name, 10, ".") + strings.padLeft("{it.price}", 4) + " ({kind})"
+}
+```
+
+```vex title="main.vx"
+import "vex:math"
+import "models"
+import "format" as fmt
+
+fn main() {
+    let cart = models.Cart(owner: "Ana")
+    cart.add(models.Item(name: "pen", price: 3, kind: .tool))
+    cart.add(models.Item(name: "notebook", price: 12, kind: .paper))
+    cart.add(models.Item(name: "ruler", price: 5, kind: models.Kind.tool))
+    println(fmt.receipt(cart))
+
+    // Interfaces and generics work across modules too.
+    let shapes: [models.Shape] = [models.Square(side: 3), models.Rect(w: 2, h: 5)]
+    var area = 0
+    for s in shapes {
+        area += s.area()
+    }
+    println("area: {area}")
+    let best = models.Pair<string, int>(first: "most", second: math.max(area, 20))
+    println(best.describe())
+
+    printTotals(cart)
+}
+```
+
+```vex title="totals.vx"
+import "vex:math"
+import "models"
+
+fn printTotals(cart: models.Cart) {
+    let total = cart.total()
+    println("total: {total}, clamped: {math.clamp(total, 0, 15)}")
+}
+```
+
+```sh
+vex run store
+```
+
+```text title="Output"
+Receipt for Ana
+  pen.......   3 (tool)
+  notebook..  12 (paper)
+  ruler.....   5 (tool)
+area: 19
+most: 20
+total: 20, clamped: 15
+```
+
+`totals.vx` imports `vex:math` and `models` again, even though `main.vx` already does. Imports belong to each file, not to the module.
+
+## Imports
+
+Imports go at the top of a file, before any declaration. There are three forms:
+
+| Form | Imports | Example |
+|---|---|---|
+| `"vex:name"` | A standard library module, built into the compiler | `import "vex:math"` |
+| `"path"` | A folder of this project, relative to the importing file | `import "models"`, `import "../models"` |
+| `"package:name"` | A dependency from the package manager | Planned, see [Packages](/docs/projects/packages) |
+
+The standard library modules are `vex:fs`, `vex:isolate`, `vex:math`, `vex:os`, `vex:strings` and `vex:time`. See the [standard library](/docs/stdlib).
+
+### The module's name
+
+Code uses an imported module through its name, which is the last part of the path: `import "util/text"` is used as `text`, and `import "vex:math"` as `math`. `as` gives it another name:
+
+```vex
+import "format" as fmt
+import "vex:strings" as text
+```
+
+Everything from another module is written through that name: `models.Cart`, `models.Kind.tool`, `math.max`, `models.Pair<string, int>`, `fmt.receipt(cart)`. A type from another module works everywhere a type does: in variables, parameters, fields, generic arguments, `[models.Shape]` lists and `extension models.Cart` blocks.
+
+Why the prefix: you can always tell where a name comes from by reading the line, and two modules can use the same name without clashing.
+
+### How paths are resolved
+
+- A path is a folder, relative to the folder of the file that imports it. `..` goes up. Paths use `/` on every platform.
+- The folder must be inside the project (for a single file, inside the file's folder). `import "../outside"` from the root gives `'../outside' is outside the project`.
+- The folder must hold at least one `.vx` file. Subfolders don't count: `util/text/` is a separate module from `util/`.
+- A module is identified by its folder. Two files that reach the same folder through different paths, such as `"models"` from the root and `"../models"` from `format/`, get the same module.
+- Files in a module are read in alphabetical order.
+- Folders are only read when something imports them. A folder of C code such as `native/` is never mistaken for a module.
+- The last part of the path must be a valid name. A folder called `my-lib` needs `as`: `import "../my-lib" as mylib`.
+- A module can import the root module, as long as it gives it a name: `import ".." as app`. It can then use the root module's `pub` names.
+
+### Import cycles
+
+Modules may import each other, directly or through other modules. There is no ordering problem to solve, because a module is a set of declarations, not code that runs when it is loaded:
+
+```vex title="a/a.vx"
+import "../b"
+
+pub fn ping(n: int) -> string {
+    if n == 0 {
+        return "done"
+    }
+    return b.pong(n - 1)
+}
+```
+
+```vex title="b/b.vx"
+import "../a"
+
+pub fn pong(n: int) -> string {
+    return "pong " + a.ping(n)
+}
+```
+
+With a `main.vx` that calls `println(a.ping(3))`, this prints `pong pong pong done`.
+
+## Visibility with `pub`
+
+A name is visible outside its module only when it is marked `pub`. Everything else is private to its module, which means every file in the same folder can use it, and no file in any other folder can.
+
+`pub` goes on:
+
+- top-level functions, structs, enums, interfaces, constants (`pub const`), type aliases (`pub typedef`) and extern declarations (`pub extern fn`, `pub extern type`)
+- fields, methods, static methods, getters, setters and operators of a struct
+- members of an extension, or the whole extension with `pub extension`
+
+Some things are public with their parent:
+
+- Enum cases are public whenever their enum is.
+- Interface methods are public whenever their interface is.
+- A method a struct writes to meet one of its interfaces is public whenever the struct is. In the store example, `Square.area` has no `pub`, yet `main` calls it.
+
+```vex title="bank/account.vx"
+pub const currency = "EUR"
+
+pub struct Account {
+    pub owner: string
+    balance: int = 0
+    history: [int] = []
+
+    pub get total -> int => balance
+
+    pub fn deposit(amount: int) {
+        balance += amount
+        record(amount)
+    }
+
+    fn record(amount: int) {
+        history.push(amount)
+    }
+
+    pub static fn opened(owner: string, first: int) -> Account {
+        let a = Account(owner: owner)
+        a.deposit(first)
+        return a
+    }
+}
+
+pub enum Kind {
+    checking
+    savings
+}
+
+pub typedef Ledger = [string: Account]
+
+fn audit() {}
+```
+
+```vex title="main.vx"
+import "bank"
+
+fn main() {
+    let a = bank.Account(owner: "Ana")
+    a.deposit(50)
+    let b = bank.Account.opened("Ben", 20)
+    let books: bank.Ledger = ["ana": a, "ben": b]
+    let kind = bank.Kind.savings
+    println(a.owner, a.total, b.total, books.len, kind, bank.currency)
+}
+```
+
+```text title="Output"
+Ana 50 20 2 Kind.savings EUR
+```
+
+`main` can read `a.total` through the public getter, but not the private field behind it:
+
+```text
+error: field 'balance' of bank.Account is private to bank
+ --> main.vx:5:15
+  |
+5 |     println(a.balance)
+  |               ^^^^^^^ mark it pub in bank to use it from other modules
+```
+
+### Creating structs from other modules
+
+Another module can create a struct with its constructor only when every private field has a default. `Account` above works, because `balance` and `history` have defaults. Passing a private field is an error, and so is leaving one out that has no default:
+
+```vex
+pub struct Token {
+    pub id: int
+    secret: string
+}
+```
+
+```text
+error: bank.Token can't be created outside bank because field 'secret' is private
+ --> main.vx:4:13
+  |
+4 |     let t = bank.Token(id: 1)
+  |             ^^^^^^^^^^ give 'secret' a default or mark it pub, or add a pub static fn that creates it
+```
+
+The usual fix is a `pub static fn` that creates it, like `Account.opened`. This is how a module keeps control over how its values are made.
+
+### Extensions across modules
+
+An extension declared in a module works everywhere in that module. In other modules, its `pub` members work only in files that import the extension's module. `pub extension` makes every member public.
+
+```vex title="text/ext.vx"
+pub extension string {
+    fn shout() -> string => upper() + "!"
+}
+
+extension int {
+    pub fn doubled() -> int => self * 2
+    fn tripled() -> int => self * 3
+}
+```
+
+```vex title="main.vx"
+import "text"
+
+fn main() {
+    println("hi".shout(), 4.doubled())
+}
+```
+
+```text title="Output"
+HI! 8
+```
+
+A file in the same project that calls `"x".shout()` without importing `text` gets:
+
+```text
+error: 'shout' comes from an extension in module text
+ --> other.vx:1:29
+  |
+1 | fn other() -> string => "x".shout()
+  |                             ^^^^^ import that module to use it
+```
+
+## Name clashes
+
+- **Within a module**, a name can be declared once across all its files. A second `fn helper()` in another file of the same folder gives `function 'helper' is already declared on line 5`.
+- **Between modules**, there are no clashes: names from other modules are always written with a prefix, so `models.Item` and `shop.Item` can exist side by side.
+- **Between imports**, two imports in one file can't have the same name. Rename one with `as`:
+
+  ```text
+  error: 'models' is already imported on line 1
+   --> main.vx:2:8
+    |
+  2 | import "util/models"
+    |        ^^^^^^^^^^^^^ rename one: import "util/models" as other
+  ```
+
+- **Between an import and a declaration**, a file that imports `math` can't declare a function, struct or variable called `math`. This keeps `math.max` meaning the module, always:
+
+  ```text
+  error: 'math' is an imported module and can't be used as a function name
+   --> main.vx:6:4
+    |
+  6 | fn math() {}
+    |    ^^^^ choose another name, or rename the import with as
+  ```
+
+  The check is per file: a different file of the same module that doesn't import `math` may declare it.
+
+## The package.toml file
+
+`package.toml` marks a project and describes it. It uses a small subset of TOML:
+
+- `[section]` headers.
+- `key = "value"` lines, where the value is a string in double quotes, or a list of strings in `[...]`.
+- Lists may span several lines and may end with a trailing comma.
+- `#` starts a comment, except inside quotes.
+
+Anything else, such as numbers, booleans or nested tables, is not accepted in `[package]` and `[c]`.
+
+```toml
+[package]
+name = "store"            # required
+version = "0.1.0"
+vex = "0.1"
+description = "A small shop"
+repository = "https://github.com/you/store"
+license = "MIT"
+homepage = "https://example.com"
+
+[c]
+sources = ["native/glue.c"]
+libs = ["z"]
+frameworks = ["Foundation"]
+flags = [
+    "-DSTORE_DEBUG=1",
+    "-Inative",
+]
+
+[dependencies]
+# read by the package manager, which is planned
+
+[dev-dependencies]
+# read by the package manager, which is planned
+```
+
+### `[package]`
+
+<TypeTable
+  type={{
+    name: { type: 'string', description: 'The package name. Required. Letters, digits and _, not starting with a digit and not a keyword. vex build names the executable after it.' },
+    version: { type: 'string', description: 'The package version, such as "0.1.0". Recorded but not used yet.' },
+    vex: { type: 'string', description: 'The Vex version the package needs, such as "0.2". Recorded but not checked yet.' },
+    description: { type: 'string', description: 'A one-line description. Accepted and ignored.' },
+    repository: { type: 'string', description: 'The source repository URL. Accepted and ignored.' },
+    license: { type: 'string', description: 'The license. Accepted and ignored.' },
+    homepage: { type: 'string', description: 'A homepage URL. Accepted and ignored.' },
+  }}
+/>
+
+Keys must sit under a `[package]` header. A `name = "..."` line before any header doesn't count, and the file is reported as having no name.
+
+### `[c]`
+
+C and Objective-C code built into the program, and libraries to link. Every value is a list of strings. See [C interop](/docs/projects/c-interop) for how to use them.
+
+<TypeTable
+  type={{
+    sources: { type: '[string]', description: 'Files compiled and linked into the program: .c, Objective-C .m, or already built .o and .a files. Paths are relative to the project, use /, and must stay inside it.' },
+    libs: { type: '[string]', description: 'Libraries to link, by name without -l: "z" links -lz.' },
+    frameworks: { type: '[string]', description: 'Apple frameworks to link, by name: "Foundation" links -framework Foundation. macOS only.' },
+    flags: { type: '[string]', description: 'Extra flags for the C compiler. Only some forms are allowed; see below.' },
+  }}
+/>
+
+Allowed flags are:
+
+| Form | Example |
+|---|---|
+| `-DNAME` or `-DNAME=value` | `-DSQLITE_OMIT_LOAD_EXTENSION`, `-DLEVEL=2` |
+| `-UNAME` | `-UNDEBUG` |
+| `-O0` to `-O3`, `-Os`, `-Oz`, `-Ofast` | `-O2` |
+| `-I` or `-L` with a folder inside the project | `-Inative`, `-Llib` |
+| `-std=` | `-std=c11` |
+| `-W` warning flags | `-Wall`, `-Wno-unused` |
+| `-f` options | `-fno-strict-aliasing`, `-fvisibility=hidden` |
+| `-m` options | `-mmacosx-version-min=11.0` |
+
+Flags that could load code into the compiler, pass options to other tools or write files are refused, such as `-fplugin=...`, `-o` or `-Xlinker`. `-I` and `-L` folders must be relative and inside the project; they are made absolute before the C compiler runs.
+
+### `[dependencies]` and `[dev-dependencies]`
+
+These sections are accepted, and their contents are skipped without being checked. They are reserved for the package manager, which is not built yet. See [Packages](/docs/projects/packages).
+
+### Errors in package.toml
+
+Mistakes in `package.toml` are reported like compile errors, with the line and a hint. The messages are:
+
+| Problem | Message |
+|---|---|
+| No `name` in `[package]` | `the project file needs a package name` |
+| Invalid name, such as `"my-app"` or `"fn"` | `'my-app' isn't a valid package name` |
+| Unknown section, such as `[tools]` | `unknown section [tools]` |
+| Unknown key in `[package]` | `unknown key 'author' in [package]` |
+| Unknown key in `[c]` | `unknown key 'include' in [c]` |
+| A `[package]` value without quotes | `the value of 'name' must be a string in quotes` |
+| A `[c]` value that isn't a list | `the value of 'libs' must be a list of strings` |
+| A key set twice | `'name' is already set on line 2` |
+| A line without `=` | `expected a key and a value` |
+| `[package` without `]` | `unterminated section header` |
+| A source outside the project | `'../x.c' is outside the project` |
+| A source of another kind | `'a.cpp' isn't a C source file` |
+| A library written with `-l` | `'-lz' isn't a library name` |
+| A framework written with `-framework` | `'-framework Foundation' isn't a framework name` |
+| A flag that isn't allowed | `flag '-I/usr/include' isn't allowed` |
+| A source file that doesn't exist | `vex: package.toml: C source 'missing.c' not found` |
+
+For example:
+
+```text
+error: unknown key 'author' in [package]
+ --> package.toml:3:1
+  |
+3 | author = "me"
+  | ^^^^^^ known keys are name, version, vex, description, repository, license, homepage
+```
+
+```text
+error: unknown section [tools]
+ --> package.toml:3:1
+  |
+3 | [tools]
+  | ^^^^^^^ use [package], [c], [dependencies] or [dev-dependencies]
+```
+
+```text
+error: unknown key 'include' in [c]
+ --> package.toml:4:1
+  |
+4 | include = ["x"]
+  | ^^^^^^^ known keys are sources, libs, frameworks and flags
+```
+
+## Rules and edge cases
+
+Import errors and their messages:
+
+| Import | Message |
+|---|---|
+| `import "vex:nothing"` | `unknown module 'vex:nothing'`, with the list of standard modules as a hint |
+| `import "package:charts"` | `package imports aren't supported yet` |
+| `import "http://x"` | `unknown import scheme in 'http://x'` |
+| `import "/abs"` | `import paths must be relative` |
+| `import "."` | `a module can't import its own folder` |
+| `import "../outside"` | `'../outside' is outside the project` |
+| `import "missing"` | `no folder 'missing'` |
+| `import "empty"` | `folder 'empty' has no .vx files` |
+| `import ".."` | `'..' can't be used as a name in code` |
+
+Using names from other modules:
+
+| Code | Message |
+|---|---|
+| `lib.hidden()` for a private function | `function 'hidden' is private to lib` |
+| `p.y` for a private field | `field 'y' of lib.Point is private to lib` |
+| `p.secret()` for a private method | `method 'secret' of lib.Point is private to lib` |
+| `lib.Secret` for a private type | `'Secret' is private to lib` |
+| `lib.nothere()` | `lib has no 'nothere'` |
+| `math.abs(2)` without importing `vex:math` | `unknown name 'math'` |
+| `let lib = 3` in a file that imports `lib` | `'lib' is an imported module and can't be used as a variable name` |
+| `println(text)` for a module | `'text' is a module, not a value` |
+
+Other rules:
+
+- A project needs a `main` function in its root module: `no main function`.
+- A project folder needs at least one `.vx` file at its top level: `vex: no .vx files in em`.
+- A `pub` function may return a private type. Callers can use the value, but can't write its type's name.
+
+## Comparison
+
+| | Vex | Go | Dart | Swift |
+|---|---|---|---|---|
+| Unit of code | folder | folder (package) | file (library) | target (module) |
+| Import | `import "models"` | `import "app/models"` | `import 'models.dart';` | `import Models` |
+| Use a name | `models.Cart` | `models.Cart` | `Cart` | `Cart` |
+| Export a name | `pub` | Capital letter | no leading `_` | `public` |
+| Cycles | allowed | not allowed | allowed | not allowed |
+
+## See also
+
+- [Packages](/docs/projects/packages)
+- [C interop](/docs/projects/c-interop)
+- [The vex command](/docs/tools/cli)
+- [Extensions](/docs/language/extensions)
+- [Standard library](/docs/stdlib)

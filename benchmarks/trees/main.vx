@@ -1,0 +1,38 @@
+struct Node {
+    left: Node?
+    right: Node?
+}
+
+fn make(depth: int) -> Node {
+    if depth == 0 {
+        return Node(left: nil, right: nil)
+    }
+    return Node(left: make(depth - 1), right: make(depth - 1))
+}
+
+fn check(node: Node) -> int {
+    if let l = node.left {
+        if let r = node.right {
+            return 1 + check(l) + check(r)
+        }
+    }
+    return 1
+}
+
+fn main() {
+    let maxDepth = 18
+    let longLived = make(maxDepth)
+    var total = 0
+    var depth = 4
+    while depth <= maxDepth {
+        var iterations = 1
+        for i in 0..(maxDepth - depth + 4) {
+            iterations *= 2
+        }
+        for i in 0..iterations {
+            total += check(make(depth))
+        }
+        depth += 2
+    }
+    println(total + check(longLived))
+}

@@ -1,0 +1,631 @@
+---
+title: Generics
+description: Generic functions, structs, enums, methods and interfaces, type inference and explicit type arguments, constraints (Equatable, Comparable, Hashable, interfaces), and how generic code is specialized.
+---
+
+Generic code works with many types while staying fully type checked. You write a function or type once with type parameters in `< >`, and the compiler fills them in at each use. Each combination of types is compiled to its own specialized copy, so generic code runs as fast as code written for one type.
+
+```vex title="first.vx"
+fn first<T>(xs: [T]) -> T? {
+    if xs.len == 0 {
+        return nil
+    }
+    return xs[0]
+}
+
+fn main() {
+    println(first([3, 1, 2]))               // T is int
+    println(first(["kiwi", "apple"]))       // T is string
+    println(first<float>([]))               // T written out
+}
+```
+
+```text title="Output"
+3
+kiwi
+nil
+```
+
+## Generic functions
+
+Type parameters go after the function name. They can be used anywhere a type can: parameters, the result, local variables and nested types such as `[T]`, `[K: V]`, `T?`, `(A, B)` and `fn(T) -> U`.
+
+```vex title="functions.vx"
+fn swap<A, B>(p: (A, B)) -> (B, A) => (p.$2, p.$1)
+
+fn twice<T>(x: T, f: fn(T) -> T) -> T => f(f(x))
+
+fn repeat<T>(x: T, n: int) -> [T] {
+    var out: [T] = []
+    for i in 0..n {
+        out.push(x)
+    }
+    return out
+}
+
+fn main() {
+    println(swap((1, "one")))
+    println(twice(3, fn(x) => x * 10))
+    println(repeat("ab", 3))
+}
+```
+
+```text title="Output"
+("one", 1)
+300
+["ab", "ab", "ab"]
+```
+
+By convention type parameters are single capital letters (`T`, `U`, `K`, `V`) or short capitalized names.
+
+### Inferring type arguments
+
+The compiler works out the type arguments in two ways:
+
+1. **From the arguments.** `first([3, 1, 2])` passes a `[int]`, so `T` is `int`.
+2. **From the expected type**, when the arguments don't say. `let e: [int] = empty()` makes `T` an `int`.
+
+When neither tells, write the types after the name, with no space before `<` and `(`:
+
+```vex title="explicit.vx"
+fn empty<T>() -> [T] {
+    let xs: [T] = []
+    return xs
+}
+
+fn main() {
+    let a: [int] = empty()                  // from the expected type
+    let b = empty<string>()                 // written out
+    println(a, b, a.len)
+}
+```
+
+```text title="Output"
+[] [] 0
+```
+
+Without either, the compiler asks for them:
+
+```vex title="cant_tell.vx"
+fn first<T>(xs: [T]) -> T? {
+    return nil
+}
+
+fn main() {
+    let x = first([])
+}
+```
+
+```text title="Output"
+error: can't tell the type of T in this call to first
+ --> cant_tell.vx:6:13
+  |
+6 |     let x = first([])
+  |             ^^^^^ write it: first<int>(...)
+
+error: can't tell the type of an empty list
+ --> cant_tell.vx:6:19
+  |
+6 |     let x = first([])
+  |                   ^^ give the type, e.g. let xs: [int] = []
+
+2 errors
+```
+
+Type arguments must touch the name. With a space, `<` and `>` are read as comparisons:
+
+```vex title="spacing.vx"
+fn first<T>(xs: [T]) -> T? {
+    return nil
+}
+
+fn main() {
+    let x = first <int>([1])
+}
+```
+
+```text title="Output"
+error: comparisons can't be chained
+ --> spacing.vx:6:23
+  |
+6 |     let x = first <int>([1])
+  |                       ^ use a < b && b < c
+```
+
+Giving the wrong number of type arguments is an error too: `first takes 1 type argument, found 2`.
+
+## Generic structs
+
+A struct can take type parameters after its name. Its fields and methods use them like any other type:
+
+```vex title="stack.vx"
+struct Stack<T> {
+    items: [T] = []
+
+    fn push(item: T) {
+        items.push(item)
+    }
+
+    fn pop() -> T? {
+        if items.len == 0 {
+            return nil
+        }
+        return items.pop()
+    }
+
+    fn peek() -> T? {
+        if items.len == 0 {
+            return nil
+        }
+        return items[items.len - 1]
+    }
+}
+
+struct Pair<A, B> {
+    first: A
+    second: B
+
+    fn swapped() -> Pair<B, A> => Pair(first: second, second: first)
+}
+
+fn main() {
+    let history = Stack<string>()           // nothing to infer from: written out
+    history.push("home")
+    history.push("settings")
+    println(history.peek() ?? "-", history.items)
+    println(history.pop(), history.pop(), history.pop())
+
+    let p = Pair(first: "ann", second: 31)  // Pair<string, int>, from the arguments
+    println(p, p.swapped())
+}
+```
+
+```text title="Output"
+settings ["home", "settings"]
+settings home nil
+Pair<string, int>(first: "ann", second: 31) Pair<int, string>(first: 31, second: "ann")
+```
+
+- The type arguments are inferred from the constructor's arguments, or from the expected type: `let d: Box<[int]> = Box(value: [])`.
+- `Stack()` with nothing to infer from is reported as `can't tell the type of T in this call to Stack`, with the hint `write it: Stack<int>(...)`.
+- A generic struct prints with its type arguments: `Pair<string, int>(...)`.
+- A generic struct can't have `static const` members: `a generic struct can't have constants`.
+
+<Callout type="warn" title="Not yet">
+Static methods of generic structs can be declared but not called: `Box<int>.make()` and `Box.make()` both fail with `'Box' is a type, not a value`. Write a top-level generic function instead, such as `fn makeBox<T>(v: T) -> Box<T>`. Static methods of generic enums, and static generic methods of ordinary structs, work.
+</Callout>
+
+## Generic enums
+
+Enums take type parameters the same way. The type arguments come from the values a case carries or from the expected type. Write them out only when neither says, as in `Result<string>.err("bad")`, where `err` carries no `T`:
+
+```vex title="result.vx"
+enum Result<T> {
+    ok(value: T)
+    err(message: string)
+
+    fn valueOr(fallback: T) -> T => match self {
+        ok(v) => v
+        err(_) => fallback
+    }
+}
+
+fn parse(s: string) -> Result<int> {
+    if s == "" {
+        return .err("empty")                // T from the result type
+    }
+    return .ok(s.len)
+}
+
+fn main() {
+    let r = Result.ok(5)                    // Result<int>, from the value
+    let e = Result<string>.err("bad")       // written out
+    let rs: [Result<string>] = [.ok("a"), .err("x")]
+    println(r, e)
+    println(rs)
+    println(parse("abc").valueOr(0), parse("").valueOr(-1))
+}
+```
+
+```text title="Output"
+Result<int>.ok(value: 5) Result<string>.err(message: "bad")
+[Result<string>.ok(value: "a"), Result<string>.err(message: "x")]
+3 -1
+```
+
+A generic enum can contain itself, which is how generic trees are written:
+
+```vex title="tree.vx"
+enum Tree<T: Comparable> {
+    leaf
+    node(left: Tree<T>, value: T, right: Tree<T>)
+
+    fn insert(x: T) -> Tree<T> => match self {
+        leaf => Tree.node(left: .leaf, value: x, right: .leaf)
+        node(l, v, r) => match x < v {
+            true => Tree.node(left: l.insert(x), value: v, right: r)
+            false => Tree.node(left: l, value: v, right: r.insert(x))
+        }
+    }
+
+    fn items() -> [T] => match self {
+        leaf => []
+        node(l, v, r) => [...l.items(), v, ...r.items()]
+    }
+}
+
+fn main() {
+    var t: Tree<int> = .leaf
+    for x in [5, 2, 8, 1, 9, 3] {
+        t = t.insert(x)
+    }
+    println(t.items())
+    println(Tree<string>.leaf.insert("b").insert("a").items())
+}
+```
+
+```text title="Output"
+[1, 2, 3, 5, 8, 9]
+["a", "b"]
+```
+
+## Generic methods
+
+A method can declare its own type parameters after its name, in addition to its type's. They are inferred at each call, like a generic function's:
+
+```vex title="methods.vx"
+struct Box<T> {
+    item: T
+
+    fn map<U>(f: fn(T) -> U) -> Box<U> => Box(item: f(item))
+    fn zip<U>(other: Box<U>) -> (T, U) => (item, other.item)
+}
+
+struct Tools {
+    static fn repeat<T>(x: T, n: int) -> [T] => [for i in 0..n x]
+}
+
+fn main() {
+    let b = Box(item: 2).map(fn(x) => "#{x}")             // Box<string>
+    println(b, Box(item: 1).zip(Box(item: "one")))
+    println(Box(item: 3).map<float>(fn(x) => float(x) / 2.0).item)
+    println(Tools.repeat("ab", 3))
+}
+```
+
+```text title="Output"
+Box<string>(item: "#2") (1, "one")
+1.5
+["ab", "ab", "ab"]
+```
+
+Generic enums can have generic methods too: `fn map<U>(f: fn(T) -> U) -> Result<U>`.
+
+## Generic functions as values
+
+A generic function can be stored or passed once its type arguments are known, either from the expected function type or written out:
+
+```vex title="values.vx"
+fn first<T>(xs: [T]) -> T? {
+    if xs.len == 0 {
+        return nil
+    }
+    return xs[0]
+}
+
+fn main() {
+    let f: fn([int]) -> int? = first        // T from the variable's type
+    let g = first<string>                   // written out
+    println(f([4, 5]), g(["z"]), g([]))
+    let groups = [["a", "b"], ["c"]]
+    println(groups.map(first<string>))
+}
+```
+
+```text title="Output"
+4 z nil
+["a", "c"]
+```
+
+A generic constructor works the same way: `let make: fn(int) -> Box<int> = Box.new`.
+
+## Constraints
+
+Inside a generic function, `T` stands for any type at all, so only operations that work on every type are allowed: storing, passing, returning, putting into lists, and printing or interpolating. Anything more must be asked for with a constraint, written `T: Constraint`.
+
+```vex title="no_constraint.vx"
+fn biggest<T>(a: T, b: T) -> T {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: values of type T can't be ordered with >
+ --> no_constraint.vx:2:8
+  |
+2 |     if a > b {
+  |        ^^^^^ require it: <T: Comparable>
+```
+
+The compiler checks generic code once, against its constraints, rather than at each use. A generic function that compiles works for every type that meets its constraints, and an error points at the generic code or at the call, not deep inside an expansion.
+
+### Built-in constraints
+
+| Constraint | Allows | Met by |
+|---|---|---|
+| `Equatable` | `==`, `!=`, `list.contains` | `int`, `float`, `bool`, `string`, records of equatable values, enums whose cases carry no values, structs that define `operator ==` |
+| `Comparable` | `<`, `<=`, `>`, `>=`, and `==` | `int`, `float`, `string`, enums whose cases carry no values, structs that define `operator <` and `operator ==` |
+| `Hashable` | map keys, and `==` | `int`, `bool`, `string`, enums whose cases carry no values |
+
+```vex title="constraints.vx"
+fn largest<T: Comparable>(xs: [T]) -> T? {
+    if xs.len == 0 {
+        return nil
+    }
+    var best = xs[0]
+    for x in xs {
+        if x > best {
+            best = x
+        }
+    }
+    return best
+}
+
+fn frequencies<T: Hashable>(xs: [T]) -> [T: int] {
+    var counts: [T: int] = [:]
+    for x in xs {
+        counts[x] = (counts[x] ?? 0) + 1
+    }
+    return counts
+}
+
+fn has<T: Equatable>(xs: [T], x: T) -> bool => xs.contains(x)
+
+enum Level { low, mid, high }
+
+fn main() {
+    println(largest([4, 17, 9]), largest(["kiwi", "apple"]), largest([Level.mid, .high, .low]))
+    println(frequencies(["a", "b", "a", "c", "a"]))
+    println(has([(1, "a"), (2, "b")], (2, "b")), has([1.5], 2.5))
+}
+```
+
+```text title="Output"
+17 kiwi Level.high
+["a": 3, "b": 1, "c": 1]
+true false
+```
+
+A call with a type that doesn't meet the constraint is an error at the call, and the hint lists the types that do:
+
+```vex title="unmet.vx"
+fn biggest<T: Comparable>(a: T, b: T) -> T {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fn count<T: Hashable>(xs: [T]) -> int => xs.len
+
+struct P { x: int }
+
+fn main() {
+    println(biggest(P(x: 1), P(x: 2)))
+    println(count([1.5]))
+}
+```
+
+```text title="Output"
+error: biggest needs T to be Comparable, but P isn't
+  --> unmet.vx:13:13
+   |
+13 |     println(biggest(P(x: 1), P(x: 2)))
+   |             ^^^^^^^ Comparable types are int, float, string, enums whose cases carry no values and structs that define operator < and operator ==
+
+error: count needs T to be Hashable, but float isn't
+  --> unmet.vx:14:13
+   |
+14 |     println(count([1.5]))
+   |             ^^^^^ Hashable types are int, string, bool and enums whose cases carry no values
+
+2 errors
+```
+
+Note that `bool` is `Equatable` and `Hashable` but not `Comparable`, and `float` is `Comparable` but not `Hashable`.
+
+### Interface constraints
+
+A constraint can be an [interface](/docs/language/interfaces). The generic code can then call the interface's methods and read its properties:
+
+```vex title="iface_constraint.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+}
+
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.14 * radius * radius
+}
+
+fn largest<T: Shape>(items: [T]) -> T? {
+    if items.len == 0 {
+        return nil
+    }
+    var best = items[0]
+    for item in items {
+        if item.area() > best.area() {
+            best = item
+        }
+    }
+    return best
+}
+
+fn main() {
+    println(largest([Square(side: 1), Square(side: 3)]))
+    let mixed: [Shape] = [Square(side: 2), Circle(radius: 2)]
+    println(largest(mixed))                 // T is the interface itself
+}
+```
+
+```text title="Output"
+Square(side: 3.0)
+Circle(radius: 2.0)
+```
+
+An interface constraint is met by the structs and enums that declare the interface, and by the interface type itself. A type that has the right methods but doesn't list the interface doesn't count; the error suggests the declaration to add.
+
+### Several constraints
+
+Join constraints with `&`. Constraints work on struct, enum and interface type parameters too:
+
+```vex title="multi.vx"
+fn sortedUnique<T: Hashable & Comparable>(xs: [T]) -> [T] {
+    var seen: [T: bool] = [:]
+    var out: [T] = []
+    for x in xs {
+        if seen[x] == nil {
+            seen[x] = true
+            var i = out.len
+            out.push(x)
+            while i > 0 && out[i - 1] > x {
+                out[i] = out[i - 1]
+                i -= 1
+            }
+            out[i] = x
+        }
+    }
+    return out
+}
+
+struct Index<K: Hashable & Comparable, V> {
+    entries: [K: V] = [:]
+}
+
+fn main() {
+    println(sortedUnique([3, 1, 3, 2, 1]))
+    let idx = Index<string, int>()
+    idx.entries["b"] = 2
+    println(idx)
+}
+```
+
+```text title="Output"
+[1, 2, 3]
+Index<string, int>(entries: ["b": 2])
+```
+
+An unknown constraint name is an error: `unknown constraint 'Sortable'`, with the hint `use an interface, or Equatable (==), Comparable (< >) or Hashable (map keys)`.
+
+### Self-referencing constraints
+
+A generic interface can name the type parameter in its own constraint, as in `T: Ordered<T>`. This expresses "a type that can be compared with itself":
+
+```vex title="ordered.vx"
+interface Ordered<T> {
+    fn compare(other: T) -> int
+}
+
+struct Money: Ordered<Money> {
+    cents: int
+    fn compare(other: Money) -> int => cents - other.cents
+}
+
+fn largest<T: Ordered<T>>(xs: [T]) -> T? {
+    var best: T? = nil
+    for x in xs {
+        if let b = best {
+            if x.compare(b) > 0 {
+                best = x
+            }
+        } else {
+            best = x
+        }
+    }
+    return best
+}
+
+fn main() {
+    println(largest([Money(cents: 5), Money(cents: 9), Money(cents: 2)]))
+}
+```
+
+```text title="Output"
+Money(cents: 9)
+```
+
+## Generic interfaces and aliases
+
+Interfaces take type parameters like structs, and a struct can implement a generic interface for one type or stay generic itself. See [Interfaces](/docs/language/interfaces#generic-interfaces).
+
+A [type alias](/docs/language/types) can be generic too:
+
+```vex title="alias.vx"
+typedef Pair<T> = (T, T)
+
+fn swap<T>(p: Pair<T>) -> Pair<T> => (p.$2, p.$1)
+
+fn main() {
+    let p: Pair<int> = (1, 2)
+    println(swap(p))
+}
+```
+
+```text title="Output"
+(2, 1)
+```
+
+## Specialization
+
+Each use of generic code with new type arguments compiles to its own copy, specialized for those types. There is no boxing and no runtime type information: a `Stack<int>` stores plain 64-bit integers, and `x > best` in `largest<int>` becomes a C `>` between two `int64_t` values.
+
+You can see this in the C code the compiler writes. For the `largest` function above, called with a `[int]` and a `[string]`, [`vex emit-c`](/docs/tools/generated-c) shows two functions:
+
+```c
+static opt_int fn_largest__int(vx_list *v_xs);
+static opt_str fn_largest__str(vx_list *v_xs);
+```
+
+The cost is code size: every combination of types adds a copy. Interface constraints are specialized the same way, so calls inside `largest<T: Shape>` go straight to each type's own `area()`, while a `[Shape]` list uses a table of methods (see [Interfaces](/docs/language/interfaces)).
+
+Types nested without end, such as a `Node<T>` field holding `Node<[T]>`, would need infinitely many copies. The compiler stops them: `generic 'Node' is used with types nested too deeply`.
+
+## Rules and edge cases
+
+- Functions, structs, enums, methods, interfaces and type aliases can have type parameters.
+- Type arguments are inferred from the arguments, then from the expected type; otherwise write them as `name<T>(...)` with no spaces.
+- Without a constraint, `T` supports storing, passing, returning and printing only.
+- Constraints: `Equatable`, `Comparable`, `Hashable`, any interface, or several joined with `&`.
+- A constraint is checked at each use: `biggest needs T to be Comparable, but P isn't`.
+- Generic structs and enums can't have constants. Static methods of generic structs can't be called yet.
+- Interface methods can't have their own type parameters yet.
+- Async and generic methods can't be torn off as values yet; wrap them in a closure.
+- `extern fn` and `export fn` can't be generic.
+- Each set of type arguments compiles to its own copy.
+
+## Comparison
+
+| | Vex | Swift | Rust | Go | TypeScript |
+|---|---|---|---|---|---|
+| Syntax | `fn f<T: C>(x: T)` | `func f<T: C>(_ x: T)` | `fn f<T: C>(x: T)` | `func f[T C](x T)` | `function f<T extends C>(x: T)` |
+| Implementation | specialized copies | specialized or boxed | specialized copies | dictionaries / shapes | erased |
+| Built-in constraints | `Equatable`, `Comparable`, `Hashable` | same names | `PartialEq`, `Ord`, `Hash` | `comparable`, `cmp.Ordered` | none |
+| Checked | once, against constraints | once | once | once | once |
+
+## See also
+
+- [Interfaces](/docs/language/interfaces)
+- [Structs](/docs/language/structs)
+- [Enums](/docs/language/enums)
+- [Closures](/docs/language/closures)
+- [Example: generics](/docs/examples/generics)

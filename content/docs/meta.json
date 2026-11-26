@@ -1,0 +1,17 @@
+{
+  "pages": [
+    "---Get started---",
+    "index",
+    "install",
+    "first-program",
+    "tour",
+    "---Guides---",
+    "language",
+    "concurrency",
+    "projects",
+    "stdlib",
+    "tools",
+    "examples",
+    "internals"
+  ]
+}

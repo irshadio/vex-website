@@ -1,0 +1,118 @@
+---
+title: "Enums"
+description: "Enums with values, methods, match and .case shorthand."
+---
+
+Enums with values, methods, `match` and `.case` shorthand.
+
+[Open in the playground](/playground?example=enums)
+
+```vex title="enums.vx"
+/// A shape on a canvas.
+enum Shape {
+    circle(radius: float)
+    rect(width: float, height: float)
+    empty
+
+    fn area() -> float => match self {
+        circle(r) => 3.14 * r * r
+        rect(w, h) => w * h
+        empty => 0.0
+    }
+
+    fn name() -> string => match self {
+        circle(_) => "circle"
+        rect(_, _) => "rect"
+        empty => "nothing"
+    }
+
+    static fn square(side: float) -> Shape => .rect(width: side, height: side)
+}
+
+/// The colour of a traffic light.
+enum Light {
+    red, yellow, green
+
+    fn next() -> Light => match self {
+        red => .green
+        green => .yellow
+        yellow => .red
+    }
+}
+
+/// The outcome of reading a number.
+enum Parsed {
+    number(value: int)
+    failed(reason: string)
+}
+
+fn parse(text: string) -> Parsed {
+    if text == "" {
+        return .failed(reason: "the text is empty")
+    }
+    if text.contains(" ") {
+        return .failed(reason: "the text has spaces")
+    }
+    return .number(value: int(text))
+}
+
+fn main() {
+    let shapes = [Shape.circle(radius: 1), .rect(width: 2, height: 3), Shape.square(2), .empty]
+    var total = 0.0
+    for s in shapes {
+        println("{s.name()}: {s.area()}")
+        total += s.area()
+    }
+    println("total area: {total}")
+    println(shapes[1])
+
+    var light = Light.red
+    for i in 0..4 {
+        print(light, "")
+        light = light.next()
+    }
+    println()
+    println("after 4 changes:", light, light == .green)
+
+    for text in ["42", "", "4 2"] {
+        match parse(text) {
+            number(n) => println("{text} -> {n * 2}")
+            failed(why) => println("{text} -> error: {why}")
+        }
+    }
+
+    for code in [200, 404, 500] {
+        let message = match code {
+            200 => "ok"
+            404 => "not found"
+            _ => "error {code}"
+        }
+        println(code, message)
+    }
+}
+```
+
+Run it with:
+
+```sh
+vex run enums.vx
+```
+
+Output:
+
+```text
+circle: 3.14
+rect: 6.0
+rect: 4.0
+nothing: 0.0
+total area: 13.14
+Shape.rect(width: 2.0, height: 3.0)
+Light.red Light.green Light.yellow Light.red 
+after 4 changes: Light.green true
+42 -> 84
+ -> error: the text is empty
+4 2 -> error: the text has spaces
+200 ok
+404 not found
+500 error 500
+```

@@ -1,0 +1,21 @@
+{
+  "name": "vex-night",
+  "type": "dark",
+  "colors": {
+    "editor.background": "#0B1220",
+    "editor.foreground": "#E2E8F0"
+  },
+  "tokenColors": [
+    { "scope": ["comment"], "settings": { "foreground": "#64748B", "fontStyle": "italic" } },
+    { "scope": ["string", "string.quoted"], "settings": { "foreground": "#FBBF24" } },
+    { "scope": ["punctuation.section.interpolation", "constant.character.escape"], "settings": { "foreground": "#F59E0B" } },
+    { "scope": ["meta.interpolation"], "settings": { "foreground": "#E2E8F0" } },
+    { "scope": ["constant.numeric"], "settings": { "foreground": "#34D399" } },
+    { "scope": ["keyword", "storage", "constant.language", "variable.language"], "settings": { "foreground": "#38BDF8" } },
+    { "scope": ["keyword.operator", "punctuation"], "settings": { "foreground": "#CBD5E1" } },
+    { "scope": ["entity.name.type", "support.type", "entity.name.class"], "settings": { "foreground": "#93C5FD" } },
+    { "scope": ["entity.name.function", "support.function"], "settings": { "foreground": "#FFFFFF" } },
+    { "scope": ["variable", "variable.other"], "settings": { "foreground": "#E2E8F0" } },
+    { "scope": ["keyword.other.unit", "markup.inline.raw"], "settings": { "foreground": "#E2E8F0" } }
+  ]
+}

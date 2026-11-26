@@ -1,0 +1,20 @@
+{
+  "title": "Examples",
+  "pages": [
+    "index",
+    "hello",
+    "fizzbuzz",
+    "fibonacci",
+    "structs",
+    "enums",
+    "optionals",
+    "errors",
+    "closures",
+    "maps",
+    "generics",
+    "interfaces",
+    "primes",
+    "sorting",
+    "input"
+  ]
+}

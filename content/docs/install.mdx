@@ -1,0 +1,253 @@
+---
+title: Install
+description: Install the Vex compiler on macOS or Linux, from a download or from source, set up your PATH, and check that everything works.
+---
+
+import { Downloads } from '@/components/downloads';
+
+Installing Vex takes two pieces: the `vex` command itself, and a C compiler that `vex` uses to turn its generated C into native code. This page covers both, on macOS and Linux.
+
+<Callout type="info" title="Supported systems">
+Vex runs on macOS and Linux, on arm64 (Apple silicon, ARM64) and x86-64 (Intel, AMD) CPUs. Windows isn't supported yet.
+</Callout>
+
+## Requirements
+
+Every Vex program is compiled to C and then built by your system's C compiler, so you need one installed even when you download a prebuilt `vex`. The generated C uses GNU extensions, so the compiler must be `clang` or `gcc`.
+
+<Tabs items={['macOS', 'Linux']}>
+  <Tab value="macOS">
+    Install Apple's Command Line Tools, which include `clang`:
+
+    ```sh
+    xcode-select --install
+    ```
+
+    If they are already installed, the command says so. A full Xcode install also works. Check with:
+
+    ```sh
+    clang --version
+    ```
+  </Tab>
+  <Tab value="Linux">
+    Install `gcc` or `clang` from your distribution's packages:
+
+    ```sh
+    # Debian, Ubuntu
+    sudo apt install build-essential
+
+    # Fedora
+    sudo dnf install gcc
+
+    # Arch
+    sudo pacman -S base-devel
+    ```
+
+    Check with `gcc --version` or `clang --version`.
+  </Tab>
+</Tabs>
+
+`vex` looks for a C compiler in this order: the command in the `CC` environment variable if it is set, then `clang`, then `cc`, then `gcc` on your `PATH`.
+
+To build `vex` from source you also need Go 1.23 or newer. You don't need Go to use a downloaded `vex`.
+
+## Download
+
+Prebuilt compilers come in two channels. **Stable** is for everyday use; **Beta** previews the next release.
+
+<Downloads />
+
+If no release is listed for your system yet, [build from source](#build-from-source).
+
+Archives are named `vex-<version>-<os>-<arch>.tar.gz`, for example `vex-0.2.0-macos-arm64.tar.gz`. To install one:
+
+1. Unpack it somewhere permanent, such as `~/vex`:
+
+   ```sh
+   mkdir -p ~/vex
+   tar -xzf ~/Downloads/vex-*-macos-arm64.tar.gz -C ~/vex
+   ```
+
+2. Find the folder that contains the `vex` binary:
+
+   ```sh
+   find ~/vex -name vex -type f
+   ```
+
+3. Add that folder to your `PATH`, as described in [Add vex to your PATH](#add-vex-to-your-path).
+
+If the release has a `SHA256SUMS` file, you can check the download before unpacking it:
+
+```sh
+shasum -a 256 vex-*.tar.gz     # macOS
+sha256sum vex-*.tar.gz         # Linux
+```
+
+Compare the result with the line for your file in `SHA256SUMS`.
+
+## Build from source
+
+Clone the language repository and run its build script:
+
+```sh
+git clone https://github.com/irshadio/vex-lang.git
+cd vex-lang
+./build.sh
+```
+
+The script runs `go build` and writes the compiler to `bin/vex`, then prints its version:
+
+```text
+Built bin/vex (vex 0.1.0-dev+3a88a7e)
+```
+
+The part after `+` is the git commit the compiler was built from, with `-dirty` added when the working tree had uncommitted changes. Building needs no network access beyond the clone, because the compiler has no Go dependencies outside the standard library.
+
+The standard library and the runtime are embedded in the `vex` binary, so `bin/vex` works on its own: you can copy it anywhere.
+
+## Add vex to your PATH
+
+To run `vex` from any folder, add the folder that holds it to your `PATH`. Replace `/path/to/folder` with that folder: for example `$HOME/vex-lang/bin` after building from source.
+
+<Tabs items={['zsh', 'bash']}>
+  <Tab value="zsh">
+    zsh is the default shell on macOS.
+
+    ```sh
+    echo 'export PATH="/path/to/folder:$PATH"' >> ~/.zshrc
+    source ~/.zshrc
+    ```
+  </Tab>
+  <Tab value="bash">
+    bash is the default shell on most Linux distributions. Use `~/.bashrc` on Linux, and `~/.bash_profile` if you use bash on macOS.
+
+    ```sh
+    echo 'export PATH="/path/to/folder:$PATH"' >> ~/.bashrc
+    source ~/.bashrc
+    ```
+  </Tab>
+</Tabs>
+
+If you are in the folder that holds `vex` (for example `vex-lang/bin`), you can write `$PWD` instead of the path, and the shell fills it in:
+
+```sh
+echo 'export PATH="'"$PWD"':$PATH"' >> ~/.zshrc
+```
+
+## Verify the installation
+
+Check that your shell finds `vex`:
+
+```sh
+vex version
+```
+
+```text
+vex 0.1.0-dev+3a88a7e
+```
+
+Then compile and run a program, which also checks the C compiler. Save this as `hello.vx`:
+
+```vex title="hello.vx"
+fn main() {
+    println("Hello, world!")
+}
+```
+
+```sh
+vex run hello.vx
+```
+
+```text title="Output"
+Hello, world!
+```
+
+If you see `Hello, world!`, everything works. Continue with [Your first program](/docs/first-program).
+
+## Editor support
+
+There is no editor extension or language server for Vex yet. A VS Code extension with syntax highlighting, followed by a language server with errors, go-to-definition and completion, is on the roadmap.
+
+Until then, Swift syntax highlighting is a reasonable stand-in, since the two languages look alike: in VS Code, open a `.vx` file, run **Change Language Mode** and pick Swift. Use `vex check` to see errors as you go.
+
+## Upgrade
+
+<Tabs items={['Download', 'From source']}>
+  <Tab value="Download">
+    Download the new archive and unpack it over the old one, into the same folder. Your `PATH` stays the same.
+  </Tab>
+  <Tab value="From source">
+    Pull the latest code and build again:
+
+    ```sh
+    cd vex-lang
+    git pull
+    ./build.sh
+    ```
+  </Tab>
+</Tabs>
+
+Run `vex version` to confirm the new version. Vex is in early development, so a new version may change the language; recompile your programs after upgrading.
+
+## Uninstall
+
+Vex keeps nothing outside its own folder: no caches and no configuration files. Programs you built with `vex build` don't depend on it.
+
+1. Delete the folder that holds `vex` (the unpacked archive, or your `vex-lang` clone).
+2. Remove the `export PATH=...` line you added from `~/.zshrc`, `~/.bashrc` or `~/.bash_profile`.
+
+## Troubleshooting
+
+### `command not found: vex`
+
+Your shell can't find `vex` on the `PATH`. Check that the folder you added really contains the `vex` binary, that you ran `source` on your shell file (or opened a new terminal), and that you edited the file of the shell you use: run `echo $SHELL` to see which one that is.
+
+### No C compiler found
+
+```text
+vex: no C compiler found; install clang (on macOS: xcode-select --install) or set $CC
+```
+
+`vex check` works without a C compiler, but `vex run` and `vex build` need one. Install one as shown in [Requirements](#requirements), or point `CC` at a compiler you have:
+
+```sh
+export CC=gcc
+```
+
+### `CC` names a missing program
+
+```text
+vex: running the C compiler (nosuchcc): exec: "nosuchcc": executable file not found in $PATH
+```
+
+The `CC` environment variable is set to a command that doesn't exist. Fix it, or remove it with `unset CC` so that `vex` finds `clang` or `gcc` by itself.
+
+### The C compiler fails on generated code
+
+```text
+vex: the C compiler (/usr/bin/clang) failed on generated code; this is a bug in vex
+```
+
+Vex checks your program before it writes any C, so C that doesn't compile is a bug in the compiler, not in your code. This can also happen with a C compiler that isn't `clang` or `gcc`, since the generated C needs their extensions. Please report it with the program that triggers it at [github.com/irshadio/vex-lang](https://github.com/irshadio/vex-lang).
+
+### `no package.toml`
+
+```text
+vex: no package.toml in .; create one with:
+
+[package]
+name = "myapp"
+```
+
+The suggested name is the name of the current folder. `vex run`, `vex build` and `vex check` without a file name work on the project in the current folder, which needs a `package.toml`. Either name the file to run, as in `vex run hello.vx`, or create the project file. See [Modules](/docs/projects/modules).
+
+### `go: command not found` when building from source
+
+`build.sh` needs Go 1.23 or newer. Install it from [go.dev/dl](https://go.dev/dl/) or your package manager, then run `./build.sh` again.
+
+## See also
+
+- [Your first program](/docs/first-program)
+- [The vex command](/docs/tools/cli)
+- [Language tour](/docs/tour)
+- [The compiler](/docs/internals/compiler)

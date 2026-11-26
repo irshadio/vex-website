@@ -1,0 +1,144 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+@theme {
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-display: 'Outfit Variable', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+
+  --color-ocean: #2563eb;
+  --color-sky: #38bdf8;
+  --color-deep: #1e3a8a;
+  --color-night: #0b1220;
+  --color-ink: #0f172a;
+  --color-code: #0b1220;
+  --color-term: #020617;
+
+  --color-fd-background: #ffffff;
+  --color-fd-foreground: #0f172a;
+  --color-fd-muted: #f1f5f9;
+  --color-fd-muted-foreground: #64748b;
+  --color-fd-popover: #ffffff;
+  --color-fd-popover-foreground: #0f172a;
+  --color-fd-card: #f8fafc;
+  --color-fd-card-foreground: #0f172a;
+  --color-fd-border: #e2e8f0;
+  --color-fd-primary: #2563eb;
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-secondary: #f1f5f9;
+  --color-fd-secondary-foreground: #0f172a;
+  --color-fd-accent: #eff6ff;
+  --color-fd-accent-foreground: #1e3a8a;
+  --color-fd-ring: #93c5fd;
+}
+
+.dark {
+  --color-fd-background: #0b1220;
+  --color-fd-foreground: #f8fafc;
+  --color-fd-muted: #1e293b;
+  --color-fd-muted-foreground: #94a3b8;
+  --color-fd-popover: #0f172a;
+  --color-fd-popover-foreground: #f8fafc;
+  --color-fd-card: #111a2e;
+  --color-fd-card-foreground: #f8fafc;
+  --color-fd-border: #1e293b;
+  --color-fd-primary: #60a5fa;
+  --color-fd-primary-foreground: #0b1220;
+  --color-fd-secondary: #1e293b;
+  --color-fd-secondary-foreground: #f8fafc;
+  --color-fd-accent: #172554;
+  --color-fd-accent-foreground: #bfdbfe;
+  --color-fd-ring: #1e3a8a;
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+
+/* Docs typography: Outfit headings, as in the brand guide. */
+#nd-page h1,
+.prose :is(h2, h3, h4) {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+#nd-page h1 {
+  font-weight: 300;
+  letter-spacing: -0.02em;
+}
+
+/* Code blocks keep the brand's dark editor look in both themes. */
+.prose figure.shiki {
+  background: var(--color-code);
+  border-color: #1e293b;
+  color: #e2e8f0;
+}
+
+.prose figure.shiki :is(button, figcaption) {
+  color: #94a3b8;
+}
+
+.prose figure.shiki > div:first-child:has(figcaption) {
+  border-color: #1e293b;
+  background: #0f172a;
+}
+
+.vx-code pre,
+.vx-code code {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  background: transparent !important;
+}
+
+.vx-caret {
+  display: inline-block;
+  width: 8px;
+  height: 1.15em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--color-sky);
+  animation: vx-blink 1s steps(1) infinite;
+}
+
+@keyframes vx-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes vx-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.vx-fade {
+  animation: vx-fade-up 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) var(--d, 0s) both;
+}
+
+@supports (animation-timeline: view()) {
+  .vx-reveal {
+    animation: vx-fade-up linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 35%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vx-fade,
+  .vx-reveal {
+    animation: none;
+  }
+}

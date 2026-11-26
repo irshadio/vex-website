@@ -1,0 +1,393 @@
+---
+title: Strings
+description: String literals, escape sequences, interpolation, multi-line and raw strings, characters and Unicode, comparison, and an overview of the string methods.
+---
+
+A `string` holds text encoded as UTF-8. Strings are values: they can't be changed in place, and every method that seems to change one returns a new string. Text and values combine through interpolation, `"Hi {name}"`, rather than with `+`.
+
+## String literals
+
+A string literal is text between double quotes. It stays on one line; use a [multi-line string](#multi-line-strings) for text that spans lines.
+
+```vex title="literal.vx"
+fn main() {
+    let greeting = "Hello, world"
+    let empty = ""
+    println(greeting, greeting.len, "[{empty}]", empty.len)
+}
+```
+
+```text title="Output"
+Hello, world 12 [] 0
+```
+
+Single quotes aren't used for strings, and there is no character literal:
+
+```vex title="quotes.vx"
+fn main() {
+    let name = 'Ann'
+}
+```
+
+```text title="Output"
+error: single quotes are not used for strings
+ --> quotes.vx:2:16
+  |
+2 |     let name = 'Ann'
+  |                ^^^^^ strings use double quotes: "text"
+```
+
+## Escape sequences
+
+A backslash starts an escape sequence:
+
+| Escape | Meaning |
+|---|---|
+| `\n` | Line feed (new line) |
+| `\t` | Tab |
+| `\r` | Carriage return |
+| `\\` | Backslash |
+| `\"` | Double quote |
+| `\{` | Opening brace, so it doesn't start interpolation |
+| `\}` | Closing brace |
+| `\u{1F600}` | The Unicode code point with that hexadecimal value, 1 to 6 digits |
+
+```vex title="escapes.vx"
+fn main() {
+    println("Tab:\there")
+    println("Quote: \" Backslash: \\ Braces: \{ \}")
+    println("Smile: \u{1F600} e-acute: \u{E9}")
+    println("two\nlines")
+}
+```
+
+```text title="Output"
+Tab:	here
+Quote: " Backslash: \ Braces: { }
+Smile: 😀 e-acute: é
+two
+lines
+```
+
+Any other escape is an error. There are no `\0`, `\x41` or `\a` escapes, and `\u` always needs braces:
+
+```vex title="badescape.vx"
+fn main() {
+    println("C:\new\folder")
+}
+```
+
+```text title="Output"
+error: unknown escape sequence \f
+ --> badescape.vx:2:20
+  |
+2 |     println("C:\new\folder")
+  |                    ^^ write \\ for a backslash
+```
+
+Note that `\n` in that path was accepted as a line feed; only `\f` was rejected. For paths and patterns, a [raw string](#raw-strings) avoids the problem.
+
+A `\u{...}` escape must name a valid Unicode scalar value. Surrogates (`\u{D800}` to `\u{DFFF}`) and values above `\u{10FFFF}` are errors: `invalid unicode code point U+110000`. An empty or malformed one gives `invalid unicode escape` with the hint `write it as \u{1F600}`.
+
+## Interpolation
+
+Inside a string, `{expression}` evaluates the expression and inserts its text:
+
+```vex title="interp.vx"
+struct Point {
+    x: int
+    y: int
+}
+
+fn main() {
+    let name = "Ann"
+    let items = [3, 1, 2]
+    let p = Point(x: 1, y: 2)
+    println("Hi {name}, you have {items.len} items")
+    println("Next year: {2026 + 1}, upper: {name.upper()}, first: {items[0]}")
+    println("{p} {p.x > 0} {2.5} {items} {["k": "v"]}")
+    println("Doubled: {items.map(fn(n) => n * 2)}")
+}
+```
+
+```text title="Output"
+Hi Ann, you have 3 items
+Next year: 2027, upper: ANN, first: 3
+Point(x: 1, y: 2) true 2.5 [3, 1, 2] ["k": "v"]
+Doubled: [6, 2, 4]
+```
+
+### Interpolation rules
+
+- Any expression with a value works: names, arithmetic, calls, indexing, closures, `match`, and other strings.
+- Values show exactly as `println` shows them: floats with a `.0`, optionals as their value or `nil`, and strings inside lists or structs in quotes. See [Printing values](#printing-values).
+- Spaces inside the braces are ignored: `"{ count }"` is the same as `"{count}"`.
+- An expression without a value, such as a call to a function that returns nothing, is an error: `this expression has no value to put in a string`.
+- Empty braces are an error: `empty {} in string`, with the hint `put a value inside, or write \{ for a literal brace`.
+- A `{` always starts interpolation. Write `\{` for a literal brace. A lone `}` without a matching `{` is plain text, but `\}` is clearer.
+- A string inside the braces can have its own interpolation.
+
+Vex has no `? :` operator (`Vex has no ? : operator`). To choose between two texts inside a string, use `match`, and nest strings freely:
+
+```vex title="nested.vx"
+fn main() {
+    let name = "Ann"
+    let n = 2
+    println("Result: {match n > 1 { true => "many", false => "one" }}")
+    println("Outer {"inner {name.upper()}"} done")
+}
+```
+
+```text title="Output"
+Result: many
+Outer inner ANN done
+```
+
+For anything longer than a short expression, compute it into a variable first. It reads better.
+
+### Why interpolation and not `+`
+
+`+` joins two strings, and only strings. Joining a number is an error that points to interpolation:
+
+```vex title="plus.vx"
+fn main() {
+    let count = 3
+    println("Items: " + count)
+}
+```
+
+```text title="Output"
+error: can't use '+' with string and int
+ --> plus.vx:3:13
+  |
+3 |     println("Items: " + count)
+  |             ^^^^^^^^^^^^^^^^^ put the value inside the string instead: "Items: {count}"
+```
+
+This keeps conversions visible, and `"Items: {count}"` is shorter anyway. Use `str(x)` when you need a value's text on its own.
+
+## Multi-line strings
+
+A multi-line string starts with `"""` at the end of a line and ends with `"""` on its own line. The indentation of the closing `"""` is removed from every line, so the string can be indented along with the code around it:
+
+```vex title="multiline.vx"
+fn usage(name: string) -> string {
+    return """
+        Usage: vex <command>
+          run    build and run "{name}"
+
+        Done.
+        """
+}
+
+fn main() {
+    println(usage("app"))
+    println("[" + usage("x") + "]")
+}
+```
+
+```text title="Output"
+Usage: vex <command>
+  run    build and run "app"
+
+Done.
+[Usage: vex <command>
+  run    build and run "x"
+
+Done.]
+```
+
+### Multi-line rules
+
+- The text starts on the line after the opening `"""`. Text on the same line as the opening `"""` is an error: `a multi-line string starts on the line after its opening """`.
+- The line break before the closing `"""` isn't part of the string.
+- The closing `"""`'s indentation is removed from each line. Every line must be indented at least that much (`this line is indented less than the closing """ of its string`); blank lines may be shorter.
+- `"` and `""` need no escape inside. Write `\"""` for three quotes in a row.
+- A `\` at the end of a line joins it to the next line, without a line break.
+- Escapes and interpolation work as in other strings.
+- Windows line endings (`\r\n`) in the source become `\n`.
+
+```vex title="join.vx"
+fn main() {
+    let joined = """
+        one \
+        two\tthree \"""
+        """
+    println(joined)
+}
+```
+
+```text title="Output"
+one two	three """
+```
+
+## Raw strings
+
+A raw string, written `r"..."`, keeps `\` and `{` as plain text. It suits regular expressions, Windows paths and JSON:
+
+```vex title="raw.vx"
+fn main() {
+    let pattern = r"\d+\.\d+"
+    let folder = r"C:\new\table"
+    let template = r"{name} is not interpolated"
+    println(pattern, folder, folder.len, template)
+
+    let json = r"""
+        {"name": "{x}", "path": "C:\Users"}
+          indented
+        """
+    println(json)
+}
+```
+
+```text title="Output"
+\d+\.\d+ C:\new\table 12 {name} is not interpolated
+{"name": "{x}", "path": "C:\Users"}
+  indented
+```
+
+- `r"..."` can't contain a `"`, since there's no escape to write one. Use `r"""..."""` for text with quotes.
+- `r"""..."""` follows the multi-line rules for indentation, but keeps backslashes and braces.
+
+## Characters and Unicode
+
+Vex has no `char` type. A character is a `string` of length 1, and `.chars()` splits a string into them:
+
+```vex title="chars.vx"
+fn main() {
+    let word = "naïve 🙂!"
+    println(word.len, word.chars())
+    for i, c in "abc".chars() {
+        print("{i}:{c} ")
+    }
+    println()
+    println("héllo".len, "🙂".len, "👍🏽".len)
+}
+```
+
+```text title="Output"
+8 ["n", "a", "ï", "v", "e", " ", "🙂", "!"]
+0:a 1:b 2:c 
+5 1 2
+```
+
+- `len` counts Unicode code points, not bytes and not user-perceived characters. `"👍🏽"` is a thumbs-up followed by a skin-tone modifier, so its length is 2.
+- Indexes in `substring` and `indexOf` count code points the same way.
+- Strings can't be indexed with `s[i]` (`can't index a value of type string`) or looped over directly (`can't loop over a value of type string`). Use `.chars()` for both, or `substring(i, i + 1)`.
+- Names in code are ASCII only; strings and comments can hold any Unicode text.
+
+## Comparing strings
+
+`==` and `!=` compare the text. `<`, `<=`, `>` and `>=` compare code point by code point, so uppercase letters sort before lowercase ones and accented letters sort after `z`:
+
+```vex title="compare.vx"
+fn main() {
+    println("abc" == "abc", "abc" < "abd", "" < "a")
+    println("Zebra" < "apple", "é" > "z")
+}
+```
+
+```text title="Output"
+true true true
+true true
+```
+
+This order is fast and predictable but isn't a dictionary order for any human language.
+
+## String methods
+
+Strings have one property, `len`, and these methods. Every method returns a new value; the original string never changes.
+
+| Member | Result | Description |
+|---|---|---|
+| `s.len` | `int` | Number of code points |
+| `s.upper()` | `string` | Letters `a` to `z` changed to uppercase |
+| `s.lower()` | `string` | Letters `A` to `Z` changed to lowercase |
+| `s.contains(text)` | `bool` | Whether `text` appears in `s` |
+| `s.startsWith(text)` | `bool` | Whether `s` begins with `text` |
+| `s.endsWith(text)` | `bool` | Whether `s` ends with `text` |
+| `s.indexOf(text)` | `int?` | Code point index of the first match, or `nil` |
+| `s.substring(from, to)` | `string` | Code points from `from` up to, not including, `to` |
+| `s.split(separator)` | `[string]` | The parts between each separator |
+| `s.replace(old, with)` | `string` | Every `old` replaced with `with` |
+| `s.trim()` | `string` | Spaces, tabs and line endings removed from both ends |
+| `s.trimStart()` | `string` | The same, at the start only |
+| `s.trimEnd()` | `string` | The same, at the end only |
+| `s.chars()` | `[string]` | Each code point as a string |
+| `s.lines()` | `[string]` | Each line, without its line ending |
+
+```vex title="methods.vx"
+fn main() {
+    let path = "  /home/ann/notes.txt  ".trim()
+    if let dot = path.indexOf(".") {
+        println(path.substring(0, dot), path.substring(dot + 1, path.len))
+    }
+    println("a,b,,c".split(","), "one\ntwo\r\nthree\n".lines())
+    println("a-b-c".replace("-", "+"), "ÀbC".upper(), "ÀbC".lower())
+    println("vex.vx".endsWith(".vx"), "hello".indexOf("z"), "🙂ok".indexOf("ok"))
+}
+```
+
+```text title="Output"
+/home/ann/notes txt
+["a", "b", "", "c"] ["one", "two", "three"]
+a+b+c ÀBC Àbc
+true nil 1
+```
+
+### Edge cases
+
+| Call | Result |
+|---|---|
+| `"".split(",")` | `[""]` |
+| `"abc".split(",")` | `["abc"]` |
+| `"x".split("")` | stops the program: `split separator can't be empty` |
+| `"abc".replace("", "x")` | stops the program: `replace needs text to look for, not an empty string` |
+| `"aaa".replace("a", "bb")` | `"bbbbbb"` |
+| `"abc".substring(2, 2)` | `""` |
+| `"abc".substring(2, 5)` | stops the program: `substring(2, 5) is out of range for a string of length 3` |
+| `"abc".substring(2, 1)` | stops the program, since `from` is after `to` |
+| `"abc".indexOf("")` | `0` |
+| `"".contains("")`, `"x".endsWith("")` | `true` |
+| `"".lines()` | `[]` |
+| `"\n\nx".lines()` | `["", "", "x"]` |
+| `"   ".trim()` | `""` |
+| `"ÀbC".upper()` | `"ÀBC"`: only `a` to `z` change |
+
+The [`vex:strings`](/docs/stdlib/strings) module adds `repeat`, `join`, `padLeft` and `padRight`, and [Built-ins](/docs/stdlib/built-ins) has the complete reference for every member. You can add your own methods to `string` with an [extension](/docs/language/extensions).
+
+## Printing values
+
+`println`, `print`, `str` and interpolation all use the same text for a value:
+
+| Value | Shown as |
+|---|---|
+| `int` | `42`, `-7` |
+| `float` | `2.5`, `10.0`, `1e-06`, `inf`, `nan` (see [How floats print](/docs/language/types#how-floats-print)) |
+| `bool` | `true`, `false` |
+| `string` | the text itself at the top level; in quotes with escapes inside lists, maps, records and structs: `["a\"b"]` |
+| optional | the value, or `nil` |
+| list | `[1, 2, 3]` |
+| map | `["a": 1, "b": 2]`, and `[:]` when empty |
+| record | `(1, "x")`, `(x: 1, y: 2)` with named fields in alphabetical order |
+| struct | `Point(x: 1, y: 2)` |
+| enum | `Shape.circle(radius: 2.0)`, `Light.red` |
+| function | its type: `<fn(int) -> int>` |
+
+`println(a, b, c)` separates its arguments with one space and ends with a line break. `print` does the same without the line break. `println()` prints an empty line.
+
+## Rules and edge cases
+
+- A `"..."` string can't span lines: a line break before the closing quote gives `unterminated string`.
+- Strings can't be changed in place. `var s = "ab"; s += "c"` works because it builds a new string and assigns it to `s`.
+- `s.len` is a property: `s.len()` gives `len is a property, not a method`, and `s.len = 2` gives `len can't be changed`.
+- `upper` and `lower` change only ASCII letters for now.
+- `+` joins strings only: `can't use '+' with string and int`. `"a" * 3` is an error too; use `strings.repeat` from `vex:strings`.
+
+## See also
+
+- [Types](/docs/language/types)
+- [Built-ins](/docs/stdlib/built-ins)
+- [vex:strings](/docs/stdlib/strings)
+- [Extensions](/docs/language/extensions)
+- [Lists](/docs/language/lists)

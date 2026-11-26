@@ -1,0 +1,434 @@
+---
+title: Your first program
+description: Write a Vex program, run it, check it for errors, build a native binary, and grow it into a project with package.toml and modules.
+---
+
+This page walks you through the whole workflow: writing a program, running it, reading a compile error, building a standalone binary, and turning a single file into a project with several modules. It assumes you have [installed Vex](/docs/install) and that `vex version` works in your terminal.
+
+## A single file
+
+<Steps>
+<Step>
+
+### Write hello world
+
+Make a folder to work in, and create a file called `hello.vx` in it:
+
+```vex title="hello.vx"
+fn main() {
+    println("Hello, world!")
+}
+```
+
+Every program starts at `fn main()`. `println` prints its arguments followed by a new line. There is no semicolon at the end of the line: a new line ends a statement.
+
+</Step>
+<Step>
+
+### Run it
+
+```sh
+vex run hello.vx
+```
+
+```text title="Output"
+Hello, world!
+```
+
+`vex run` checks the program, translates it to C, compiles that C with your C compiler into a temporary executable, runs it and then deletes it. The exit code of `vex run` is the exit code of your program.
+
+</Step>
+<Step>
+
+### Add some values
+
+Create `greet.vx`:
+
+```vex title="greet.vx"
+fn main() {
+    let name = "Vex"
+    let count = 3
+    println("Hello, {name}!")
+    println("New messages: {count}")
+}
+```
+
+```sh
+vex run greet.vx
+```
+
+```text title="Output"
+Hello, Vex!
+New messages: 3
+```
+
+`let` declares a name whose value can't be reassigned. Vex infers the types: `name` is a `string` and `count` is an `int`. Inside a string, `{expr}` inserts the value of any expression.
+
+</Step>
+<Step>
+
+### Check it with a deliberate mistake
+
+Change the last line to join the text with `+`, as you might in another language:
+
+```vex title="greet.vx"
+fn main() {
+    let name = "Vex"
+    let count = 3
+    println("Hello, {name}!")
+    println("New messages: " + count)
+}
+```
+
+Now ask the compiler to check the file without building it:
+
+```sh
+vex check greet.vx
+```
+
+```text
+error: can't use '+' with string and int
+ --> greet.vx:5:13
+  |
+5 |     println("New messages: " + count)
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^ put the value inside the string instead: "New messages: {count}"
+```
+
+Every diagnostic has the same parts: what is wrong, the file, line and column, the source line with the problem underlined, and a hint about how to fix it. Vex never converts a number to text, or an `int` to a `float`, behind your back, so `+` joins only strings to strings. `vex check` exits with code 1 when it finds errors.
+
+Put the line back to `println("New messages: {count}")` and check again:
+
+```sh
+vex check greet.vx
+```
+
+```text
+greet.vx: no errors
+```
+
+`vex check` doesn't need a C compiler and is the fastest way to find mistakes as you write. `vex run` and `vex build` run the same checks first, so they report the same errors.
+
+</Step>
+<Step>
+
+### Try changing a `let`
+
+Add a line at the end of `main` that changes `count`:
+
+```vex
+    count = count + 1
+```
+
+```text
+error: can't change 'count': it's declared with let
+ --> greet.vx:6:5
+  |
+6 |     count = count + 1
+  |     ^^^^^ declare it with var count = ... to make it changeable
+```
+
+Declare it with `var count = 3` instead and the program compiles. Use `let` by default and `var` only for values that change; the compiler holds you to that choice.
+
+</Step>
+<Step>
+
+### Build a native binary
+
+Remove the extra line, then build:
+
+```sh
+vex build greet.vx
+```
+
+```text
+Built greet
+```
+
+This writes an executable called `greet` in the current folder, named after the source file. Run it like any other program:
+
+```sh
+./greet
+```
+
+```text title="Output"
+Hello, Vex!
+New messages: 3
+```
+
+The binary is standalone: the Vex runtime is compiled into it, so it runs on machines without Vex installed (with the same operating system and CPU type). Use `-o` to choose another name or location. The folder you build into must already exist:
+
+```sh
+vex build greet.vx -o greeter
+```
+
+</Step>
+</Steps>
+
+## A project with modules
+
+A single file is fine for small programs. For anything bigger, make a project: a folder with a `package.toml` file. Each folder inside the project is a module, and the top folder is the root module, which holds `main`.
+
+The project below is a small to-do list with two modules: `tasks` defines the data, and `report` formats it. It follows the same layout as the `store` example in the language repository.
+
+<Files>
+  <Folder name="todo" defaultOpen>
+    <File name="package.toml" />
+    <File name="main.vx" />
+    <Folder name="tasks" defaultOpen>
+      <File name="task.vx" />
+      <File name="list.vx" />
+    </Folder>
+    <Folder name="report" defaultOpen>
+      <File name="summary.vx" />
+    </Folder>
+  </Folder>
+</Files>
+
+<Steps>
+<Step>
+
+### Create package.toml
+
+```toml title="todo/package.toml"
+[package]
+name = "todo"
+version = "0.1.0"
+```
+
+`name` is required. It is used as the name of the built executable. `version` is optional.
+
+</Step>
+<Step>
+
+### Write the tasks module
+
+A folder is one module: all `.vx` files in `tasks/` share their names and use each other without imports. Names are private to their module unless they are marked `pub`.
+
+```vex title="todo/tasks/task.vx"
+pub enum Priority {
+    low
+    high
+}
+
+pub struct Task {
+    pub title: string
+    pub priority: Priority = .low
+    pub done: bool = false
+
+    pub fn finish() {
+        done = true
+    }
+}
+```
+
+```vex title="todo/tasks/list.vx"
+pub struct TaskList {
+    tasks: [Task] = []
+
+    pub fn add(title: string, priority: Priority = .low) {
+        tasks.push(Task(title: title, priority: priority))
+    }
+
+    pub fn finish(title: string) {
+        for t in tasks {
+            if t.title == title {
+                t.finish()
+            }
+        }
+    }
+
+    pub fn all() -> [Task] => tasks
+
+    pub fn remaining() -> int => tasks.filter(fn(t) => !t.done).len
+}
+```
+
+`list.vx` uses `Task` and `Priority` from `task.vx` directly, because both files are in the same folder. The `tasks` field has no `pub`, so other modules can only reach it through the methods. Because it has a default value, other modules can still create a `TaskList()`.
+
+`t.finish()` changes the task inside the list: structs are shared references, so `t` is the same object the list holds.
+
+</Step>
+<Step>
+
+### Write the report module
+
+```vex title="todo/report/summary.vx"
+import "vex:strings"
+import "../tasks"
+
+pub fn summary(list: tasks.TaskList) -> string {
+    var lines: [string] = []
+    for t in list.all() {
+        lines.push(line(t))
+    }
+    lines.push("{list.remaining()} left")
+    return strings.join(lines, "\n")
+}
+
+fn line(t: tasks.Task) -> string {
+    let mark = match t.done {
+        true => "x"
+        false => " "
+    }
+    let flag = match t.priority {
+        high => " (high)"
+        low => ""
+    }
+    return "[{mark}] {t.title}{flag}"
+}
+```
+
+Imports go at the top of the file and belong to that file only. `"vex:strings"` is a standard library module. `"../tasks"` is a project folder, given relative to the importing file. Names from another module are written through the module's name: `tasks.TaskList`, `strings.join`.
+
+`line` has no `pub`, so it is private to `report`.
+
+</Step>
+<Step>
+
+### Write main
+
+```vex title="todo/main.vx"
+import "tasks"
+import "report"
+
+fn main() {
+    let list = tasks.TaskList()
+    list.add("Write the docs", priority: .high)
+    list.add("Fix the build")
+    list.add("Plan the release")
+    list.finish("Fix the build")
+    println(report.summary(list))
+}
+```
+
+`main.vx` is in the root folder, so its imports are relative to the root.
+
+</Step>
+<Step>
+
+### Run the project
+
+From inside the `todo` folder, run `vex run` with no file name:
+
+```sh
+cd todo
+vex run
+```
+
+```text title="Output"
+[ ] Write the docs (high)
+[x] Fix the build
+[ ] Plan the release
+2 left
+```
+
+From the parent folder, name the project folder instead: `vex run todo`. `vex check` and `vex build` work the same way.
+
+</Step>
+<Step>
+
+### See privacy at work
+
+Try reading the private field from `main.vx`:
+
+```vex
+fn peek(list: tasks.TaskList) {
+    println(list.tasks.len)
+}
+```
+
+```text
+error: field 'tasks' of tasks.TaskList is private to tasks
+  --> main.vx:14:18
+   |
+14 |     println(list.tasks.len)
+   |                  ^^^^^ mark it pub in tasks to use it from other modules
+```
+
+Remove the function again before going on.
+
+</Step>
+<Step>
+
+### Build the project
+
+```sh
+vex build
+```
+
+```text
+Built todo
+```
+
+The executable takes its name from `name` in `package.toml`. When the output name is an existing folder, the binary goes inside it, so `vex build todo` from the parent folder writes `todo/todo`.
+
+```sh
+./todo
+```
+
+```text title="Output"
+[ ] Write the docs (high)
+[x] Fix the build
+[ ] Plan the release
+2 left
+```
+
+</Step>
+</Steps>
+
+## Passing arguments
+
+Arguments after the program name go to the program, and `os.args()` from `vex:os` reads them:
+
+```vex title="args.vx"
+import "vex:os"
+
+fn main() {
+    let args = os.args()
+    println("{args.len} arguments: {args}")
+}
+```
+
+```sh
+vex run args.vx one two
+```
+
+```text title="Output"
+2 arguments: ["one", "two"]
+```
+
+For a project in the current folder, put `--` before the arguments so that `vex` doesn't read the first one as a file or folder: `vex run -- one two`.
+
+## When something goes wrong while running
+
+Some mistakes can only be found while the program runs, such as reading past the end of a list. Vex stops the program with a message and the line, instead of reading random memory:
+
+```vex title="oops.vx"
+fn main() {
+    let xs = [1, 2, 3]
+    println(xs[3])
+}
+```
+
+```text
+error: index 3 is out of range for a list of length 3
+ --> oops.vx:3
+```
+
+The program exits with code 1. See [Runtime errors](/docs/tools/runtime-errors) for every kind.
+
+## Where to go next
+
+<Cards>
+  <Card title="Language tour" href="/docs/tour" description="Every major feature in one page, with runnable examples." />
+  <Card title="Language guide" href="/docs/language" description="Each part of the language in depth." />
+  <Card title="Modules" href="/docs/projects/modules" description="Everything about imports, pub and package.toml." />
+  <Card title="Examples" href="/docs/examples" description="Small, complete programs with their output." />
+</Cards>
+
+## See also
+
+- [The vex command](/docs/tools/cli)
+- [Compile errors](/docs/tools/compile-errors)
+- [Modules](/docs/projects/modules)
+- [Language tour](/docs/tour)

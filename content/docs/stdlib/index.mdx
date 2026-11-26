@@ -1,0 +1,104 @@
+---
+title: Standard library
+description: What comes with every Vex program, from built-in functions and members to the six vex modules, and how to import them.
+---
+
+Vex ships with two layers of library code. Built-ins, such as `println`, `int(...)` and the members of strings, lists and maps, are part of the language and need no import. Standard modules, such as `vex:math` and `vex:fs`, come with the compiler and are imported by name.
+
+The standard library is small on purpose at version 0.1. It covers printing, conversion, text, collections, math, files, the clock, the process environment and parallel work. Anything else, such as JSON or networking, isn't there yet; you can reach C libraries through [C interop](/docs/projects/c-interop) in the meantime.
+
+## Built-ins
+
+Built-ins are available in every file without an import.
+
+| Kind | Names |
+|---|---|
+| Functions | `print`, `println`, `input`, `str`, `int`, `float`, `panic`, `assert` |
+| Async functions | `run`, `all`, `any` |
+| Types | `int`, `float`, `bool`, `string`, `Error`, `Future<T>`, `Channel<T>` |
+| Constraints | `Equatable`, `Comparable`, `Hashable` |
+| String members | `len`, `upper`, `lower`, `contains`, `split`, `replace`, `trim`, `trimStart`, `trimEnd`, `startsWith`, `endsWith`, `indexOf`, `substring`, `chars`, `lines` |
+| List members | `len`, `push`, `pop`, `contains`, `filter`, `map`, `copy` |
+| Map members | `len`, `keys`, `values`, `contains`, `remove`, `copy` |
+| Channel members | `send`, `receive`, `receiveSync`, `close` |
+
+`int` and `float` have no built-in members. You can add your own to any built-in type with an [extension](/docs/language/extensions).
+
+The full reference, with every signature and edge case, is on [Built-ins](/docs/stdlib/built-ins).
+
+## Standard modules
+
+| Module | What it does | Page |
+|---|---|---|
+| `vex:math` | Integer helpers (`abs`, `min`, `max`, `clamp`, `pow`, `gcd`) and float functions from the C math library | [math](/docs/stdlib/math) |
+| `vex:strings` | Building and padding strings: `repeat`, `join`, `padLeft`, `padRight` | [strings](/docs/stdlib/strings) |
+| `vex:time` | Reading the clock and sleeping in async code: `nanos`, `unix`, `sleep` | [time](/docs/stdlib/time) |
+| `vex:os` | Arguments, environment variables, the working folder, exit status and shell commands | [os](/docs/stdlib/os) |
+| `vex:fs` | Reading, writing and listing files and folders | [fs](/docs/stdlib/fs) |
+| `vex:isolate` | Running work in parallel on other cores: `run`, `spawn`, `cores` | [isolate](/docs/stdlib/isolate) |
+
+## Importing a module
+
+Write `import` with the module's path in a string at the top of the file. You then reach its names through the last part of the path:
+
+```vex title="imports.vx"
+import "vex:math"
+import "vex:strings" as text
+
+fn main() {
+    println(math.max(3, 9))
+    println(text.repeat("ab", 3))
+}
+```
+
+```text title="Output"
+9
+ababab
+```
+
+- An import belongs to the file it is written in. Other files of the same module import it again if they use it.
+- `as` renames the module for this file. After `import "vex:strings" as text`, the name `strings` is not defined in that file.
+- A module name can't be reused as a variable, parameter or function name in the file, so `math.max` always means the module.
+- Importing a module that doesn't exist is a compile error that lists the ones that do:
+
+```text
+error: unknown module 'vex:maths'
+ --> badmod.vx:1:8
+  |
+1 | import "vex:maths"
+  |        ^^^^^^^^^^^ the standard library has vex:fs, vex:isolate, vex:math, vex:os, vex:strings, vex:time
+```
+
+Using a module without importing it tells you the line to add:
+
+```text
+error: unknown name 'math'
+ --> nomath.vx:2:13
+  |
+2 |     println(math.abs(-2))
+  |             ^^^^ import it at the top of the file: import "vex:math"
+```
+
+## How the modules are written
+
+Each standard module is an ordinary Vex module stored inside the compiler, under `compiler/modules/std/<name>/<name>.vx` in the [language repository](https://github.com/irshadio/vex-lang). Many functions are thin wrappers around C: `math.sqrt` is declared as `pub extern fn sqrt(x: float) -> float` and calls the C library's `sqrt` directly, and the file and process functions call small helpers in the Vex runtime. Reading those files is a good way to see `extern fn`, `throws` and `guard let` used in real code.
+
+Because the modules are Vex code, their runtime errors point into them. For example, `math.pow(2, -1)` fails an `assert` inside the module:
+
+```text
+error: assertion failed: pow needs an exponent of 0 or more
+ --> vex:math/math.vx:40
+```
+
+## Planned
+
+<Callout type="warn" title="Planned">
+Third-party packages imported with `package:` paths, and a package manager to fetch them (`vex get`), are designed but not implemented. Today a program can import only `vex:` modules and folders of its own project. See [Packages](/docs/projects/packages).
+</Callout>
+
+## See also
+
+- [Built-ins](/docs/stdlib/built-ins)
+- [Modules and projects](/docs/projects/modules)
+- [Extensions](/docs/language/extensions)
+- [C interop](/docs/projects/c-interop)

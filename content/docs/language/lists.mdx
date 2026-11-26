@@ -1,0 +1,341 @@
+---
+title: Lists
+description: Creating lists, indexing, every list member and its edge cases, looping, collection if, for and spread, reference semantics, copying, and how to add the operations lists don't have yet.
+---
+
+A list, written `[T]`, is an ordered, growable sequence of values of one type. Lists are the main collection in Vex: they back loops, `filter` and `map`, builder blocks and list patterns. Lists are shared references, so passing one to a function lets the function change it.
+
+## Creating lists
+
+```vex title="create.vx"
+fn main() {
+    let nums = [1, 2, 3]
+    let words = ["apple", "pear"]
+    let grid = [[1, 2], [3, 4]]
+    let empty: [string] = []
+    let ratios: [float] = [1, 2.5]
+    let maybe = [nil, 1]
+    println(nums, words, grid, empty, ratios, maybe)
+}
+```
+
+```text title="Output"
+[1, 2, 3] ["apple", "pear"] [[1, 2], [3, 4]] [] [1.0, 2.5] [nil, 1]
+```
+
+- Every element has the same type. `[1, "two"]` gives `list item 2: expected int, found string`.
+- The element type is inferred from the elements, or from the expected type: in `let ratios: [float] = [1, 2.5]` the `1` becomes `1.0`.
+- A list mixing `nil` and values becomes a list of optionals: `[nil, 1]` is `[int?]`.
+- An empty list needs its type written: `let empty = []` gives `can't tell the type of an empty list`.
+- A trailing comma is allowed, and a list can span lines.
+- Lists of mixed types need a common type, such as an [interface](/docs/language/interfaces): `let shapes: [Shape] = [Circle(...), Square(...)]`.
+
+## Reading and writing elements
+
+Indexes start at 0. `xs[i]` reads an element and `xs[i] = value` replaces one:
+
+```vex title="index.vx"
+fn main() {
+    let xs = [10, 20, 30]
+    println(xs[0], xs[xs.len - 1])
+    xs[1] = 25
+    xs[2] += 5
+    println(xs)
+}
+```
+
+```text title="Output"
+10 30
+[10, 25, 35]
+```
+
+An index outside `0` to `len - 1` stops the program. There are no negative indexes counting from the end, and assigning past the end doesn't grow the list:
+
+```vex title="outofrange.vx"
+fn main() {
+    let xs = [1, 2, 3]
+    println(xs[2])
+    println(xs[5])
+}
+```
+
+```text title="Output"
+3
+error: index 5 is out of range for a list of length 3
+ --> outofrange.vx:4
+```
+
+| Access | Result |
+|---|---|
+| `[1, 2, 3][5]` | `index 5 is out of range for a list of length 3` |
+| `[1, 2, 3][-1]` | `index -1 is out of range for a list of length 3` |
+| `[1][3] = 1` | `index 3 is out of range for a list of length 1` |
+| `empty[0]` | `index 0 is out of range: the list is empty` |
+| `xs["a"]` | compile error: `index must be int, found string` |
+
+Use `push` to add elements, and check `i < xs.len` before indexing when the index comes from outside.
+
+## List members
+
+| Member | Result | Description |
+|---|---|---|
+| `xs.len` | `int` | Number of elements. A property: no `()`. |
+| `xs.push(item)` | nothing | Adds `item` at the end. |
+| `xs.pop()` | `T` | Removes and returns the last element. Stops the program on an empty list. |
+| `xs.contains(item)` | `bool` | Whether any element equals `item`. Needs an element type that supports `==`. |
+| `xs.filter(f)` | `[T]` | A new list of the elements for which `f` returns `true`. |
+| `xs.map(f)` | `[U]` | A new list of what `f` returns for each element. |
+| `xs.copy()` | `[T]` | A new list with the same elements. |
+
+```vex title="members.vx"
+fn main() {
+    var nums = [3, 1, 2]
+    nums.push(4)
+    let last = nums.pop()
+    println(nums, nums.len, last)
+    println(nums.contains(2), nums.contains(9))
+    let evens = nums.filter(fn(n) => n % 2 == 0)
+    let labels = nums.map(fn(n) => "#{n}")
+    println(evens, labels, nums)
+}
+```
+
+```text title="Output"
+[3, 1, 2] 3 4
+true false
+[2] ["#3", "#1", "#2"] [3, 1, 2]
+```
+
+### Member edge cases
+
+- `pop()` on an empty list stops the program with `can't pop from an empty list`. Check `xs.len > 0` first, or use a `while xs.len > 0` loop.
+- `contains` compares with `==`, so it works on lists of `int`, `float`, `bool`, `string`, enums whose cases carry no values, records of those, and structs that define `operator ==`. On other element types it's a compile error: `contains can't be used on a list of P`, with the hint `define it in P: operator ==(other: P) -> bool`.
+- `filter` and `map` never change the original list; they return a new one, even when nothing is removed.
+- `filter`'s function must return `bool` (`closure result: expected bool, found int`), and `map`'s must return a value (`map needs a function that returns a value`).
+- `len` can't be assigned (`len can't be changed`), and `xs.len()` gives `len is a property, not a method`.
+- On a [constant](/docs/language/constants) list, `push`, `pop` and element assignment are errors.
+
+## Looping over a list
+
+```vex title="loop.vx"
+fn main() {
+    let fruits = ["apple", "pear", "fig"]
+    for fruit in fruits {
+        print("{fruit} ")
+    }
+    println()
+    for i, fruit in fruits {
+        print("{i}={fruit} ")
+    }
+    println()
+    let nums = [1, 2, 3]
+    for i in 0..nums.len {
+        nums[i] *= 10
+    }
+    println(nums)
+}
+```
+
+```text title="Output"
+apple pear fig 
+0=apple 1=pear 2=fig 
+[10, 20, 30]
+```
+
+A `for` loop visits the elements the list had when the loop started. Elements pushed during the loop aren't visited, and the loop ends early if elements are removed. To change elements while looping, loop over the indexes, as above. See [Control flow](/docs/language/control-flow#over-a-list).
+
+## Lists are shared references
+
+Assigning a list or passing it to a function doesn't copy it. Both names refer to the same list:
+
+```vex title="shared.vx"
+fn addZero(xs: [int]) {
+    xs.push(0)
+}
+
+fn main() {
+    let a = [1, 2]
+    let b = a
+    b.push(3)
+    addZero(a)
+    println(a, b)
+}
+```
+
+```text title="Output"
+[1, 2, 3, 0] [1, 2, 3, 0]
+```
+
+This is efficient, since no elements are copied, and it's what you want when a function's job is to fill or sort a list. `let` doesn't prevent it: `let` stops the name from being reassigned, not the list from changing.
+
+### Copying
+
+`copy()` makes a new list with the same elements. The copy is shallow: elements that are themselves references, such as inner lists or structs, are shared between the two lists.
+
+```vex title="copy.vx"
+fn main() {
+    let a = [1, 2, 3]
+    let c = a.copy()
+    c[0] = 100
+    println(a, c)
+
+    let grid = [[1, 2], [3, 4]]
+    let shallow = grid.copy()
+    shallow[0].push(9)
+    shallow.push([5])
+    println(grid, shallow)
+}
+```
+
+```text title="Output"
+[1, 2, 3] [100, 2, 3]
+[[1, 2, 9], [3, 4]] [[1, 2, 9], [3, 4], [5]]
+```
+
+For a deep copy of nested lists, copy each inner list: `grid.map(fn(row) => row.copy())`. When a list is sent to another [isolate](/docs/concurrency/isolates), it's copied deeply.
+
+## Collection if, for and spread
+
+Inside a list literal, `if` and `for` produce elements and `...` adds every element of another list, as in Dart:
+
+```vex title="collection.vx"
+fn main() {
+    let loggedIn = false
+    let extras = [7, 8]
+    let maybeMore: [int]? = nil
+    let items = [
+        0,
+        if loggedIn 1 else -1,
+        for x in extras x * 10,
+        for x in [1, 2, 3, 4] if x % 2 == 0 x,
+        ...extras,
+        ...?maybeMore,
+    ]
+    println(items)
+}
+```
+
+```text title="Output"
+[0, -1, 70, 80, 2, 4, 7, 8]
+```
+
+| Element | Produces |
+|---|---|
+| `if cond x` | `x` when `cond` is true, nothing otherwise |
+| `if cond x else y` | `x` or `y`; `else if` chains work |
+| `if let n = maybe x` | `x`, with `n` bound, when `maybe` isn't `nil` |
+| `for v in seq x` | one `x` per element of `seq`, which can be a list, map or range |
+| `...xs` | every element of `xs` |
+| `...?xs` | every element of the optional list `xs`, or nothing when it's `nil` |
+
+```vex title="collection2.vx"
+fn main() {
+    let n = 3
+    let maybe: int? = 5
+    let neg = true
+    println([for i in 0..3 for j in 0..i "{i}{j}"])
+    println([if let m = maybe m * 2], [if n > 5 "big" else if n > 2 "mid" else "small"])
+    println([if neg -1], [if neg [1, 2]], [for i in 0..4 i * i])
+}
+```
+
+```text title="Output"
+["10", "20", "21"]
+[10] ["mid"]
+[-1] [[1, 2]] [0, 1, 4, 9]
+```
+
+- The element follows the condition or loop header directly, without braces. `if` and `for` nest.
+- A `(`, `[` or `-` after a space starts the element. In `[if neg -1]` the element is `-1`, and in `[if wide [1, 2]]` the element is the list `[1, 2]`. Without the space, `xs[0]` and `f(x)` stay part of the condition: `[if flags[0] "first"]`.
+- A list built with `for` is sized up front, so `[for i in 0..n f(i)]` is as fast as pushing in a loop.
+- A [constant](/docs/language/constants) list can't use `if`, `for` or `...`.
+
+The same forms work in [maps](/docs/language/maps#collection-if-for-and-spread) and in builder blocks (see [Closures](/docs/language/closures#builder-blocks)).
+
+## Taking lists apart with patterns
+
+A `match` can test a list's length and take out elements:
+
+```vex title="listpattern.vx"
+fn describe(xs: [int]) -> string => match xs {
+    [] => "empty"
+    [one] => "just {one}"
+    [first, ...rest] => "{first} then {rest.len} more"
+}
+
+fn main() {
+    println(describe([]), describe([7]), describe([1, 2, 3]))
+}
+```
+
+```text title="Output"
+empty just 7 1 then 2 more
+```
+
+`...rest` copies the remaining elements into a new list. See [Patterns](/docs/language/patterns).
+
+## Operations lists don't have yet
+
+The built-in list API is small. There's no `sort`, `reverse`, `indexOf`, `insert`, `remove(at:)`, `first`, `last`, `isEmpty`, slicing, `+` or `==` on lists yet. Each gives a compile error such as `[int] has no method 'sort'` or `'+' can't be used with [int]`.
+
+You can write them once as [extensions](/docs/language/extensions) and call them like built-in members:
+
+```vex title="extend.vx"
+extension<T: Equatable> [T] {
+    fn indexOf(item: T) -> int? {
+        for i, x in self {
+            if x == item { return i }
+        }
+        return nil
+    }
+}
+
+extension<T> [T] {
+    fn reversed() -> [T] {
+        var out: [T] = []
+        var i = len - 1
+        while i >= 0 {
+            out.push(self[i])
+            i -= 1
+        }
+        return out
+    }
+}
+
+fn main() {
+    let xs = ["a", "b", "c"]
+    println(xs.indexOf("b"), xs.indexOf("z"), xs.reversed())
+}
+```
+
+```text title="Output"
+1 nil ["c", "b", "a"]
+```
+
+The [sorting example](/docs/examples/sorting) shows in-place bubble sort and insertion sort. To join two lists, use spread: `[...a, ...b]`.
+
+## Rules and edge cases
+
+- A list holds one element type, fixed when it's created.
+- Indexes are `int` and must be in range: there's no wrap-around or auto-growth.
+- Lists can't be compared with `==` (`values of type [int] can't be compared with ==`) and can't be map keys.
+- A list prints as `[1, 2, 3]`, with strings in quotes: `["a", "b"]`.
+- `[int?]` is a list of optional ints; `[int]?` is a list that may be `nil`.
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Dart | Go |
+|---|---|---|---|---|---|
+| Type | `[T]` | `[T]` | `MutableList<T>` | `List<T>` | `[]T` |
+| Semantics | reference | value (copy on write) | reference | reference | slice header |
+| Out of range | stops the program | traps | exception | exception | panic |
+| Add | `push` | `append` | `add` | `add` | `append` |
+| Collection `if`/`for` | yes | no | no | yes | no |
+
+## See also
+
+- [Maps](/docs/language/maps)
+- [Closures](/docs/language/closures)
+- [Patterns](/docs/language/patterns)
+- [Extensions](/docs/language/extensions)
+- [Built-ins](/docs/stdlib/built-ins)

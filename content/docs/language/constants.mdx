@@ -1,0 +1,294 @@
+---
+title: Constants
+description: Declaring constants with const, what a constant's value can contain, compile-time evaluation, constant lists and maps, static constants, and constants in patterns.
+---
+
+A constant is a named value fixed when the program is compiled. Constants are declared with `const` at the top level of a file or inside a struct or enum, and can be used anywhere in the program, in any order. They are the Vex answer to global values that never change; there are no global variables.
+
+## Declaring constants
+
+```vex title="consts.vx"
+const maxUsers = 100
+const timeout: float = 2.5
+const appName = "vex"
+const greeting = "hello from {appName}"
+const limit = maxUsers * 2 + 1
+const enabled = !false && limit > 100
+
+fn main() {
+    println(maxUsers, timeout, appName, limit, enabled)
+    println(greeting)
+}
+```
+
+```text title="Output"
+100 2.5 vex 201 true
+hello from vex
+```
+
+- The type is inferred from the value, or written after the name: `const ratio: float = 2` makes a float `2.0`.
+- `pub const` makes a constant visible to other modules. See [Modules](/docs/projects/modules).
+- Constants are declared at the top level or as `static const` in a type. `const` inside a function isn't allowed; use `let` there.
+- Constants can be used as default parameter values: `fn page(size: int = maxUsers)`.
+
+## What a constant can contain
+
+A constant's value must be known when compiling. It can be made of:
+
+- literals: numbers, strings, `true`, `false`
+- other constants, in any order
+- operators, including the wrapping `&+`, `&-` and `&*`
+- string interpolation of constants
+- records, enum cases, and lists and maps of those
+- `.len` of a constant string or collection, and fields of a constant record
+
+```vex title="constvalues.vx"
+enum Light { red, yellow, green }
+
+const origin = (x: 3, y: 4)
+const ox = origin.x
+const defaultLight = Light.red
+const primes = [2, 3, 5, 7]
+const codes = ["ok": 200, "missing": 404]
+const grid = [[1, 2], [3, 4]]
+const name = "vex"
+const nameLength = name.len
+const wrapped = 9223372036854775807 &+ 1
+
+fn main() {
+    println(origin, ox, defaultLight, nameLength, wrapped)
+    println(primes, codes["missing"], grid[1][0])
+}
+```
+
+```text title="Output"
+(x: 3, y: 4) 3 Light.red 3 -9223372036854775808
+[2, 3, 5, 7] 404 3
+```
+
+A constant can't call functions or methods, and can't use `if`, `for` or `...` inside a list:
+
+```vex title="notconst.vx"
+fn helper() -> int => 1
+
+const called = helper()
+const shout = "vex".upper()
+const doubled = [for n in [1, 2] n * 2]
+
+fn main() {}
+```
+
+```text title="Output"
+error: a constant must be known when compiling, but a call isn't
+ --> notconst.vx:3:16
+  |
+3 | const called = helper()
+  |                ^^^^^^^^ compute it in a function instead
+
+error: a constant must be known when compiling, but a call isn't
+ --> notconst.vx:4:15
+  |
+4 | const shout = "vex".upper()
+  |               ^^^^^^^^^^^^^ compute it in a function instead
+
+error: a constant must be known when compiling, but a list built with if, for or ... isn't
+ --> notconst.vx:5:17
+  |
+5 | const doubled = [for n in [1, 2] n * 2]
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^ list every element
+
+3 errors
+```
+
+For a value that needs a computation, write a function that returns it, or compute it once in `main` and pass it along.
+
+## Compile-time evaluation
+
+`int`, `bool` and `string` constants are worked out by the compiler and written into the code wherever they're used, as if you had typed the value. That makes them free at run time, and means mistakes in them are compile errors rather than runtime errors:
+
+```vex title="consterrors.vx"
+const big = 9223372036854775807 + 1
+const zero = 10 / (5 - 5)
+const loopA = loopB + 1
+const loopB = loopA + 1
+const typed: string = 3
+
+fn main() {}
+```
+
+```text title="Output"
+error: this constant overflows int
+ --> consterrors.vx:1:13
+  |
+1 | const big = 9223372036854775807 + 1
+  |             ^^^^^^^^^^^^^^^^^^^^^^^ use &+, &- or &* to wrap around instead
+
+error: this constant divides by zero
+ --> consterrors.vx:2:14
+  |
+2 | const zero = 10 / (5 - 5)
+  |              ^^^^^^^^^^^
+
+error: constant 'loopA' depends on itself
+ --> consterrors.vx:3:7
+  |
+3 | const loopA = loopB + 1
+  |       ^^^^^ a constant can't be worked out from itself
+
+error: constant 'typed': expected string, found int
+ --> consterrors.vx:5:23
+  |
+5 | const typed: string = 3
+  |                       ^ convert it with str(...) or "{...}"
+
+4 errors
+```
+
+Lists, maps, records and other values are built once when the program starts, before `main` runs, and shared by every [isolate](/docs/concurrency/isolates).
+
+## Constant lists and maps can't change
+
+A constant list or map is frozen, deeply: neither it nor any list or map inside it can change. Changing one through the constant's name is a compile error:
+
+```vex title="frozen.vx"
+const primes = [2, 3, 5, 7]
+
+fn main() {
+    primes.push(11)
+}
+```
+
+```text title="Output"
+error: can't change a constant list: 'primes' is constant
+ --> frozen.vx:4:5
+  |
+4 |     primes.push(11)
+  |     ^^^^^^ change a copy instead: var mine = primes.copy()
+```
+
+Lists and maps are references, so a constant can also reach other names, for example as a function argument. Changing it through another name compiles, and fails when the program runs:
+
+```vex title="frozenalias.vx"
+const primes = [2, 3, 5, 7]
+
+fn addPrime(xs: [int]) {
+    xs.push(11)
+}
+
+fn main() {
+    let alias = primes
+    println(alias.contains(5))
+    addPrime(alias)
+}
+```
+
+```text title="Output"
+true
+error: can't change a constant list; change a copy made with .copy()
+ --> frozenalias.vx:4
+```
+
+For maps, the message is `can't change a constant map; change a copy made with .copy()`. Use `.copy()` to get a changeable list or map with the same contents:
+
+```vex title="constcopy.vx"
+const primes = [2, 3, 5, 7]
+const codes = ["ok": 200, "missing": 404]
+
+fn main() {
+    var mine = primes.copy()
+    mine.push(11)
+    var m = codes.copy()
+    m["teapot"] = 418
+    println(mine, primes)
+    println(m.len, codes.len)
+}
+```
+
+```text title="Output"
+[2, 3, 5, 7, 11] [2, 3, 5, 7]
+3 2
+```
+
+## Static constants
+
+Inside a struct or enum, `static const` declares a constant that belongs to the type. It's reached as `Type.name` from outside, and by its plain name inside the type's methods:
+
+```vex title="staticconst.vx"
+struct Circle {
+    static const pi = 3.14159
+    static const unit = (radius: 1.0, label: "unit")
+    radius: float
+
+    fn area() -> float => pi * radius * radius
+}
+
+enum Light {
+    red, yellow, green
+
+    static const all = [Light.red, .yellow, .green]
+}
+
+fn main() {
+    println(Circle.pi, Circle.unit.label, Circle(radius: 2.0).area())
+    println(Light.all, Light.all.len)
+}
+```
+
+```text title="Output"
+3.14159 unit 12.56636
+[Light.red, Light.yellow, Light.green] 3
+```
+
+- A static constant can't share a name with a field or method of the type: `'value' is already a member of this type`.
+- Generic structs and enums can't have constants: `a generic struct can't have constants`, with the hint `move it to the top level`.
+- [Extensions](/docs/language/extensions) can add static constants to a type.
+
+## Constants in patterns
+
+In a `match` arm or other [pattern](/docs/language/patterns), a name that refers to a constant matches values equal to it, rather than binding a new name:
+
+```vex title="constpattern.vx"
+const okCode = 200
+const notFound = 404
+
+fn describe(code: int) -> string => match code {
+    okCode => "ok"
+    notFound => "missing"
+    _ => "other"
+}
+
+fn main() {
+    println(describe(200), describe(404), describe(1))
+}
+```
+
+```text title="Output"
+ok missing other
+```
+
+If a local variable has the same name, the name refers to the variable instead, and inside a record or enum pattern it binds a new name as usual. The compiler also catches a constant whose value repeats an earlier arm: `ten is already handled on line 13`.
+
+## Rules and edge cases
+
+- Constants can be declared in any order; a cycle is an error: `constant 'loopA' depends on itself`.
+- A constant can't be assigned: `can't change constant 'big'`, `can't change constant 'Box.size'`.
+- Two constants with the same name: `constant 'size' is already declared on line 14`. A constant can't share a name with a top-level function, struct or enum either.
+- A function name isn't a constant value: `a constant must be known when compiling, but 'helper' isn't`.
+- Constant floats print and behave like any float. Float arithmetic in constants follows the same IEEE rules as at run time.
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Dart | Go |
+|---|---|---|---|---|---|
+| Keyword | `const` | `let` (global) | `const val` | `const` | `const` |
+| Collections allowed | yes, frozen | yes | no | yes, unmodifiable | no |
+| Static on a type | `static const` | `static let` | `companion object` | `static const` | no |
+| Computed by calls | no | yes | no | no | no |
+
+## See also
+
+- [Basics](/docs/language/basics)
+- [Lists](/docs/language/lists)
+- [Maps](/docs/language/maps)
+- [Patterns](/docs/language/patterns)
+- [Structs](/docs/language/structs)

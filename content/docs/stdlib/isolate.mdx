@@ -1,0 +1,339 @@
+---
+title: vex:isolate
+description: API reference for vex:isolate and Channel, which run work in parallel on other cores and pass messages between isolates.
+---
+
+`vex:isolate` runs work in parallel. Each isolate is a thread with its own memory and its own event loop, so isolates never share objects and need no locks: values pass between them as copies. This page is the API reference; for the model behind it, when to use isolates rather than async, and longer examples, read [Isolates](/docs/concurrency/isolates).
+
+```vex title="parallel.vx"
+import "vex:isolate"
+
+fn sumTo(n: int) -> int {
+    var total = 0
+    for i in 0..n {
+        total += i
+    }
+    return total
+}
+
+async fn main() {
+    let limit = 1000
+    let a = isolate.run(fn() -> int { return sumTo(limit) })
+    let b = isolate.run(fn() -> int { return sumTo(limit * 2) })
+    println(await all([a, b]))
+}
+```
+
+```text title="Output"
+[499500, 1999000]
+```
+
+## Summary
+
+| Name | Kind | Result |
+|---|---|---|
+| [`isolate.run(f)`](#run) | function | A future of what `f` returns, computed on a new isolate |
+| [`isolate.spawn(f)`](#spawn) | function | Starts a new isolate that runs `f`; returns nothing |
+| [`isolate.cores()`](#cores) | function | The number of processor cores |
+| [`Channel<T>`](#channels) | built-in type | A queue that carries `T` values between isolates |
+
+`run` and `spawn` are handled by the compiler rather than declared in the module source, because it must check what the function captures. They need `import "vex:isolate"`. `Channel` is a built-in type and needs no import.
+
+## run
+
+```text
+isolate.run(f: fn() -> T) -> Future<T>
+isolate.run(f: fn() throws -> T) -> Future<T, Error>
+```
+
+Runs `f` on a new isolate and returns a future of its result.
+
+- **Parameters:** `f`, a function that takes no parameters. It must be a closure written in place, or the name of a top-level function. A variable that holds a function is not accepted, since the compiler must see what the function uses in order to copy it.
+- **Returns:** A `Future<T>` of the value `f` returns, or a `Future<T, E>` when `f` throws `E`. Await it in an async function, or pass it to `run(...)` from code that isn't async.
+- **Errors:** An error thrown by `f` fails the future, so `await` needs `try`. A runtime error inside `f`, such as an index out of range, stops the whole program as it would on the main isolate.
+
+When the isolate starts, every value the closure uses is copied into it, deeply. The result is copied back when `f` returns. Changes the closure makes to its copies never reach the caller:
+
+```vex title="copies.vx"
+import "vex:isolate"
+
+struct Job {
+    id: int
+    tags: [string]
+}
+
+async fn main() {
+    let job = Job(id: 1, tags: ["a"])
+    let result = await isolate.run(fn() -> Job {
+        job.tags.push("b")
+        return job
+    })
+    println(job)
+    println(result)
+}
+```
+
+```text title="Output"
+Job(id: 1, tags: ["a"])
+Job(id: 1, tags: ["a", "b"])
+```
+
+Errors cross over like values:
+
+```vex title="isolate_errors.vx"
+import "vex:isolate"
+
+fn parse(text: string) throws -> int {
+    if text == "" {
+        throw Error("empty input")
+    }
+    return int(text)
+}
+
+fn answer() -> int => 42
+
+fn main() {
+    println(run(isolate.run(answer)))
+    let n = try? run(isolate.run(fn() throws -> int { return try parse("") }))
+    println(n)
+    let m = try run(isolate.run(fn() throws -> int { return try parse("12") })) catch e {
+        println(e.message)
+        0
+    }
+    println(m)
+}
+```
+
+```text title="Output"
+42
+nil
+12
+```
+
+A trailing block works too: `isolate.run { return 7 }`.
+
+Each call starts a new thread, which costs far more than a function call. Use `run` for work that takes at least milliseconds, and split big jobs into a few large pieces rather than many small ones.
+
+## spawn
+
+```text
+isolate.spawn(f: fn())
+```
+
+Starts a new isolate that runs `f` until it and the tasks it starts are done.
+
+- **Parameters:** `f`, a function with no parameters and no result, written as a closure or the name of a top-level function, as for `run`.
+- **Returns:** nothing. To get results out, pass the isolate a [channel](#channels).
+- **Errors:** `f` can't throw, since nothing would receive the error. Handle errors inside it with `try ... catch`. A runtime error inside it stops the program.
+
+The program ends when `main` and its tasks are done, even if spawned isolates are still running. Keep `main` waiting on a channel until the workers report back:
+
+```vex title="early_exit.vx"
+import "vex:isolate"
+import "vex:time"
+
+fn main() {
+    isolate.spawn(fn() {
+        run(time.sleep(200))
+        println("worker finished")
+    })
+    println("main finished")
+}
+```
+
+```text title="Output"
+main finished
+```
+
+## cores
+
+```vex
+pub extern fn cores() -> int as "vx_cores"
+```
+
+Returns how many processor cores the machine has.
+
+- **Parameters:** none.
+- **Returns:** The number of cores the system reports as online, at least 1.
+- **Errors:** None.
+
+Use it to size a pool of workers:
+
+```vex title="primes.vx"
+import "vex:isolate"
+
+fn countPrimes(from: int, to: int) -> int {
+    var count = 0
+    for n in from..to {
+        if n < 2 {
+            continue
+        }
+        var prime = true
+        var d = 2
+        while d * d <= n {
+            if n % d == 0 {
+                prime = false
+                break
+            }
+            d += 1
+        }
+        if prime {
+            count += 1
+        }
+    }
+    return count
+}
+
+async fn main() {
+    let workers = isolate.cores()
+    let limit = 200000
+    let chunk = limit / workers + 1
+    var parts: [Future<int>] = []
+    for w in 0..workers {
+        let from = w * chunk
+        var to = from + chunk
+        if to > limit {
+            to = limit
+        }
+        parts.push(isolate.run(fn() -> int { return countPrimes(from, to) }))
+    }
+    var total = 0
+    for n in await all(parts) {
+        total += n
+    }
+    println("primes below {limit}: {total}")
+}
+```
+
+```text title="Output"
+primes below 200000: 17984
+```
+
+## Channels
+
+A `Channel<T>` carries messages of type `T` between isolates that keep running. Unlike other values, a channel is shared, not copied: every isolate that has it sees the same queue.
+
+```text
+Channel<T>()                     // a new, empty channel
+fn send(value: T)
+fn receive() -> Future<T?>
+fn receiveSync() -> T?
+fn close()
+```
+
+`Channel<T>()` takes no arguments; there is no buffer size, and the queue grows as needed. Where the type is already known, as in `let ch: Channel<int> = Channel()`, the type argument can be left out.
+
+### send
+
+Copies `value` into the channel and returns at once; it never waits for a receiver.
+
+- **Errors:** Sending on a closed channel stops the program: `error: send on a closed channel`.
+
+### receive
+
+Returns a future of the next value. `await ch.receive()` waits without blocking the isolate, so its other tasks keep running.
+
+- **Returns:** A `Future<T?>`: the next value, or `nil` once the channel is closed and every value sent before the close has been received.
+
+### receiveSync
+
+Waits for the next value and returns it, blocking the whole isolate meanwhile. It suits workers that do nothing else, and it works in code that isn't async.
+
+- **Returns:** `T?`: the next value, or `nil` once the channel is closed and empty.
+
+### close
+
+Marks the channel as closed. Values already sent are still delivered; after them, every receive gives `nil`. Use it to tell receivers there is no more work, so a `while let` loop ends.
+
+```vex title="channel.vx"
+fn main() {
+    let ch = Channel<string>()
+    ch.send("a")
+    ch.send("b")
+    ch.close()
+    println(ch.receiveSync(), ch.receiveSync(), ch.receiveSync())
+    ch.send("c")
+}
+```
+
+```text title="Output"
+a b nil
+error: send on a closed channel
+ --> channel.vx:7
+```
+
+### A worker with channels
+
+```vex title="worker.vx"
+import "vex:isolate"
+
+fn worker(jobs: Channel<int>, out: Channel<string>) {
+    while let n = jobs.receiveSync() {
+        out.send("{n} squared is {n * n}")
+    }
+    out.close()
+}
+
+async fn main() {
+    let jobs = Channel<int>()
+    let out = Channel<string>()
+    isolate.spawn(fn() { worker(jobs, out) })
+    for n in 1..4 {
+        jobs.send(n)
+    }
+    jobs.close()
+    while let msg = await out.receive() {
+        println(msg)
+    }
+}
+```
+
+```text title="Output"
+1 squared is 1
+2 squared is 4
+3 squared is 9
+```
+
+Several isolates can receive from one channel; each message goes to exactly one of them. That makes a channel of jobs a simple work queue for a pool of spawned workers.
+
+## What can be copied
+
+Values that cross between isolates, whether captured by a closure, returned from `run`, thrown, or sent on a channel, must be copyable:
+
+| Copyable | Not copyable |
+|---|---|
+| `int`, `float`, `bool`, `string` | Functions and closures |
+| Lists, maps, optionals and records of copyable values | Futures |
+| Structs and enums whose fields are copyable | Interface values |
+| Channels (shared, not copied) | C handles from `extern type` |
+
+Copies are deep: a struct's lists and nested structs are copied too. Objects that are shared or form cycles stay shared and cyclic in the copy.
+
+Using something that can't be copied is a compile error that names the value and the type inside it that stops it:
+
+```text
+error: a channel can't carry fn(): it can't be copied to another isolate
+ --> channels.vx:2:24
+  |
+2 |     let jobs = Channel<fn()>()
+  |                        ^^^^ send plain values: numbers, strings, lists, maps, structs, enums and channels
+```
+
+The other compile errors you may see:
+
+| Message | Cause |
+|---|---|
+| `the closure uses 'cb', a fn() -> int: it can't be copied to another isolate` | The closure captures a value that can't be copied |
+| `isolate.run needs a function that takes no parameters, found fn(int) -> int` | The function takes parameters; wrap the call in a closure |
+| `isolate.run needs a closure or the name of a function, since it copies what the function uses` | A variable holding a function was passed |
+| `isolate.run can't give back Future<void>: it can't be copied to another isolate` | The result type can't be copied |
+| `the function given to isolate.spawn can't throw, since nothing receives its error` | The spawned function is marked `throws` |
+| `can't tell what the channel carries` | `Channel()` without a type argument or an expected type |
+| `Channel<T>() takes no arguments` | A buffer size or other argument was given |
+
+## See also
+
+- [Isolates](/docs/concurrency/isolates)
+- [Concurrency overview](/docs/concurrency)
+- [Async and await](/docs/concurrency/async)
+- [Built-ins: run, all and any](/docs/stdlib/built-ins#run-all-and-any)

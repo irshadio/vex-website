@@ -1,0 +1,440 @@
+---
+title: vex:math
+description: API reference for vex:math, the integer helpers, comparisons, and float functions from the C math library.
+---
+
+`vex:math` holds common math on numbers: integer helpers written in Vex, generic `min`, `max` and `clamp` for any comparable type, and float functions that call the C math library directly.
+
+```vex title="math_intro.vx"
+import "vex:math"
+
+fn main() {
+    let r = 2.0
+    println(math.pi() * math.powf(r, 2.0))
+    println(math.max(3, 9), math.gcd(12, 18), math.sqrt(2.0))
+}
+```
+
+```text title="Output"
+12.566370614359172
+9 6 1.4142135623730951
+```
+
+Two things to know before you use it:
+
+- Integer and float functions are separate, because Vex never converts between `int` and `float` silently. `abs` and `pow` take `int`; `absf` and `powf` take `float`.
+- Whole-number literals adapt to `float` where one is expected, so `math.sqrt(9)` works and gives `3.0`. A variable of type `int` does not: write `math.sqrt(float(n))`.
+
+## Summary
+
+| Group | Functions |
+|---|---|
+| [Integers](#integers) | `abs`, `pow`, `gcd` |
+| [Comparing](#comparing) | `min`, `max`, `clamp` |
+| [Powers, roots and logarithms](#powers-roots-and-logarithms) | `sqrt`, `cbrt`, `powf`, `exp`, `log`, `log2`, `log10` |
+| [Trigonometry](#trigonometry) | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `hypot` |
+| [Rounding](#rounding) | `floor`, `ceil`, `round`, `trunc`, `absf` |
+| [Constants](#constants) | `pi` |
+
+## Integers
+
+### abs
+
+```vex
+pub fn abs(x: int) -> int
+```
+
+Returns `x` without its sign.
+
+- **Parameters:** `x`, any `int`.
+- **Returns:** `x` if it is 0 or more, otherwise `-x`.
+- **Errors:** The smallest `int`, -9223372036854775808, has no positive counterpart, so `abs` of it stops the program with `integer overflow: -(-9223372036854775808) doesn't fit in an int`.
+
+For floats, use [`absf`](#absf).
+
+```vex title="abs.vx"
+import "vex:math"
+
+fn main() {
+    println(math.abs(-7), math.abs(7), math.abs(0))
+}
+```
+
+```text title="Output"
+7 7 0
+```
+
+### pow
+
+```vex
+pub fn pow(base: int, exp: int) -> int
+```
+
+Returns `base` raised to the power `exp`, computed with integer arithmetic by repeated squaring.
+
+- **Parameters:** `base`, any `int`; `exp`, an `int` of 0 or more.
+- **Returns:** `base` multiplied by itself `exp` times. `pow(x, 0)` is 1 for every `x`, including 0.
+- **Errors:** A negative `exp` fails an assertion: `assertion failed: pow needs an exponent of 0 or more`. A result too big for an `int` stops the program with an integer overflow error, such as `integer overflow: 4294967296 * 4294967296 doesn't fit in an int; use &* to wrap around` for `pow(2, 64)`.
+
+For float powers, including fractional and negative exponents, use [`powf`](#powf).
+
+```vex title="pow.vx"
+import "vex:math"
+
+fn main() {
+    println(math.pow(2, 10), math.pow(3, 0), math.pow(-2, 3))
+}
+```
+
+```text title="Output"
+1024 1 -8
+```
+
+### gcd
+
+```vex
+pub fn gcd(a: int, b: int) -> int
+```
+
+Returns the greatest common divisor of `a` and `b`, using Euclid's algorithm on their absolute values.
+
+- **Parameters:** `a` and `b`, any `int`s.
+- **Returns:** The largest `int` that divides both, always 0 or more. `gcd(0, n)` is `abs(n)`, and `gcd(0, 0)` is 0.
+- **Errors:** Overflows, like `abs`, if either argument is the smallest `int`.
+
+```vex title="gcd.vx"
+import "vex:math"
+
+fn main() {
+    println(math.gcd(12, 18), math.gcd(-12, 18), math.gcd(0, 5), math.gcd(0, 0))
+}
+```
+
+```text title="Output"
+6 6 5 0
+```
+
+## Comparing
+
+`min`, `max` and `clamp` are generic over any `Comparable` type: `int`, `float`, `string`, enums whose cases carry no values, and structs that define `operator <` and `operator ==`. Both arguments must have the same type.
+
+### max
+
+```vex
+pub fn max<T: Comparable>(a: T, b: T) -> T
+```
+
+Returns the larger of `a` and `b`.
+
+- **Parameters:** `a` and `b`, two values of the same comparable type.
+- **Returns:** `a` if `a > b`, otherwise `b`. When they are equal, it returns `b`.
+- **Errors:** None.
+
+### min
+
+```vex
+pub fn min<T: Comparable>(a: T, b: T) -> T
+```
+
+Returns the smaller of `a` and `b`.
+
+- **Parameters:** `a` and `b`, two values of the same comparable type.
+- **Returns:** `a` if `a < b`, otherwise `b`. When they are equal, it returns `b`.
+- **Errors:** None.
+
+### clamp
+
+```vex
+pub fn clamp<T: Comparable>(x: T, low: T, high: T) -> T
+```
+
+Returns `x` limited to the range from `low` to `high`.
+
+- **Parameters:** `x`, the value; `low` and `high`, the bounds, with `low <= high`.
+- **Returns:** `low` if `x < low`, `high` if `x > high`, otherwise `x`. The bounds are not checked: if `low > high`, the `low` test wins for small values.
+- **Errors:** None.
+
+```vex title="compare.vx"
+import "vex:math"
+
+enum Level {
+    low
+    mid
+    high
+}
+
+fn main() {
+    println(math.max(3, 9), math.min(3, 9), math.max(2.5, 1.5))
+    println(math.max("apple", "pear"), math.min(Level.high, Level.mid))
+    println(math.clamp(15, 0, 10), math.clamp(-3, 0, 10), math.clamp(0.5, 0.0, 1.0))
+}
+```
+
+```text title="Output"
+9 3 2.5
+pear Level.mid
+10 0 0.5
+```
+
+Strings compare by their bytes, so `"Zoo" < "apple"` because uppercase letters come first in UTF-8.
+
+## Powers, roots and logarithms
+
+These functions take and return `float`. They follow the C library and IEEE 754 for values outside their domain: they return `nan` or an infinity instead of stopping the program. Check the result with a comparison when that matters; `nan` is not equal to anything, itself included.
+
+### sqrt
+
+```vex
+pub extern fn sqrt(x: float) -> float
+```
+
+Returns the square root of `x`, or `nan` when `x` is negative.
+
+### cbrt
+
+```vex
+pub extern fn cbrt(x: float) -> float
+```
+
+Returns the cube root of `x`. Unlike `sqrt`, it accepts negative numbers: `cbrt(-8.0)` is `-2.0`.
+
+### powf
+
+```vex
+pub extern fn powf(base: float, exp: float) -> float as "pow"
+```
+
+Returns `base` raised to the power `exp`. It calls the C function `pow`, which accepts fractional and negative exponents: `powf(2.0, 0.5)` is the square root of 2 and `powf(2.0, -1.0)` is `0.5`. A negative `base` with a fractional `exp` gives `nan`.
+
+### exp
+
+```vex
+pub extern fn exp(x: float) -> float
+```
+
+Returns e raised to the power `x`. Large `x` gives `inf`.
+
+### log
+
+```vex
+pub extern fn log(x: float) -> float
+```
+
+Returns the natural logarithm of `x`: `-inf` for 0 and `nan` for negative numbers.
+
+### log2
+
+```vex
+pub extern fn log2(x: float) -> float
+```
+
+Returns the base-2 logarithm of `x`, with the same edge cases as `log`.
+
+### log10
+
+```vex
+pub extern fn log10(x: float) -> float
+```
+
+Returns the base-10 logarithm of `x`, with the same edge cases as `log`.
+
+```vex title="powers.vx"
+import "vex:math"
+
+fn main() {
+    println(math.sqrt(16.0), math.sqrt(2.0), math.sqrt(-1.0), math.cbrt(-8.0))
+    println(math.powf(2.0, 0.5), math.powf(2.0, -1.0))
+    println(math.exp(1.0), math.log(math.exp(2.0)), math.log2(8.0), math.log10(1000.0))
+    println(math.log(0.0), math.log(-1.0), math.exp(1000.0))
+}
+```
+
+```text title="Output"
+4.0 1.4142135623730951 nan -2.0
+1.4142135623730951 0.5
+2.718281828459045 2.0 3.0 3.0
+-inf nan inf
+```
+
+## Trigonometry
+
+Angles are in radians. To convert from degrees, multiply by `math.pi() / 180.0`.
+
+### sin
+
+```vex
+pub extern fn sin(x: float) -> float
+```
+
+Returns the sine of the angle `x`.
+
+### cos
+
+```vex
+pub extern fn cos(x: float) -> float
+```
+
+Returns the cosine of the angle `x`.
+
+### tan
+
+```vex
+pub extern fn tan(x: float) -> float
+```
+
+Returns the tangent of the angle `x`.
+
+### asin
+
+```vex
+pub extern fn asin(x: float) -> float
+```
+
+Returns the arc sine of `x`, an angle from -π/2 to π/2. `x` outside -1 to 1 gives `nan`.
+
+### acos
+
+```vex
+pub extern fn acos(x: float) -> float
+```
+
+Returns the arc cosine of `x`, an angle from 0 to π. `x` outside -1 to 1 gives `nan`.
+
+### atan
+
+```vex
+pub extern fn atan(x: float) -> float
+```
+
+Returns the arc tangent of `x`, an angle from -π/2 to π/2.
+
+### atan2
+
+```vex
+pub extern fn atan2(y: float, x: float) -> float
+```
+
+Returns the angle of the point (`x`, `y`) from the positive x axis, from -π to π. Note the order: `y` comes first, as in C. Unlike `atan(y / x)`, it knows which quadrant the point is in and works when `x` is 0.
+
+### hypot
+
+```vex
+pub extern fn hypot(x: float, y: float) -> float
+```
+
+Returns the length of the hypotenuse of a right triangle with sides `x` and `y`, the square root of `x * x + y * y`, without overflowing for large values.
+
+```vex title="trig.vx"
+import "vex:math"
+
+fn main() {
+    let degrees = 30.0
+    let radians = degrees * math.pi() / 180.0
+    println(math.sin(radians), math.cos(0.0), math.tan(math.pi() / 4.0))
+    println(math.asin(1.0), math.acos(1.0), math.atan(1.0))
+    println(math.atan2(1.0, -1.0), math.hypot(3.0, 4.0))
+}
+```
+
+```text title="Output"
+0.49999999999999994 1.0 0.9999999999999999
+1.5707963267948966 0.0 0.7853981633974483
+2.356194490192345 5.0
+```
+
+Floating-point results are often a tiny bit off the exact value, as `0.49999999999999994` shows. Round before printing when you need a tidy number.
+
+## Rounding
+
+These take a `float` and return a `float`, even when the result is a whole number. Use `int(...)` afterwards to get an `int`; `int` itself rounds toward zero.
+
+### floor
+
+```vex
+pub extern fn floor(x: float) -> float
+```
+
+Returns the largest whole number not greater than `x`: `floor(2.7)` is `2.0` and `floor(-2.7)` is `-3.0`.
+
+### ceil
+
+```vex
+pub extern fn ceil(x: float) -> float
+```
+
+Returns the smallest whole number not less than `x`: `ceil(2.1)` is `3.0` and `ceil(-2.1)` is `-2.0`.
+
+### round
+
+```vex
+pub extern fn round(x: float) -> float
+```
+
+Returns `x` rounded to the nearest whole number, with halves rounded away from zero: `round(2.5)` is `3.0` and `round(-2.5)` is `-3.0`.
+
+### trunc
+
+```vex
+pub extern fn trunc(x: float) -> float
+```
+
+Returns `x` without its fractional part, rounding toward zero: `trunc(-2.7)` is `-2.0`.
+
+### absf
+
+```vex
+pub extern fn absf(x: float) -> float as "fabs"
+```
+
+Returns `x` without its sign. It calls the C function `fabs`. For integers, use [`abs`](#abs).
+
+```vex title="rounding.vx"
+import "vex:math"
+
+fn main() {
+    println(math.floor(2.7), math.floor(-2.7), math.ceil(2.1), math.ceil(-2.1))
+    println(math.round(2.5), math.round(-2.5), math.round(2.4))
+    println(math.trunc(2.7), math.trunc(-2.7), math.absf(-3.5))
+    let price = 19.987
+    println(math.round(price * 100.0) / 100.0, int(math.round(price)))
+}
+```
+
+```text title="Output"
+2.0 -3.0 3.0 -2.0
+3.0 -3.0 2.0
+2.0 -2.0 3.5
+19.99 20
+```
+
+## Constants
+
+### pi
+
+```vex
+pub fn pi() -> float => 3.141592653589793
+```
+
+Returns π, the ratio of a circle's circumference to its diameter. It is a function, not a constant, so write `math.pi()` with parentheses.
+
+```vex title="circle.vx"
+import "vex:math"
+
+fn main() {
+    let r = 1.5
+    println(math.pi(), 2.0 * math.pi() * r)
+}
+```
+
+```text title="Output"
+3.141592653589793 9.42477796076938
+```
+
+There is no `e` function; use `math.exp(1.0)`.
+
+## See also
+
+- [Standard library overview](/docs/stdlib)
+- [Operators](/docs/language/operators)
+- [Built-in types](/docs/language/types)
+- [Generics](/docs/language/generics)

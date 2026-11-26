@@ -1,0 +1,361 @@
+---
+title: The vex command
+description: Every vex subcommand, argument and flag, how file and project mode work, where binaries go, exit codes, and the environment variables the compiler and runtime read.
+---
+
+`vex` is the compiler and toolchain in one command. It checks Vex source, translates it to C, calls the system C compiler to build a native executable, and can run the result right away. This page documents every subcommand as of version `0.1.0-dev`.
+
+## Overview
+
+```text
+vex <command> [arguments]
+```
+
+| Command | What it does |
+|---|---|
+| [`vex run [file or folder] [-- args]`](#vex-run) | Compile and run a program |
+| [`vex build [file or folder] [-o out]`](#vex-build) | Build a native executable |
+| [`vex check [file or folder]`](#vex-check) | Check a program for errors without building it |
+| [`vex emit-c [file or folder]`](#vex-emit-c) | Print the generated C code |
+| [`vex ast <file>`](#vex-ast) | Print the syntax tree of one source file |
+| [`vex tokens <file>`](#vex-tokens) | Print the tokens of one source file |
+| [`vex version`](#vex-version) | Print the Vex version |
+| [`vex help [command]`](#vex-help) | Show help |
+
+There are no global flags other than `-h`/`--help` (the same as `vex help`) and `-v`/`--version` (the same as `vex version`).
+
+<Callout type="warn" title="Planned">
+There is no `vex test`, `vex fmt`, `vex new` or `vex get` yet. Package fetching is designed but not built; see [Packages](/docs/projects/packages).
+</Callout>
+
+## File mode and project mode
+
+`run`, `build`, `check` and `emit-c` take a target, which is either a source file or a project folder.
+
+| Target | Mode | What is compiled |
+|---|---|---|
+| `app.vx` | File mode | That one file, plus the folders and `vex:` modules it imports. Other `.vx` files next to it are not included. |
+| `store` (a folder) | Project mode | The project in that folder. It must contain a `package.toml`. |
+| nothing | Project mode | The project in the current folder. |
+
+In project mode, the top folder of the project is the root module and holds `main`; every subfolder is a module of its own. A folder without `package.toml` is refused, with the lines to add:
+
+```text
+vex: no package.toml in emptyproj; create one with:
+
+[package]
+name = "emptyproj"
+```
+
+Project structure and `package.toml` are covered in [Modules and projects](/docs/projects/modules).
+
+## vex run
+
+```text
+vex run [file or folder] [-- args]
+```
+
+Compiles the program, builds it in a temporary folder, runs it, and deletes the executable afterwards.
+
+```sh
+vex run hello.vx            # a single file
+vex run                     # the project in the current folder
+vex run store               # the project in store/
+```
+
+The program's standard input, output and error are connected to the terminal, so `input()` and pipes work as usual:
+
+```sh
+printf 'Ann\n' | vex run ask.vx
+vex run report.vx > report.txt
+```
+
+Compile errors are printed and nothing runs. If the program builds, `vex run` exits with the program's own exit status.
+
+### Passing arguments to the program
+
+Everything after the target goes to the program, where [`os.args()`](/docs/stdlib/os#args) returns it. A `--` right after the target is removed, so you can pass arguments that start with `-`:
+
+```sh
+vex run app.vx one two          # os.args() is ["one", "two"]
+vex run app.vx -- -v            # ["-v"]
+vex run -- -v                   # the current project, with ["-v"]
+vex run store -- x              # the project in store/, with ["x"]
+```
+
+The first argument counts as the target only when it ends in `.vx` or names an existing folder. Otherwise `vex run` runs the project in the current folder and passes every argument to it, so `vex run report x` runs the current project with `["report", "x"]`. Use `--` to make this explicit.
+
+Only the first `--` is removed: in `vex run app.vx a -- b`, the program receives `["a", "--", "b"]`.
+
+### When the program is stopped by a signal
+
+If the program is ended by a signal, `vex run` exits with 128 plus the signal number, as shells do. For an interrupt (Ctrl-C), a closed pipe, `SIGTERM` or `SIGHUP` it prints nothing extra. For other signals it adds a line:
+
+```text
+vex: the program was killed
+```
+
+```text
+vex: the program crashed (abort trap); this is a bug in vex
+```
+
+The second message means the generated program crashed in a way the runtime didn't catch; runtime errors such as an index out of range or a stack overflow print their own message instead and exit with status 1. See [Runtime errors](/docs/tools/runtime-errors).
+
+## vex build
+
+```text
+vex build [file or folder] [-o output]
+```
+
+Builds a native executable and prints its path.
+
+```sh
+vex build hello.vx
+```
+
+```text title="Output"
+Built hello
+```
+
+| Target | Default output name |
+|---|---|
+| `hello.vx` | `hello`: the file name without `.vx` |
+| `src/app.vx` | `app` |
+| a project | the `name` from `package.toml` |
+
+The executable is written to the current folder, not next to the source: `vex build src/app.vx` creates `./app`.
+
+`-o` sets the output path. It can come before or after the target:
+
+```sh
+vex build src/app.vx -o tool        # ./tool
+vex build -o bin/tool src/app.vx    # bin/tool
+```
+
+- If the output names an existing folder, the executable goes inside it with the default name: `vex build -o bin hello.vx` writes `bin/hello`. This is also why building a project from its parent folder, `vex build store`, writes `store/store` when the project is named `store`: the default output `store` is the project folder itself.
+- The folder for the output must already exist. A missing folder makes the C compiler's linker fail.
+- `vex build` refuses to overwrite the source file, which could happen with a source file that has no `.vx` extension:
+
+```text
+vex: building would replace the source file h; choose another name with -o
+```
+
+The executable is self-contained: the runtime and garbage collector are compiled into it, and it depends only on the C library and the system math and thread libraries. Copy it to another machine with the same operating system and CPU architecture and it runs there. There is no cross-compilation option yet.
+
+Builds are always optimized (`-O3`). There is no separate debug mode; see [`VEX_CFLAGS`](#environment-variables) to change the C compiler flags.
+
+## vex check
+
+```text
+vex check [file or folder]
+```
+
+Parses and type-checks the program without generating C or calling the C compiler. It is the fastest way to see compile errors, for example from an editor.
+
+```sh
+vex check hello.vx
+```
+
+```text title="Output"
+hello.vx: no errors
+```
+
+With no target it checks the project in the current folder and prints `.: no errors`. When there are errors, it prints them to standard error and exits with status 1. See [Compile errors](/docs/tools/compile-errors).
+
+## vex emit-c
+
+```text
+vex emit-c [file or folder]
+```
+
+Prints the C code that `vex build` would compile, to standard output. The output is one self-contained C file: the runtime library first, then your program after a `// --- Program ---` line.
+
+```sh
+vex emit-c hello.vx > hello.c
+cc -std=gnu11 -fwrapv -O2 -pthread hello.c -o hello -lm
+```
+
+[Generated C](/docs/tools/generated-c) explains how each Vex construct appears in it.
+
+## vex ast
+
+```text
+vex ast <file>
+```
+
+Parses one source file and prints its syntax tree. It only parses: it doesn't resolve names, check types or follow imports, so it works on files that would fail `vex check`. It takes exactly one file, not a project folder.
+
+```vex title="tiny.vx"
+fn main() {
+    let name = "Vex"
+    println("Hi {name}")
+}
+```
+
+```sh
+vex ast tiny.vx
+```
+
+```text title="Output"
+file
+  fn main
+    block
+      let name
+        "Vex"
+      call
+        println
+        interp
+          "Hi "
+          name
+```
+
+## vex tokens
+
+```text
+vex tokens <file>
+```
+
+Splits one source file into tokens and prints one per line: the position as `line:column`, the token kind, and its text. Automatic statement ends inserted at line breaks show as `end of statement` with the text `newline`. An interpolated string is split into its literal parts and the tokens of each `{...}` expression.
+
+```sh
+vex tokens tiny.vx
+```
+
+```text title="Output"
+1:1      'fn'               fn
+1:4      identifier         main
+1:8      '('                (
+1:9      ')'                )
+1:11     '{'                {
+2:5      'let'              let
+2:9      identifier         name
+2:14     '='                =
+2:16     string             "Vex"
+2:21     end of statement   newline
+3:5      identifier         println
+3:12     '('                (
+3:13     string             "Hi "
+3:18     identifier         name
+3:22     string             ""
+3:24     ')'                )
+3:25     end of statement   newline
+4:1      '}'                }
+4:2      end of statement   newline
+5:1      end of file        
+```
+
+`ast` and `tokens` exist mainly for working on the compiler and for checking how a tricky line is read.
+
+## vex version
+
+```sh
+vex version
+```
+
+```text title="Output"
+vex 0.1.0-dev+3a88a7e
+```
+
+The part after `+` is the commit the compiler was built from. Release builds set the version at build time.
+
+## vex help
+
+`vex help`, `vex -h`, `vex --help` and `vex` with no arguments all print the command list. Without arguments, it goes to standard error and the exit status is 2; with `help`, it goes to standard output and the exit status is 0.
+
+```text title="vex help"
+Vex is a compiled language for native apps.
+
+Usage: vex <command> [arguments]
+
+Commands:
+  run [file or folder] [-- args] Compile and run a program
+  build [file or folder] [-o out] Build a native executable
+  emit-c [file or folder] Print the generated C code
+  check [file or folder] Check a program for errors
+  ast <file>             Print the syntax tree of a source file
+  tokens <file>          Print the tokens of a source file
+  version                Print the Vex version
+  help [command]         Show help
+
+Run 'vex help <command>' for details.
+```
+
+`vex help <command>` prints the usage line of one command:
+
+```text title="vex help build"
+Usage: vex build [file or folder] [-o out]
+
+Build a native executable.
+```
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success. For `vex run`, the program exited with 0 |
+| 1 | Compile errors, a file that can't be read, a missing `package.toml`, or a C compiler failure |
+| 2 | Usage error: an unknown command, an unknown flag, a missing `-o` value or too many targets |
+| any | `vex run` passes on the program's exit status: 1 after a runtime error or an error escaping `main`, the value given to `os.exit`, or 128 plus the signal number |
+
+Usage errors print the command's usage line:
+
+```text
+vex: unknown command "biuld"
+Run 'vex help' for a list of commands.
+```
+
+```text
+flag needs an argument: -o
+Usage: vex build [file or folder] [-o output]
+```
+
+## Environment variables
+
+### Read by the compiler
+
+| Variable | Effect |
+|---|---|
+| `CC` | The C compiler to use, which may include arguments, such as `CC="clang -v"`. When unset, `vex` uses the first of `clang`, `cc` and `gcc` found on the `PATH`. |
+| `VEX_CFLAGS` | Extra flags for the C compiler, added after the default ones so they can override them, for example `VEX_CFLAGS="-O0 -g"` for a debuggable build. |
+| `NO_COLOR` | When set to any non-empty value, diagnostics are printed without color. Color is also off when standard error isn't a terminal. |
+
+If no C compiler is found, every build fails with:
+
+```text
+vex: no C compiler found; install clang (on macOS: xcode-select --install) or set $CC
+```
+
+The C compiler is called with `-std=gnu11 -fwrapv -O3 -w -pthread`, then `VEX_CFLAGS`, then the flags, sources, libraries and frameworks from the `[c]` section of `package.toml`, and finally `-lm`. `-fwrapv` defines what `&+`, `&-` and `&*` do on overflow, and `-w` hides warnings about the generated code. See [C interop](/docs/projects/c-interop) for the `[c]` section.
+
+When the C compiler fails, `vex` says whose fault it is likely to be:
+
+| Message starts with | Likely cause |
+|---|---|
+| `the C compiler (...) failed; check the C code and the [c] section of package.toml` | The project's own C code or flags |
+| `linking failed: a C function named by an extern isn't defined` | An `extern fn` whose C code isn't linked |
+| `the C compiler (...) failed on generated code; this is a bug in vex` | Anything else, which usually is a compiler bug |
+
+### Read by programs
+
+Every Vex program, whether run with `vex run` or built, reads these when it starts:
+
+| Variable | Effect |
+|---|---|
+| `VEX_GC_STATS` | When set to anything other than `0`, prints a garbage collector summary to standard error when the program ends. |
+| `VEX_GC_STRESS` | A number `n`: runs a full collection every `n` allocations. Very slow; used to test the collector. |
+
+```sh
+VEX_GC_STATS=1 vex run words.vx
+```
+
+```text
+gc: 2 collections, 7220 KB allocated, 4149 KB peak heap, 4149 KB live
+```
+
+## See also
+
+- [Install](/docs/install)
+- [Your first program](/docs/first-program)
+- [Modules and projects](/docs/projects/modules)
+- [Compile errors](/docs/tools/compile-errors)
+- [Runtime errors](/docs/tools/runtime-errors)

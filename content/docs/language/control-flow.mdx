@@ -1,0 +1,488 @@
+---
+title: Control flow
+description: if and else, if let and if case, for-in loops over ranges, lists and maps, while and while let, break and continue, guard let, and a first look at match.
+---
+
+Vex has a short list of control-flow statements: `if`, `for`, `while`, `guard` and `match`, with `break`, `continue` and `return` to leave early. Conditions don't take parentheses, bodies always take braces, and conditions must be `bool`.
+
+## if and else
+
+```vex title="if.vx"
+fn grade(score: int) -> string {
+    if score >= 90 {
+        return "A"
+    } else if score >= 75 {
+        return "B"
+    } else {
+        return "keep going"
+    }
+}
+
+fn main() {
+    println(grade(95), grade(80), grade(10))
+}
+```
+
+```text title="Output"
+A B keep going
+```
+
+- The condition has no parentheses. Writing them gives a warning (`the if condition doesn't need parentheses`) but builds.
+- The body always has braces, even for one statement: `if x > 1 println("big")` gives `expected '{' after the if condition, found 'println'`. The `{` must be on the same line as `if`.
+- `else` must be on the same line as the closing `}` of the block before it:
+
+```vex title="else.vx"
+fn main() {
+    let count = 3
+    if count > 1 {
+        println("many")
+    }
+    else {
+        println("one")
+    }
+}
+```
+
+```text title="Output"
+error: 'else' must be on the same line as the closing }
+ --> else.vx:6:5
+  |
+6 |     else {
+  |     ^^^^ write } else {
+```
+
+This rule exists because a line break ends a statement: on its own line, `else` would start a new statement with nothing to attach to.
+
+- The condition must be a `bool`. `if items.len` gives `if condition must be bool, found int`; write `if items.len > 0`.
+- A `=` in a condition is reported as a mistake: `use == to compare in a condition`.
+
+### if is a statement
+
+`if` doesn't produce a value, so `let x = if a { 1 } else { 2 }` doesn't compile. There is no `? :` operator either. Use a `match` on a `bool`, a variable that you set in each branch, or a small function:
+
+```vex title="choose.vx"
+fn main() {
+    let n = 7
+    let size = match n > 5 {
+        true => "big"
+        false => "small"
+    }
+    var parity = "odd"
+    if n % 2 == 0 {
+        parity = "even"
+    }
+    println(size, parity)
+}
+```
+
+```text title="Output"
+big odd
+```
+
+### if let
+
+`if let` runs its block when an optional holds a value, with the value bound to a new name that isn't optional:
+
+```vex title="iflet.vx"
+fn find(names: [string], target: string) -> int? {
+    for i, name in names {
+        if name == target { return i }
+    }
+    return nil
+}
+
+fn main() {
+    let names = ["ann", "bob"]
+    if let i = find(names, "bob") {
+        println("found at {i}")
+    } else {
+        println("not found")
+    }
+}
+```
+
+```text title="Output"
+found at 1
+```
+
+The bound name exists only inside the first block. The value must be optional (`if let needs an optional value, but this is int`), and the binding can't be `var` (`'if var' isn't supported`; copy it into a `var` inside the block). See [Optionals](/docs/language/optionals).
+
+### if case
+
+`if value case pattern` runs its block when a value matches a [pattern](/docs/language/patterns), binding the names in the pattern. A `when` clause adds a condition:
+
+```vex title="ifcase.vx"
+enum Shape {
+    circle(radius: float)
+    square(side: float)
+}
+
+fn main() {
+    let s = Shape.circle(radius: 2.5)
+    if s case circle(r) when r > 1.0 {
+        println("big circle, radius {r}")
+    }
+    let point = (0, 7)
+    if point case (0, y) {
+        println("on the y axis at {y}")
+    }
+}
+```
+
+```text title="Output"
+big circle, radius 2.5
+on the y axis at 7
+```
+
+## for loops
+
+`for name in sequence` runs its body once per element. The sequence is a range, a list or a map.
+
+### Over a range
+
+`a..b` counts from `a` up to but not including `b`; `a..=b` includes `b`.
+
+```vex title="forrange.vx"
+fn main() {
+    for i in 0..5 { print("{i} ") }
+    println()
+    for i in 1..=5 { print("{i} ") }
+    println()
+    for i in 5..2 { print("never") }
+    for _ in 0..2 { print("hi ") }
+    println()
+}
+```
+
+```text title="Output"
+0 1 2 3 4 
+1 2 3 4 5 
+hi hi 
+```
+
+- Bounds must be `int`, and can be any expression: `for i in lo..lo + 3`.
+- Both bounds are evaluated once, before the first iteration. Changing a variable used in a bound doesn't change the number of iterations.
+- A range whose end comes before its start runs zero times. There is no step or reverse range; count down with `while`, or compute `n - 1 - i`.
+- `_` is a normal name, so `for _ in 0..2` works when you don't need the number.
+
+### Over a list
+
+```vex title="forlist.vx"
+fn main() {
+    let fruits = ["apple", "pear", "fig"]
+    for fruit in fruits {
+        print("{fruit} ")
+    }
+    println()
+    for i, fruit in fruits {
+        println("{i}: {fruit}")
+    }
+}
+```
+
+```text title="Output"
+apple pear fig 
+0: apple
+1: pear
+2: fig
+```
+
+With two names, the first is the index, counting from 0. A loop over a list visits the items it had when the loop started: items pushed inside the loop aren't visited, and the loop ends early if items are removed:
+
+```vex title="forchange.vx"
+fn main() {
+    var xs = [1, 2, 3]
+    for x in xs {
+        if x == 1 { xs.push(9) }
+        print("{x} ")
+    }
+    println(xs)
+
+    var ys = [1, 2, 3, 4]
+    for y in ys {
+        if y == 1 { ys.pop() }
+        print("{y} ")
+    }
+    println(ys)
+}
+```
+
+```text title="Output"
+1 2 3 [1, 2, 3, 9]
+1 2 3 [1, 2, 3]
+```
+
+To change elements in place, loop over the indexes: `for i in 0..xs.len { xs[i] *= 2 }`.
+
+### Over a map
+
+With two names you get each key and value; with one, each key. Entries come in the order their keys were first added.
+
+```vex title="formap.vx"
+fn main() {
+    let ages = ["ann": 31, "bob": 25]
+    for name, age in ages {
+        println("{name} is {age}")
+    }
+    for name in ages {
+        print("{name} ")
+    }
+    println()
+}
+```
+
+```text title="Output"
+ann is 31
+bob is 25
+ann bob 
+```
+
+See [Maps](/docs/language/maps#looping) for what happens when the map changes during the loop.
+
+### Taking elements apart
+
+The loop variable can be a pattern that takes each element apart, such as a [record](/docs/language/records):
+
+```vex title="forpattern.vx"
+fn main() {
+    let scores = [("ann", 3), ("bob", 5)]
+    for (name, score) in scores {
+        println(name, score)
+    }
+    for i, (name, _) in scores {
+        println(i, name)
+    }
+}
+```
+
+```text title="Output"
+ann 3
+bob 5
+0 ann
+1 bob
+```
+
+The pattern must match every element; see [Patterns](/docs/language/patterns).
+
+### Loop variables
+
+- Loop variables can't be assigned: `can't change loop variable 'i'`.
+- Each iteration has its own loop variable, so a [closure](/docs/language/closures) created in the loop keeps the value from its own iteration.
+- A range has no separate index: `for i, x in 0..3` gives `a range has no separate index`.
+- A string isn't a sequence: `for c in "abc"` gives `can't loop over a value of type string`. Loop over `"abc".chars()`.
+
+## while loops
+
+`while` repeats its body as long as the condition is `true`. It checks the condition before each iteration, so the body may not run at all.
+
+```vex title="while.vx"
+fn main() {
+    var stack = [1, 2, 3]
+    while stack.len > 0 {
+        let top = stack.pop()
+        print("{top} ")
+    }
+    println()
+
+    var n = 27
+    var steps = 0
+    while n != 1 {
+        if n % 2 == 0 {
+            n = n / 2
+        } else {
+            n = 3 * n + 1
+        }
+        steps += 1
+    }
+    println(steps)
+}
+```
+
+```text title="Output"
+3 2 1 
+111
+```
+
+There is no `loop`, `do ... while` or `repeat ... until`. For a loop that runs until something inside it says stop, write `while true` with a `break`.
+
+### while let
+
+`while let` keeps looping as long as an optional expression gives a value, binding it each time. It stops at the first `nil`:
+
+```vex title="whilelet.vx"
+fn next(queue: [string]) -> string? {
+    if queue.len == 0 { return nil }
+    return queue.pop()
+}
+
+fn main() {
+    let queue = ["c", "b", "a"]
+    while let job = next(queue) {
+        print("{job} ")
+    }
+    println()
+}
+```
+
+```text title="Output"
+a b c 
+```
+
+`while var` isn't supported (`'while var' isn't supported`); copy the value into a `var` inside the body.
+
+## break and continue
+
+`break` leaves the innermost loop. `continue` skips the rest of the current iteration and goes on with the next one.
+
+```vex title="break.vx"
+fn main() {
+    var i = 0
+    while true {
+        i += 1
+        if i % 2 == 0 { continue }
+        if i > 7 { break }
+        print("{i} ")
+    }
+    println()
+}
+```
+
+```text title="Output"
+1 3 5 7 
+```
+
+- Both work in `for` and `while` loops, including from inside a `match` arm or an `if` in the loop.
+- Outside a loop, they are errors: `break can only be used inside a loop`. That includes a closure inside a loop, since the closure may run later, outside it.
+- There are no loop labels. To leave several loops at once, put them in a function and `return`, or use a flag:
+
+```vex title="nested.vx"
+fn firstPair(target: int) -> (int, int)? {
+    for a in 1..10 {
+        for b in 1..10 {
+            if a * b == target { return (a, b) }
+        }
+    }
+    return nil
+}
+
+fn main() {
+    println(firstPair(12), firstPair(97))
+}
+```
+
+```text title="Output"
+(2, 6) nil
+```
+
+## guard let
+
+`guard let` unwraps an optional and keeps the name for the rest of the function. Its `else` block runs when the value is `nil`, and must leave: with `return`, `break`, `continue`, `throw` or `panic(...)`.
+
+```vex title="guard.vx"
+fn find(xs: [string], target: string) -> int? {
+    for i, x in xs {
+        if x == target { return i }
+    }
+    return nil
+}
+
+fn describe(xs: [string], target: string) -> string {
+    guard let i = find(xs, target) else {
+        return "{target}: missing"
+    }
+    return "{target}: at {i}"
+}
+
+fn main() {
+    let names = ["ann", "bob"]
+    println(describe(names, "bob"))
+    println(describe(names, "cat"))
+}
+```
+
+```text title="Output"
+bob: at 1
+cat: missing
+```
+
+`guard` keeps the main path of a function unindented: each check handles its failure and leaves, and the code after it can rely on the value. An `else` block that can fall through is an error:
+
+```vex title="guardleave.vx"
+fn main() {
+    let v: int? = nil
+    guard let x = v else {
+        println("no value")
+    }
+}
+```
+
+```text title="Output"
+error: the else block of guard must leave, so 'x' always has a value after it
+ --> guardleave.vx:3:26
+  |
+3 |     guard let x = v else {
+  |                          ^ end it with return, break, continue or panic(...)
+```
+
+Only `guard let` exists. A plain `guard condition else { ... }` gives `expected 'let' after 'guard'`; write `if !condition { return }`.
+
+## match
+
+`match` compares a value against patterns and runs the first arm that fits. It works on enums, numbers, strings, booleans, records, structs and lists, and can be a statement or produce a value:
+
+```vex title="match.vx"
+fn describe(code: int) -> string => match code {
+    200 => "ok"
+    301 || 302 => "redirect"
+    400..500 => "client error"
+    _ => "other {code}"
+}
+
+fn main() {
+    for code in [200, 302, 404, 500] {
+        println(code, describe(code))
+    }
+}
+```
+
+```text title="Output"
+200 ok
+302 redirect
+404 client error
+500 other 500
+```
+
+A `match` must handle every possible value, so a `match` on an `int` or `string` needs a final `_` arm. Arms of a statement `match` can be blocks or single statements such as `return`, `break`, `continue` or `count += 1`. The full story is on the [Enums](/docs/language/enums) and [Patterns](/docs/language/patterns) pages.
+
+## return
+
+`return value` leaves a function with a result; a bare `return` leaves a function that returns nothing. A function with a result type must return on every path, or the compiler reports `missing return: sign must return int`. A function body that's a single `=> expression` returns that expression. See [Functions](/docs/language/functions).
+
+Since a line break ends a statement, the returned value must start on the same line as `return`.
+
+## Rules and edge cases
+
+- Bodies of `if`, `else`, `for`, `while` and `guard` always need braces, with `{` on the same line.
+- Conditions must be `bool`, including in `while`: `while condition must be bool, found int`.
+- There's no `switch`, `loop`, `do ... while`, labeled loop or C-style `for (i = 0; i < n; i++)`.
+- `if` and `for` can also appear inside list and map literals, where they produce elements: `[for x in xs if x > 0 x]`. See [Lists](/docs/language/lists#collection-if-for-and-spread).
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Go |
+|---|---|---|---|---|
+| Parentheses around conditions | no (warned) | no | yes | no |
+| Braces required | yes | yes | no | yes |
+| `if` as an expression | no, use `match` | yes | yes | no |
+| Counting loop | `for i in 0..n` | `for i in 0..<n` | `for (i in 0 until n)` | `for i := 0; i < n; i++` |
+| Inclusive range | `1..=5` | `1...5` | `1..5` | none |
+| Loop labels | no | yes | yes | yes |
+| Unwrap or leave | `guard let` | `guard let` | `?: return` | none |
+
+## See also
+
+- [Operators](/docs/language/operators)
+- [Patterns](/docs/language/patterns)
+- [Optionals](/docs/language/optionals)
+- [Lists](/docs/language/lists)
+- [Functions](/docs/language/functions)
