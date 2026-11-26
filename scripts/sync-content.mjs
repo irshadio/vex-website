@@ -1,7 +1,9 @@
 // Generates the examples and roadmap content from the language repository.
-// Run with `npm run sync`.
+// The rest of the docs are written by hand and checked against the compiler. Run with `npm run sync`.
 // VEX_LANG_DIR points at a checkout of vex-lang (default: ../VEX).
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -40,8 +42,54 @@ function leadComment(src) {
   return sentence[0].toUpperCase() + sentence.slice(1);
 }
 
+/**
+ * Runs an example that reads input, typing each line of [input] once the program waits for it, and returns the
+ * session as it would look in a terminal: output and typed lines in order. Fails unless the output matches [expected].
+ */
+async function recordSession(name, input, expected) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vex-example-'));
+  const exe = path.join(dir, name);
+  execFileSync(path.join(lang, 'bin', 'vex'), ['build', path.join(lang, 'examples', `${name}.vx`), '-o', exe]);
+  const lines = input.replace(/\n$/, '').split('\n');
+  const session = await new Promise((resolve, reject) => {
+    const events = [];
+    const child = spawn(exe, [], { stdio: ['pipe', 'pipe', 'inherit'] });
+    let timer;
+    // A line is typed once the program has printed something and then gone quiet, so it is waiting at a
+    // prompt; a prompt that prints nothing gets the line after a longer wait.
+    const settle = (ms = 150) => {
+      clearTimeout(timer);
+      timer = setTimeout(type, ms);
+    };
+    const type = () => {
+      if (!lines.length) return;
+      const line = lines.shift();
+      events.push({ in: line });
+      child.stdin.write(line + '\n');
+      if (!lines.length) child.stdin.end();
+      settle(1500);
+    };
+    child.stdout.on('data', (d) => {
+      const last = events.at(-1);
+      if (last && 'out' in last) last.out += d;
+      else events.push({ out: String(d) });
+      settle();
+    });
+    child.on('error', reject);
+    child.on('close', () => {
+      clearTimeout(timer);
+      resolve(events);
+    });
+    settle(1500);
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+  const printed = session.filter((e) => 'out' in e).map((e) => e.out).join('');
+  if (printed !== expected) throw new Error(`examples/${name}.vx printed something other than examples/${name}.out`);
+  return session;
+}
+
 // Example programs with their expected output.
-function syncExamples() {
+async function syncExamples() {
   const readme = read('README.md');
   const notes = Object.fromEntries([...readme.matchAll(/^\| \[([a-z]+)\.vx\]\(examples\/[a-z]+\.vx\) \| (.+?) \|$/gm)].map((m) => [m[1], m[2]]));
   const dir = path.join(docs, 'examples');
@@ -52,6 +100,7 @@ function syncExamples() {
     .map((f) => f.slice(0, -3))
     .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
   const titles = {};
+  const playground = [];
   for (const name of names) {
     const src = read(`examples/${name}.vx`).replace(/^\/\/ Run:.*\n\n?/, '');
     const out = fs.existsSync(path.join(lang, `examples/${name}.out`)) ? read(`examples/${name}.out`) : '';
@@ -61,9 +110,10 @@ function syncExamples() {
     titles[name] = title;
     const note = notes[name] ? adapt(notes[name]).replace(/\|/g, '') : '';
     let body = note ? `${note}.\n\n` : '';
-    body += `\`\`\`vex title="${name}.vx"\n${src.trimEnd()}\n\`\`\`\n\nRun it with:\n\n\`\`\`sh\nvex run ${name}.vx\n\`\`\`\n`;
+    body += `[Open in the playground](/playground?example=${name})\n\n\`\`\`vex title="${name}.vx"\n${src.trimEnd()}\n\`\`\`\n\nRun it with:\n\n\`\`\`sh\nvex run ${name}.vx\n\`\`\`\n`;
     if (input) body += `\nInput:\n\n\`\`\`text\n${input.trimEnd()}\n\`\`\`\n`;
     if (out) body += `\nOutput:\n\n\`\`\`text\n${out.trimEnd()}\n\`\`\`\n`;
+    playground.push({ id: name, title, note: notes[name] ?? '', code: src.trimEnd() + '\n', session: input ? await recordSession(name, input, out) : [{ out }] });
     write(path.join(dir, `${name}.md`), `---\ntitle: ${yaml(title)}\ndescription: ${yaml(note ? note.replace(/`/g, '') + '.' : `The ${name} example program.`)}\n---\n\n${body}`);
   }
   write(
@@ -73,6 +123,7 @@ function syncExamples() {
       .join('\n')}\n`,
   );
   write(path.join(dir, 'meta.json'), JSON.stringify({ title: 'Examples', pages: ['index', ...names] }, null, 2) + '\n');
+  write(path.join(root, 'lib', 'generated', 'playground.json'), JSON.stringify(playground, null, 2) + '\n');
   return names.length;
 }
 
@@ -121,6 +172,6 @@ function syncRoadmap() {
   return language.length;
 }
 
-const e = syncExamples();
+const e = await syncExamples();
 const p = syncRoadmap();
 console.log(`Synced ${e} examples and ${p} roadmap phases from ${lang}`);

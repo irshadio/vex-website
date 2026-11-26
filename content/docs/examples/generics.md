@@ -5,6 +5,8 @@ description: "Generic functions and structs."
 
 Generic functions and structs.
 
+[Open in the playground](/playground?example=generics)
+
 ```vex title="generics.vx"
 // Generic functions and structs. Each use with new types compiles to its
 // own specialised copy, so generic code runs as fast as hand-written code.

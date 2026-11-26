@@ -5,6 +5,8 @@ description: "throws, throw, try, catch, try? and typed errors."
 
 `throws`, `throw`, `try`, `catch`, `try?` and typed errors.
 
+[Open in the playground](/playground?example=errors)
+
 ```vex title="errors.vx"
 enum LoadError {
     notFound(path: string)

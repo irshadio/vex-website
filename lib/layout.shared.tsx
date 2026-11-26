@@ -29,6 +29,7 @@ export function homeOptions(): BaseLayoutProps {
         ],
       },
       { text: 'Docs', url: '/docs', active: 'nested-url' },
+      { text: 'Playground', url: '/playground' },
       { text: 'Examples', url: '/docs/examples', active: 'nested-url' },
       { text: 'Benchmarks', url: '/benchmarks' },
       { text: 'Roadmap', url: '/roadmap' },

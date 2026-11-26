@@ -5,6 +5,8 @@ description: "if/else if, ranges."
 
 `if`/`else if`, ranges.
 
+[Open in the playground](/playground?example=fizzbuzz)
+
 ```vex title="fizzbuzz.vx"
 fn fizzbuzz(n: int) -> string {
     if n % 15 == 0 {

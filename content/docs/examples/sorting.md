@@ -5,6 +5,8 @@ description: "Bubble sort and insertion sort, in place."
 
 Bubble sort and insertion sort, in place.
 
+[Open in the playground](/playground?example=sorting)
+
 ```vex title="sorting.vx"
 /// Sorts [xs] in place by repeatedly swapping neighbours that are out of order.
 fn bubbleSort(xs: [int]) {

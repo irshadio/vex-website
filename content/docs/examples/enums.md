@@ -5,6 +5,8 @@ description: "Enums with values, methods, match and .case shorthand."
 
 Enums with values, methods, `match` and `.case` shorthand.
 
+[Open in the playground](/playground?example=enums)
+
 ```vex title="enums.vx"
 /// A shape on a canvas.
 enum Shape {

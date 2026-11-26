@@ -1,0 +1,186 @@
+[
+  {
+    "id": "hello",
+    "title": "Hello",
+    "note": "The smallest program",
+    "code": "fn main() {\n    println(\"Hello, world!\")\n}\n",
+    "session": [
+      {
+        "out": "Hello, world!\n"
+      }
+    ]
+  },
+  {
+    "id": "fizzbuzz",
+    "title": "Fizzbuzz",
+    "note": "`if`/`else if`, ranges",
+    "code": "fn fizzbuzz(n: int) -> string {\n    if n % 15 == 0 {\n        return \"FizzBuzz\"\n    } else if n % 3 == 0 {\n        return \"Fizz\"\n    } else if n % 5 == 0 {\n        return \"Buzz\"\n    }\n    return str(n)\n}\n\nfn main() {\n    for i in 1..=20 {\n        println(fizzbuzz(i))\n    }\n}\n",
+    "session": [
+      {
+        "out": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\n"
+      }
+    ]
+  },
+  {
+    "id": "fibonacci",
+    "title": "Fibonacci",
+    "note": "Recursion and building a list",
+    "code": "/// Returns the nth Fibonacci number, recursively.\nfn fib(n: int) -> int {\n    if n < 2 {\n        return n\n    }\n    return fib(n - 1) + fib(n - 2)\n}\n\n/// Returns the first [count] Fibonacci numbers, with a loop.\nfn sequence(count: int) -> [int] {\n    var result: [int] = []\n    var a = 0\n    var b = 1\n    for i in 0..count {\n        result.push(a)\n        let next = a + b\n        a = b\n        b = next\n    }\n    return result\n}\n\nfn main() {\n    println(\"First 15: {sequence(15)}\")\n    println(\"fib(30) = {fib(30)}\")\n}\n",
+    "session": [
+      {
+        "out": "First 15: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377]\nfib(30) = 832040\n"
+      }
+    ]
+  },
+  {
+    "id": "structs",
+    "title": "Structs",
+    "note": "Fields with defaults, methods, `static fn`, shared references",
+    "code": "/// A bank account with a running history.\nstruct Account {\n    owner: string\n    balance: float = 0.0\n    history: [string] = []\n\n    fn deposit(amount: float) {\n        balance += amount\n        history.push(\"+{amount}\")\n    }\n\n    fn withdraw(amount: float) -> bool {\n        if amount > balance {\n            history.push(\"declined {amount}\")\n            return false\n        }\n        balance -= amount\n        history.push(\"-{amount}\")\n        return true\n    }\n\n    fn summary() -> string => \"{owner}: {balance}\"\n\n    static fn opening(owner: string) -> Account {\n        let account = Account(owner: owner)\n        account.deposit(10.0)\n        return account\n    }\n}\n\nfn main() {\n    let ann = Account.opening(\"Ann\")\n    ann.deposit(50.5)\n    ann.withdraw(20)\n    if !ann.withdraw(500) {\n        println(\"Not enough money for that\")\n    }\n    println(ann.summary())\n    println(\"History: {ann.history}\")\n\n    // Structs are shared: both names refer to the same account.\n    let same = ann\n    same.deposit(1)\n    println(ann.summary())\n    println(ann)\n}\n",
+    "session": [
+      {
+        "out": "Not enough money for that\nAnn: 40.5\nHistory: [\"+10.0\", \"+50.5\", \"-20.0\", \"declined 500.0\"]\nAnn: 41.5\nAccount(owner: \"Ann\", balance: 41.5, history: [\"+10.0\", \"+50.5\", \"-20.0\", \"declined 500.0\", \"+1.0\"])\n"
+      }
+    ]
+  },
+  {
+    "id": "enums",
+    "title": "Enums",
+    "note": "Enums with values, methods, `match` and `.case` shorthand",
+    "code": "/// A shape on a canvas.\nenum Shape {\n    circle(radius: float)\n    rect(width: float, height: float)\n    empty\n\n    fn area() -> float => match self {\n        circle(r) => 3.14 * r * r\n        rect(w, h) => w * h\n        empty => 0.0\n    }\n\n    fn name() -> string => match self {\n        circle(_) => \"circle\"\n        rect(_, _) => \"rect\"\n        empty => \"nothing\"\n    }\n\n    static fn square(side: float) -> Shape => .rect(width: side, height: side)\n}\n\n/// The colour of a traffic light.\nenum Light {\n    red, yellow, green\n\n    fn next() -> Light => match self {\n        red => .green\n        green => .yellow\n        yellow => .red\n    }\n}\n\n/// The outcome of reading a number.\nenum Parsed {\n    number(value: int)\n    failed(reason: string)\n}\n\nfn parse(text: string) -> Parsed {\n    if text == \"\" {\n        return .failed(reason: \"the text is empty\")\n    }\n    if text.contains(\" \") {\n        return .failed(reason: \"the text has spaces\")\n    }\n    return .number(value: int(text))\n}\n\nfn main() {\n    let shapes = [Shape.circle(radius: 1), .rect(width: 2, height: 3), Shape.square(2), .empty]\n    var total = 0.0\n    for s in shapes {\n        println(\"{s.name()}: {s.area()}\")\n        total += s.area()\n    }\n    println(\"total area: {total}\")\n    println(shapes[1])\n\n    var light = Light.red\n    for i in 0..4 {\n        print(light, \"\")\n        light = light.next()\n    }\n    println()\n    println(\"after 4 changes:\", light, light == .green)\n\n    for text in [\"42\", \"\", \"4 2\"] {\n        match parse(text) {\n            number(n) => println(\"{text} -> {n * 2}\")\n            failed(why) => println(\"{text} -> error: {why}\")\n        }\n    }\n\n    for code in [200, 404, 500] {\n        let message = match code {\n            200 => \"ok\"\n            404 => \"not found\"\n            _ => \"error {code}\"\n        }\n        println(code, message)\n    }\n}\n",
+    "session": [
+      {
+        "out": "circle: 3.14\nrect: 6.0\nrect: 4.0\nnothing: 0.0\ntotal area: 13.14\nShape.rect(width: 2.0, height: 3.0)\nLight.red Light.green Light.yellow Light.red \nafter 4 changes: Light.green true\n42 -> 84\n -> error: the text is empty\n4 2 -> error: the text has spaces\n200 ok\n404 not found\n500 error 500\n"
+      }
+    ]
+  },
+  {
+    "id": "optionals",
+    "title": "Optionals",
+    "note": "`T?`, `nil`, `if let`, `guard let`, `?.` and `??`",
+    "code": "/// A person in a small company.\nstruct Person {\n    name: string\n    manager: Person? = nil\n    email: string? = nil\n\n    fn contact() -> string => email ?? \"no email\"\n}\n\n/// Returns the person called [name], or nil.\nfn find(people: [Person], name: string) -> Person? {\n    for p in people {\n        if p.name == name {\n            return p\n        }\n    }\n    return nil\n}\n\n/// Returns the number in [text], or nil when it isn't one.\nfn parseAge(text: string) -> int? {\n    if text == \"\" || text.contains(\" \") {\n        return nil\n    }\n    return int(text)\n}\n\nfn introduce(people: [Person], name: string) {\n    guard let p = find(people, name) else {\n        println(\"{name}: not found\")\n        return\n    }\n    let boss = p.manager?.name ?? \"nobody\"\n    println(\"{p.name} reports to {boss}, {p.contact()}\")\n}\n\nfn main() {\n    let ceo = Person(name: \"Maya\", email: \"maya@example.com\")\n    let lead = Person(name: \"Omar\", manager: ceo)\n    let dev = Person(name: \"Lena\", manager: lead, email: \"lena@example.com\")\n    let people = [ceo, lead, dev]\n\n    for name in [\"Lena\", \"Omar\", \"Maya\", \"Zed\"] {\n        introduce(people, name)\n    }\n\n    // Chains stop at the first nil.\n    println(dev.manager?.manager?.name, ceo.manager?.manager?.name)\n\n    if let boss = find(people, \"Lena\")?.manager {\n        println(\"Lena's manager is {boss.name}\")\n    }\n\n    var total = 0\n    for text in [\"31\", \"\", \"4 2\", \"27\"] {\n        let age = parseAge(text)\n        println(\"'{text}' ->\", age)\n        total += age ?? 0\n    }\n    println(\"total:\", total)\n\n    var selected: Person? = nil\n    println(selected == nil)\n    selected = dev\n    println(selected?.name ?? \"none\")\n}\n",
+    "session": [
+      {
+        "out": "Lena reports to Omar, lena@example.com\nOmar reports to Maya, no email\nMaya reports to nobody, maya@example.com\nZed: not found\nMaya nil\nLena's manager is Omar\n'31' -> 31\n'' -> nil\n'4 2' -> nil\n'27' -> 27\ntotal: 58\ntrue\nLena\n"
+      }
+    ]
+  },
+  {
+    "id": "errors",
+    "title": "Errors",
+    "note": "`throws`, `throw`, `try`, `catch`, `try?` and typed errors",
+    "code": "enum LoadError {\n    notFound(path: string)\n    denied\n}\n\nfn parsePort(s: string) throws -> int {\n    if s == \"\" {\n        throw Error(\"empty port\")\n    }\n    let n = int(s)\n    if n < 1 || n > 65535 {\n        throw Error(\"port {n} out of range\")\n    }\n    return n\n}\n\nfn open(path: string) throws(LoadError) -> string {\n    if path == \"secret\" {\n        throw .denied\n    }\n    if path != \"app.cfg\" {\n        throw .notFound(path: path)\n    }\n    return \"8080\"\n}\n\nfn load(path: string) throws -> int {\n    let text = try open(path)\n    return try parsePort(text)\n}\n\nstruct Server {\n    port: int\n\n    fn start() throws {\n        if port == 0 {\n            throw Error(\"no port\")\n        }\n        println(\"listening on {port}\")\n    }\n}\n\nfn twice(f: fn(int) throws -> int, x: int) throws -> int => try f(try f(x))\n\nfn main() throws {\n    println(try load(\"app.cfg\"))\n    let a = try load(\"x.cfg\") catch e {\n        println(\"failed: {e.message}\")\n        0\n    }\n    println(a)\n    let b = try open(\"secret\") catch e {\n        match e {\n            notFound(p) => \"missing {p}\"\n            denied => \"denied\"\n        }\n    }\n    println(b)\n    let c = try? parsePort(\"70000\") ?? 1\n    let d = try? parsePort(\"22\")\n    println(c, d)\n    for s in [\"1\", \"\", \"3\"] {\n        let n = try parsePort(s) catch {\n            continue\n        }\n        print(n, \"\")\n    }\n    println()\n    try Server(port: 9).start()\n    try Server(port: 0).start() catch e {\n        println(\"server: {e.message}\")\n    }\n    let half = fn(x: int) throws -> int {\n        if x % 2 == 1 {\n            throw Error(\"odd {x}\")\n        }\n        return x / 2\n    }\n    println(try twice(half, 12))\n    println(try twice(half, 6) catch e { println(e.message); -1 })\n    println(try twice(fn(x) => x + 1, 1))\n}\n",
+    "session": [
+      {
+        "out": "8080\nfailed: LoadError.notFound(path: \"x.cfg\")\n0\ndenied\n1 22\n1 3 \nlistening on 9\nserver: no port\n3\nodd 3\n-1\n3\n"
+      }
+    ]
+  },
+  {
+    "id": "closures",
+    "title": "Closures",
+    "note": "Closures, trailing blocks, functions returning functions, `filter` and `map`",
+    "code": "/// A button that runs [onTap] when tapped.\nstruct Button {\n    title: string\n    onTap: fn()\n\n    fn tap() {\n        println(\"[{title}] tapped\")\n        onTap()\n    }\n}\n\n/// Runs [action] [times] times.\nfn repeat(times: int, action: fn()) {\n    for i in 0..times {\n        action()\n    }\n}\n\n/// Returns a function that adds [n] to its argument.\nfn adder(n: int) -> fn(int) -> int => fn(x) => x + n\n\n/// Returns a counter: each call returns the next number.\nfn makeCounter() -> fn() -> int {\n    var count = 0\n    return fn() -> int {\n        count += 1\n        return count\n    }\n}\n\nfn main() {\n    // Closures stored in variables.\n    let double = fn(x: int) -> int => x * 2\n    let greet = fn(name: string) {\n        println(\"Hello, {name}!\")\n    }\n    greet(\"Vex\")\n    println(\"double(21) = {double(21)}\")\n\n    // Closures that capture variables share them with the code around them.\n    var taps = 0\n    let add = Button(title: \"Add\") { taps += 1 }\n    add.tap()\n    add.tap()\n    repeat(3) { taps += 10 }\n    println(\"taps = {taps}\")\n\n    // Functions that return functions.\n    let addFive = adder(5)\n    println(\"addFive(10) = {addFive(10)}\")\n    let next = makeCounter()\n    println(\"counter: {next()} {next()} {next()}\")\n\n    // filter and map take closures.\n    let scores = [42, 7, 19, 88, 3, 56]\n    let passed = scores.filter(fn(s) => s >= 40)\n    let labels = passed.map(fn(s) => \"{s} pts\")\n    println(\"passed: {passed}\")\n    println(\"labels: {labels}\")\n}\n",
+    "session": [
+      {
+        "out": "Hello, Vex!\ndouble(21) = 42\n[Add] tapped\n[Add] tapped\ntaps = 32\naddFive(10) = 15\ncounter: 1 2 3\npassed: [42, 88, 56]\nlabels: [\"42 pts\", \"88 pts\", \"56 pts\"]\n"
+      }
+    ]
+  },
+  {
+    "id": "maps",
+    "title": "Maps",
+    "note": "Counts words, groups them by length and keeps a small inventory",
+    "code": "// Counts words, groups them by length and keeps a small inventory.\n\nenum Size { small, large }\n\nfn wordCounts(text: string) -> [string: int] {\n    var counts: [string: int] = [:]\n    for word in text.lower().split(\" \") {\n        if word != \"\" {\n            counts[word] = (counts[word] ?? 0) + 1\n        }\n    }\n    return counts\n}\n\nfn main() {\n    let counts = wordCounts(\"the cat and the hat and the bat\")\n    println(counts)\n    println(\"the: {counts[\"the\"] ?? 0}, dog: {counts[\"dog\"] ?? 0}\")\n\n    var byLength: [int: [string]] = [:]\n    for word, n in counts {\n        var group = byLength[word.len] ?? []\n        group.push(word)\n        byLength[word.len] = group\n    }\n    for length, words in byLength {\n        println(\"{length} letters: {words}\")\n    }\n\n    var stock = [\"apples\": 5, \"pears\": 0, \"plums\": 12]\n    stock[\"figs\"] = 3\n    if let gone = stock.remove(\"pears\") {\n        println(\"removed pears ({gone} left)\")\n    }\n    var total = 0\n    for item, n in stock {\n        total += n\n    }\n    println(stock.keys, total)\n\n    let sizes: [Size: string] = [.small: \"S\", .large: \"L\"]\n    println(sizes[.large] ?? \"?\", sizes.contains(.small))\n}\n",
+    "session": [
+      {
+        "out": "[\"the\": 3, \"cat\": 1, \"and\": 2, \"hat\": 1, \"bat\": 1]\nthe: 3, dog: 0\n3 letters: [\"the\", \"cat\", \"and\", \"hat\", \"bat\"]\nremoved pears (0 left)\n[\"apples\", \"plums\", \"figs\"] 20\nL true\n"
+      }
+    ]
+  },
+  {
+    "id": "generics",
+    "title": "Generics",
+    "note": "Generic functions and structs",
+    "code": "// Generic functions and structs. Each use with new types compiles to its\n// own specialised copy, so generic code runs as fast as hand-written code.\n\nstruct Stack<T> {\n    items: [T] = []\n\n    fn push(item: T) {\n        items.push(item)\n    }\n\n    fn pop() -> T? {\n        if items.len == 0 {\n            return nil\n        }\n        return items.pop()\n    }\n\n    fn peek() -> T? {\n        if items.len == 0 {\n            return nil\n        }\n        return items[items.len - 1]\n    }\n}\n\nstruct Pair<A, B> {\n    first: A\n    second: B\n}\n\nfn largest<T: Comparable>(xs: [T]) -> T? {\n    if xs.len == 0 {\n        return nil\n    }\n    var best = xs[0]\n    for x in xs {\n        if x > best {\n            best = x\n        }\n    }\n    return best\n}\n\nfn frequencies<T: Hashable>(xs: [T]) -> [T: int] {\n    var counts: [T: int] = [:]\n    for x in xs {\n        counts[x] = (counts[x] ?? 0) + 1\n    }\n    return counts\n}\n\nfn zip<A, B>(xs: [A], ys: [B]) -> [Pair<A, B>] {\n    var out: [Pair<A, B>] = []\n    var i = 0\n    while i < xs.len && i < ys.len {\n        out.push(Pair(first: xs[i], second: ys[i]))\n        i += 1\n    }\n    return out\n}\n\nfn main() {\n    let history = Stack<string>()\n    history.push(\"home\")\n    history.push(\"settings\")\n    println(history.peek() ?? \"-\", history.items)\n    println(history.pop(), history.pop(), history.pop())\n\n    let numbers = Stack<int>()\n    for n in 1..=3 {\n        numbers.push(n * 10)\n    }\n    println(numbers.items)\n\n    println(largest([4, 17, 9]), largest([\"kiwi\", \"apple\"]), largest<float>([]))\n    println(frequencies([\"a\", \"b\", \"a\", \"c\", \"a\"]))\n\n    let pairs = zip([\"ann\", \"bob\", \"cat\"], [31, 25])\n    for p in pairs {\n        println(\"{p.first} is {p.second}\")\n    }\n    println(pairs[0])\n}\n",
+    "session": [
+      {
+        "out": "settings [\"home\", \"settings\"]\nsettings home nil\n[10, 20, 30]\n17 kiwi nil\n[\"a\": 3, \"b\": 1, \"c\": 1]\nann is 31\nbob is 25\nPair<string, int>(first: \"ann\", second: 31)\n"
+      }
+    ]
+  },
+  {
+    "id": "interfaces",
+    "title": "Interfaces",
+    "note": "Structs promise methods, and code works with any struct that keeps the promise",
+    "code": "// Interfaces: structs promise methods, and code works with any struct that\n// keeps the promise.\n\ninterface Shape {\n    fn area() -> float\n    fn name() -> string => \"shape\"\n\n    // Defaults can call the other methods, which use each struct's own.\n    fn summary() -> string => \"{name()}: {area()}\"\n}\n\ninterface Resizable {\n    fn resize(by: float)\n}\n\nstruct Circle: Shape, Resizable {\n    radius: float\n\n    fn area() -> float => 3.14 * radius * radius\n    fn name() -> string => \"circle\"\n    fn resize(by: float) {\n        radius = radius * by\n    }\n}\n\nstruct Rect: Shape, Resizable {\n    width: float\n    height: float\n\n    fn area() -> float => width * height\n    fn resize(by: float) {\n        width = width * by\n        height = height * by\n    }\n}\n\nfn totalArea(shapes: [Shape]) -> float {\n    var total = 0.0\n    for s in shapes {\n        total += s.area()\n    }\n    return total\n}\n\n// A generic constrained by an interface is compiled for each type, so the\n// calls inside go straight to that type's methods.\nfn largest<T: Shape>(items: [T]) -> T? {\n    if items.len == 0 {\n        return nil\n    }\n    var best = items[0]\n    for item in items {\n        if item.area() > best.area() {\n            best = item\n        }\n    }\n    return best\n}\n\nfn main() {\n    let c = Circle(radius: 1.0)\n    let r = Rect(width: 2.0, height: 3.0)\n    let shapes: [Shape] = [c, r]\n    for s in shapes {\n        println(s.summary())\n    }\n    println(\"total:\", totalArea(shapes))\n\n    let resizable: [Resizable] = [c, r]\n    for x in resizable {\n        x.resize(by: 2.0)\n    }\n    println(shapes)\n\n    println(largest([Rect(width: 1.0, height: 1.0), Rect(width: 5.0, height: 2.0)]))\n    if let big = largest(shapes) {\n        println(\"largest:\", big.name())\n    }\n}\n",
+    "session": [
+      {
+        "out": "circle: 3.14\nshape: 6.0\ntotal: 9.14\n[Circle(radius: 2.0), Rect(width: 4.0, height: 6.0)]\nRect(width: 5.0, height: 2.0)\nlargest: shape\n"
+      }
+    ]
+  },
+  {
+    "id": "primes",
+    "title": "Primes",
+    "note": "Sieve of Eratosthenes over a million numbers",
+    "code": "/// Returns the primes below [limit] with the Sieve of Eratosthenes.\nfn primes(limit: int) -> [int] {\n    var isPrime: [bool] = []\n    for i in 0..limit {\n        isPrime.push(i >= 2)\n    }\n    var found: [int] = []\n    for n in 2..limit {\n        if isPrime[n] {\n            found.push(n)\n            var m = n * n\n            while m < limit {\n                isPrime[m] = false\n                m += n\n            }\n        }\n    }\n    return found\n}\n\nfn main() {\n    let small = primes(50)\n    println(\"Primes below 50: {small}\")\n    println(\"There are {primes(1000000).len} primes below one million\")\n}\n",
+    "session": [
+      {
+        "out": "Primes below 50: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]\nThere are 78498 primes below one million\n"
+      }
+    ]
+  },
+  {
+    "id": "sorting",
+    "title": "Sorting",
+    "note": "Bubble sort and insertion sort, in place",
+    "code": "/// Sorts [xs] in place by repeatedly swapping neighbours that are out of order.\nfn bubbleSort(xs: [int]) {\n    for i in 0..xs.len {\n        var swapped = false\n        for j in 0..xs.len - 1 - i {\n            if xs[j] > xs[j + 1] {\n                let tmp = xs[j]\n                xs[j] = xs[j + 1]\n                xs[j + 1] = tmp\n                swapped = true\n            }\n        }\n        if !swapped {\n            break\n        }\n    }\n}\n\n/// Sorts [words] in place by inserting each word into the sorted part before it.\nfn insertionSort(words: [string]) {\n    for i in 1..words.len {\n        let word = words[i]\n        var j = i - 1\n        while j >= 0 && words[j] > word {\n            words[j + 1] = words[j]\n            j -= 1\n        }\n        words[j + 1] = word\n    }\n}\n\n/// Returns a new sorted list, leaving [xs] unchanged.\nfn sorted(xs: [int]) -> [int] {\n    var copy: [int] = []\n    for x in xs {\n        copy.push(x)\n    }\n    bubbleSort(copy)\n    return copy\n}\n\nfn main() {\n    let numbers = [42, 7, 19, 88, 3, 56, -4, 19]\n    let ordered = sorted(numbers)\n    println(\"Original: {numbers}\")\n    println(\"Sorted:   {ordered}\")\n\n    var words = \"pear,apple,fig,banana,cherry\".split(\",\")\n    insertionSort(words)\n    println(\"Words:    {words}\")\n}\n",
+    "session": [
+      {
+        "out": "Original: [42, 7, 19, 88, 3, 56, -4, 19]\nSorted:   [-4, 3, 7, 19, 19, 42, 56, 88]\nWords:    [\"apple\", \"banana\", \"cherry\", \"fig\", \"pear\"]\n"
+      }
+    ]
+  },
+  {
+    "id": "input",
+    "title": "Input",
+    "note": "Reading from the keyboard with `input()`",
+    "code": "// Reads a name and numbers from the keyboard, until an empty line.\n\nfn main() {\n    let name = input(\"What's your name? \")\n    println(\"Hi, {name}! Enter numbers, one per line. Leave a line empty to finish.\")\n\n    var numbers: [float] = []\n    while true {\n        let line = input(\"> \")\n        if line == \"\" {\n            break\n        }\n        numbers.push(float(line))\n    }\n\n    if numbers.len == 0 {\n        println(\"No numbers entered.\")\n        return\n    }\n    var total = 0.0\n    for n in numbers {\n        total += n\n    }\n    println(\"{name}, you entered {numbers.len} numbers.\")\n    println(\"Sum: {total}, average: {total / float(numbers.len)}\")\n}\n",
+    "session": [
+      {
+        "out": "What's your name? "
+      },
+      {
+        "in": "Ann"
+      },
+      {
+        "out": "Hi, Ann! Enter numbers, one per line. Leave a line empty to finish.\n> "
+      },
+      {
+        "in": "4"
+      },
+      {
+        "out": "> "
+      },
+      {
+        "in": "8.5"
+      },
+      {
+        "out": "> "
+      },
+      {
+        "in": "-2"
+      },
+      {
+        "out": "> "
+      },
+      {
+        "in": ""
+      },
+      {
+        "out": "Ann, you entered 3 numbers.\nSum: 10.5, average: 3.5\n"
+      }
+    ]
+  }
+]

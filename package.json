@@ -9,6 +9,7 @@
     "types:check": "next typegen && tsc --noEmit",
     "lint": "eslint",
     "sync": "node scripts/sync-content.mjs",
+    "playground": "node scripts/build-playground.mjs",
     "bench": "node benchmarks/run.mjs"
   },
   "dependencies": {

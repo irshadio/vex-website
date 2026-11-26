@@ -5,6 +5,8 @@ description: "The smallest program."
 
 The smallest program.
 
+[Open in the playground](/playground?example=hello)
+
 ```vex title="hello.vx"
 fn main() {
     println("Hello, world!")

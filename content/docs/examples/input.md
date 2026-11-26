@@ -5,6 +5,8 @@ description: "Reading from the keyboard with input()."
 
 Reading from the keyboard with `input()`.
 
+[Open in the playground](/playground?example=input)
+
 ```vex title="input.vx"
 // Reads a name and numbers from the keyboard, until an empty line.
 

@@ -5,6 +5,8 @@ description: "T?, nil, if let, guard let, ?. and ??."
 
 `T?`, `nil`, `if let`, `guard let`, `?.` and `??`.
 
+[Open in the playground](/playground?example=optionals)
+
 ```vex title="optionals.vx"
 /// A person in a small company.
 struct Person {

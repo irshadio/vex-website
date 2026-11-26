@@ -5,6 +5,8 @@ description: "Counts words, groups them by length and keeps a small inventory."
 
 Counts words, groups them by length and keeps a small inventory.
 
+[Open in the playground](/playground?example=maps)
+
 ```vex title="maps.vx"
 // Counts words, groups them by length and keeps a small inventory.
 

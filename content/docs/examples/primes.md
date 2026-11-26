@@ -5,6 +5,8 @@ description: "Sieve of Eratosthenes over a million numbers."
 
 Sieve of Eratosthenes over a million numbers.
 
+[Open in the playground](/playground?example=primes)
+
 ```vex title="primes.vx"
 /// Returns the primes below [limit] with the Sieve of Eratosthenes.
 fn primes(limit: int) -> [int] {

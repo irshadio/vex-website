@@ -5,6 +5,8 @@ description: "Structs promise methods, and code works with any struct that keeps
 
 Structs promise methods, and code works with any struct that keeps the promise.
 
+[Open in the playground](/playground?example=interfaces)
+
 ```vex title="interfaces.vx"
 // Interfaces: structs promise methods, and code works with any struct that
 // keeps the promise.

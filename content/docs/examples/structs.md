@@ -5,6 +5,8 @@ description: "Fields with defaults, methods, static fn, shared references."
 
 Fields with defaults, methods, `static fn`, shared references.
 
+[Open in the playground](/playground?example=structs)
+
 ```vex title="structs.vx"
 /// A bank account with a running history.
 struct Account {

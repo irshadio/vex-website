@@ -5,6 +5,8 @@ description: "Recursion and building a list."
 
 Recursion and building a list.
 
+[Open in the playground](/playground?example=fibonacci)
+
 ```vex title="fibonacci.vx"
 /// Returns the nth Fibonacci number, recursively.
 fn fib(n: int) -> int {

@@ -5,6 +5,8 @@ description: "Closures, trailing blocks, functions returning functions, filter a
 
 Closures, trailing blocks, functions returning functions, `filter` and `map`.
 
+[Open in the playground](/playground?example=closures)
+
 ```vex title="closures.vx"
 /// A button that runs [onTap] when tapped.
 struct Button {
