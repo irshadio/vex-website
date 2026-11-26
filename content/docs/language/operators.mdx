@@ -1,6 +1,6 @@
 ---
 title: Operators
-description: Arithmetic, integer overflow and division rules, wrapping operators, comparison, logical operators, assignment, ranges, ?? and ?., and the full precedence table.
+description: Arithmetic, integer overflow and division rules, wrapping operators, bitwise operators, comparison, logical operators, assignment, ranges, ?? and ?., and the full precedence table.
 ---
 
 Vex has a small set of operators, and each one works only on the types it makes sense for. Numbers don't convert silently, integer overflow stops the program instead of producing a wrong number, and comparisons can't be chained by accident. This page lists every operator, its exact behaviour and the order in which operators combine.
@@ -135,6 +135,46 @@ fn main() {
 
 `&+` and `&-` have the same precedence as `+` and `-`, and `&*` the same as `*`.
 
+## Bitwise operators
+
+| Operator | Meaning |
+|---|---|
+| `a & b` | And |
+| `a \| b` | Or |
+| `a ^ b` | Exclusive or |
+| `~a` | Not: flips every bit |
+| `a << n` | Shift left by `n` bits |
+| `a >> n` | Shift right by `n` bits, keeping the sign |
+
+They work only on `int`, for colors, option masks for UIKit and Android, flags, hashing and binary formats:
+
+```vex title="bits.vx"
+const HIDDEN = 1 << 0
+const SELECTED = 1 << 1
+
+fn main() {
+    let argb = 0xFF336699
+    println((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF)
+    var flags = 0
+    flags |= HIDDEN | SELECTED
+    flags &= ~HIDDEN
+    println(flags, flags & SELECTED != 0, flags ^ 0b11)
+    println(1 << 62, 1 << 63, -16 >> 2)
+}
+```
+
+```text title="Output"
+51 102 153
+2 true 1
+4611686018427387904 -9223372036854775808 -4
+```
+
+- As in Swift, `<<` and `>>` bind tightest, `&` binds like `*`, and `|` and `^` like `+`. All of them bind tighter than comparisons, so `flags & SELECTED != 0` means `(flags & SELECTED) != 0`.
+- Bits shifted out of the top are lost, as in Swift and Go, so `1 << 63` is the smallest int. `>>` copies the sign bit in, so `-16 >> 2` is `-4`.
+- A shift by less than 0 or more than 63 stops the program with `shift by 64, outside 0 to 63`. A constant shift out of that range is a compile error: `this constant shifts by 64, outside 0 to 63`.
+- Constants can use them: `const MASK = ~0xF0 & 0xFF` is computed when compiling.
+- A single `&` or `|` between two bools is an error with a hint: `'&' works only on int, found bool`, `use && for logical and`.
+
 ## Comparison
 
 | Operator | Meaning |
@@ -228,7 +268,7 @@ true
 true true
 ```
 
-`&&` binds tighter than `||`, so `true || false && false` is `true || (false && false)`. A single `&` or `|` is an error with a hint to write `&&` or `||`: `unexpected character '|'`, `use || for logical or`.
+`&&` binds tighter than `||`, so `true || false && false` is `true || (false && false)`. `&` and `|` are [bitwise operators](#bitwise-operators) on ints; between two bools they're an error with a hint to write `&&` or `||`.
 
 ## Assignment
 
@@ -240,6 +280,7 @@ true true
 | `a -= b`, `a *= b`, `a /= b` | `a = a - b` and so on | `int`, `float` |
 | `a %= b` | `a = a % b` | `int` |
 | `a &+= b`, `a &-= b`, `a &*= b` | `a = a &+ b` and so on | `int` |
+| `a &= b`, `a \|= b`, `a ^= b`, `a <<= b`, `a >>= b` | `a = a & b` and so on | `int` |
 
 ```vex title="assign.vx"
 fn main() {
@@ -339,14 +380,15 @@ From highest (binds tightest) to lowest:
 | Level | Operators | Grouping |
 |---|---|---|
 | 1 | Postfix: call `f(x)`, index `a[i]`, member `a.b`, optional member `a?.b` | left to right |
-| 2 | Prefix: `-a`, `!a`, `await a`, `try a` | right to left |
-| 3 | `*` `/` `%` `&*` | left to right |
-| 4 | `+` `-` `&+` `&-` | left to right |
-| 5 | `??` | right to left |
-| 6 | `<` `<=` `>` `>=` | don't chain |
-| 7 | `==` `!=` | don't chain |
-| 8 | `&&` | left to right |
-| 9 | `\|\|` | left to right |
+| 2 | Prefix: `-a`, `!a`, `~a`, `await a`, `try a` | right to left |
+| 3 | `<<` `>>` | left to right |
+| 4 | `*` `/` `%` `&*` `&` | left to right |
+| 5 | `+` `-` `&+` `&-` `\|` `^` | left to right |
+| 6 | `??` | right to left |
+| 7 | `<` `<=` `>` `>=` | don't chain |
+| 8 | `==` `!=` | don't chain |
+| 9 | `&&` | left to right |
+| 10 | `\|\|` | left to right |
 
 Assignment (`=`, `+=` and the rest) isn't an expression and so has no precedence: it's always the whole statement.
 
@@ -379,7 +421,6 @@ When an expression mixes levels in a way that isn't obvious, add parentheses. Th
 | `x++`, `x--` | `x += 1`, `x -= 1` |
 | `c ? a : b` | `match c { true => a, false => b }`; the compiler suggests it |
 | `a ** b` | `math.pow(a, b)` for `int`, `math.powf(a, b)` for `float`, from [`vex:math`](/docs/stdlib/math) |
-| `&`, `\|`, `^`, `~`, `<<`, `>>` | No bitwise operators yet. Use `/`, `%` and `*` by powers of two, or a C function through [C interop](/docs/projects/c-interop) |
 | `===` | `==`; structs compare by identity only if you write `operator ==` yourself |
 | `a % b` on floats | not supported |
 | `cond = x` in a condition | `==` |
@@ -388,7 +429,7 @@ When an expression mixes levels in a way that isn't obvious, add parentheses. Th
 
 - Arithmetic operands must have the same type: `can't use '*' with int and float`.
 - `+` on a string and anything else: `can't use '+' with string and int`.
-- `%`, `%=` and the wrapping operators reject floats: `'%' can't be used with float`, `&+= can't be used with float`.
+- `%`, `%=`, the wrapping operators and the bitwise operators reject floats: `'%' can't be used with float`, `&+= can't be used with float`, `'&' works only on int, found float`.
 - `!` needs a `bool`: `'!' needs a bool, found int`.
 - Lists and maps have no operators: `[1] + [2]` gives `'+' can't be used with [int]`.
 - Operands run left to right, including for operators that structs define.
@@ -399,6 +440,8 @@ When an expression mixes levels in a way that isn't obvious, add parentheses. Th
 |---|---|---|---|---|---|
 | Int overflow | stops the program | traps | wraps | wraps | n/a |
 | Wrapping ops | `&+ &- &*` | `&+ &- &*` | default | default | n/a |
+| Bitwise ops | `& \| ^ ~ << >>` | `& \| ^ ~ << >>` | `and or xor inv shl shr` | `& \| ^ &^ << >>` | `& \| ^ ~ << >>` (32-bit) |
+| Shift by 64 or more | stops the program | gives 0, or -1 for `>>` of a negative | uses the low 6 bits | gives 0, or -1 for `>>` of a negative | uses the low 5 bits |
 | `-7 / 2` | `-3` | `-3` | `-3` | `-3` | `-3.5` |
 | `-7 % 3` | `-1` | `-1` | `-1` | `-1` | `-1` |
 | Ternary | `match` | `? :` | `if` expression | none | `? :` |

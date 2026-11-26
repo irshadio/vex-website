@@ -292,6 +292,24 @@ fn main() {
 inf -inf nan
 ```
 
+### Shift out of range
+
+`<<` and `>>` shift by 0 to 63 bits. Any other amount stops the program:
+
+```vex title="shift.vx"
+fn main() {
+    let n = 64
+    println(1 << n)
+}
+```
+
+```text title="Output"
+error: shift by 64, outside 0 to 63
+ --> shift.vx:3
+```
+
+A constant shift out of range is caught by the compiler instead. See [Bitwise operators](/docs/language/operators#bitwise-operators).
+
 ## panic and assert
 
 `panic(message)` stops the program with your message:
