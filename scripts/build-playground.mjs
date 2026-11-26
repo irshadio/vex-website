@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
-const lang = path.resolve(process.env.VEX_LANG_DIR ?? path.join(root, '..', '..', 'VEX'));
+const lang = path.resolve(process.env.VEX_LANG_DIR ?? path.join(root, '..', 'VEX'));
 const out = path.join(root, 'public', 'playground');
 
 const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: 'utf8', ...opts }).trim();

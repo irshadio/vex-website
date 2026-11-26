@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
-const lang = path.resolve(process.env.VEX_LANG_DIR ?? path.join(root, '..', '..', 'VEX'));
+const lang = path.resolve(process.env.VEX_LANG_DIR ?? path.join(root, '..', 'VEX'));
 const src = path.join(root, 'run-service');
 const dist = path.join(src, 'dist');
 const linux = process.argv.includes('--linux');
