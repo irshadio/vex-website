@@ -434,6 +434,66 @@
             "text": "Isolates: `isolate.run` and `isolate.spawn` run code in parallel on threads with their own heaps; `Channel<T>` carries deep-copied messages between them; `while let`",
             "status": "done",
             "size": "XL"
+          },
+          {
+            "id": "V-150",
+            "text": "Bitwise operators `& | ^ ~ << >>` and `&= |= ^= <<= >>=` on `int`, with `&` binding tighter than `==`; shifts outside 0–63 stop the program",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-151",
+            "text": "List essentials: `sort()`, `sort(by:)`, `sorted`, `reversed`, `insert(x, at:)`, `remove(at:)`, `removeWhere`, `indexOf`, `first`, `last`, `isEmpty`, `find`, `any`, `all`, `reduce`, `join`, `flatMap`, `clear`, `min`, `max`, `sum`, `slice`; sorting is stable",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-152",
+            "text": "Safe parsing and number basics: `int.parse(s)` and `float.parse(s)` returning optionals, `int.parse(s, radix: 16)`, `int.max`/`int.min`, `float.infinity`/`float.nan`, `isNaN`/`isFinite`, `toFixed`, `str(n, radix:)`",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-153",
+            "text": "Conditional values: `if … else …` as an expression, with `else` required",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-154",
+            "text": "Type tests on interface values: `x is T`, `x as? T`, and type patterns in `match` and `if case` for any interface; shares the pattern work with V-144",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-155",
+            "text": "Equality and hashing: synthesised `Equatable`/`Hashable` for structs and enums, hand-written `hash()`, structs, records and enums as map keys, `==` on lists and maps of Equatable values, `===` for identity",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-156",
+            "text": "Top-level and `static` `var`/`let`, initialised lazily, one copy per isolate",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-157",
+            "text": "Async everywhere: async closures, async function values, async interface methods and async tear-offs; extends the closure part of V-148",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-158",
+            "text": "Cancellation and timeouts: `future.cancel()`, cancellation reaching `await` points as an error, `time.timeout(future, ms)`, task groups that cancel their children",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-159",
+            "text": "Platform conditionals: `os.target` and `os.arch` as compile-time constants whose dead branches are skipped, and per-target `[c]` sources in `package.toml`",
+            "status": "todo",
+            "size": "M"
           }
         ]
       },
@@ -505,6 +565,72 @@
             "text": "Extension types: zero-cost wrappers that make `UserId` and `int` different types",
             "status": "todo",
             "size": "M"
+          },
+          {
+            "id": "V-160",
+            "text": "Trailing blocks with parameters: `xs.map { x in x * 2 }`, and an implicit name for a single parameter",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-161",
+            "text": "Fields: `let` fields set once at creation, field types inferred from defaults, `init` blocks for validation, a generated `copy(field:)`, fields readable everywhere but set only inside the type",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-162",
+            "text": "Optional ergonomics: `if let x` shorthand, comma-separated conditions in `if`/`while`/`guard`, `guard cond else`, and `?? return`/`throw`/`break`/`continue`",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-163",
+            "text": "Control flow: `defer`, labelled `break`/`continue`, `repeat { } while`",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-164",
+            "text": "Ranges as values: a `Range` type with `contains`, `step` and `reversed`, and list slicing `xs[1..3]`",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-165",
+            "text": "Iteration: an `Iterable<T>` interface that `for in` accepts, and generators with `yield`; shares machinery with V-148",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-166",
+            "text": "Enum reflection: `Type.cases`, `.name`, raw values `enum C: int { red = 1 }` with `C(rawValue:)` returning an optional, `==` on enums with data, operators on enums",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-167",
+            "text": "Interfaces: static requirements, `Self`, generic methods and extensions of interfaces; needed for typed JSON (V-109)",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-168",
+            "text": "Custom printing: a `description` getter used by `println`, `str` and interpolation",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-169",
+            "text": "Local named functions, recursive ones included",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-170",
+            "text": "List conversion between element types: `[B]` passed as `[A]` for a fresh copy, and `cast<A>()`",
+            "status": "todo",
+            "size": "S"
           }
         ]
       },
@@ -539,6 +665,30 @@
             "id": "V-128",
             "text": "Modules, next steps: warn about unused imports, `pub` names whose types are private, and errors sorted with the root module first",
             "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-176",
+            "text": "`vex test`: test blocks or `_test.vx` files, filtering by name, and failures that show both values",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-177",
+            "text": "Build modes: `--debug` (`-O0 -g`, keeps the C) and `--sanitize=address,undefined` alongside today's `-O3`, and `$VEX_CFLAGS` documented in `vex help build`",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-178",
+            "text": "Warnings for unused local variables and unreachable code, and diagnostics that name unsupported features (`is`, labels, `defer`, `x!`)",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-179",
+            "text": "Docs fixes: stale lines about properties, tear-offs and `==` in SYNTAX.md, typed fields in the UI sketch, and the conditional-value, overloading and inheritance decisions in the log",
+            "status": "done",
             "size": "S"
           }
         ]
@@ -578,9 +728,45 @@
           },
           {
             "id": "V-112",
-            "text": "GC stage 3: generational collection, returning memory to the OS",
+            "text": "GC stage 3: generational collection (done), returning memory to the OS",
             "status": "todo",
             "size": "XL"
+          },
+          {
+            "id": "V-149",
+            "text": "Leave out the overflow and bounds checks the compiler proves can't fail, and the capacity check of presized list fills",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-171",
+            "text": "`Set<T>` of Hashable values, with literals, `insert`, `remove`, `contains`, `union`, `intersection` and `subtracting`",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-172",
+            "text": "Map helpers: `isEmpty`, `getOrPut`, `update`, `filter`, `mapValues`, `entries`",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-173",
+            "text": "String helpers: `isEmpty`, `lastIndexOf`, `count`, a `split` limit, `padStart`/`padEnd`, `reversed`, `capitalize`, and `vex:strings` functions as methods",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-174",
+            "text": "Format specs in interpolation: `\"{x:.2}\"`, `\"{n:04}\"`, `\"{n:x}\"`",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-175",
+            "text": "Standard library: `vex:random`, `vex:datetime` (`now`, `Duration`, ISO 8601, calendar fields), `eprintln` and `os.stderr`, and `vex:regex`",
+            "status": "todo",
+            "size": "L"
           }
         ]
       }
