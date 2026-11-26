@@ -5,9 +5,10 @@ import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { langDir } from './lang-dir.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
-const lang = path.resolve(process.env.VEX_LANG_DIR ?? path.join(root, '..', 'VEX'));
+const lang = langDir(root);
 const docs = path.join(root, 'content', 'docs');
 
 const read = (p) => fs.readFileSync(path.join(lang, p), 'utf8');
