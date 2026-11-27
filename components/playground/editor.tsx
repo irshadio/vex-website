@@ -71,7 +71,7 @@ export function Editor({ value, onChange, onRun }: { value: string; onChange: (v
 
   const lines = value.split('\n').length;
   return (
-    <div className="vx-code relative flex min-h-full font-mono text-[13.5px] leading-[23px]">
+    <div className="vx-code relative flex min-h-full font-mono text-[16px] leading-[26px] md:text-[13.5px] md:leading-[23px]">
       <div aria-hidden className="sticky left-0 shrink-0 bg-white py-5 pr-4 pl-5 text-right text-slate-400 select-none dark:bg-code dark:text-slate-600">
         {Array.from({ length: lines }, (_, i) => (
           <div key={i}>{i + 1}</div>
