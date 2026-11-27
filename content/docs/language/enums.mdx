@@ -1,6 +1,6 @@
 ---
 title: Enums
-description: Enums with plain cases and cases that carry values, the .case shorthand, methods and static members, equality and ordering, and exhaustive match.
+description: Enums with plain cases and cases that carry values, the .case shorthand, methods, Self and static members, equality and ordering, printing with toString, and exhaustive match.
 ---
 
 An enum is a type whose value is exactly one of a fixed list of cases. A case can be a plain name, like `red`, or carry values, like `circle(radius: float)`. Together with [`match`](#matching-on-an-enum), enums let the compiler check that your code handles every possibility.
@@ -403,6 +403,27 @@ This is also how you attach a number or a string to each case, since Vex enums h
 
 Enums can't have setters or operators, and a `const` inside an enum must be `static const`. Methods and cases share one namespace: a method can't have the same name as a case.
 
+Inside an enum's methods, `Self` names the enum's own type, as in a struct:
+
+```vex title="self_enum.vx"
+enum Level {
+    low, high
+
+    fn flipped() -> Self => match self {
+        low => .high
+        high => .low
+    }
+}
+
+fn main() {
+    println(Level.low.flipped())
+}
+```
+
+```text title="Output"
+Level.high
+```
+
 ## Enums never change
 
 An enum value is fixed once created. There are no fields to assign, and a case can't be reassigned:
@@ -506,6 +527,31 @@ now: Light.green Light.red
 
 A generic enum includes its type arguments: `Result<int>.ok(value: 5)`.
 
+A `toString()` method replaces this format everywhere the value is shown, inside lists and interpolation included:
+
+```vex title="suit.vx"
+enum Suit {
+    hearts, spades
+
+    fn toString() -> string => match self {
+        hearts => "♥"
+        spades => "♠"
+    }
+}
+
+fn main() {
+    println(Suit.hearts, [Suit.spades, .hearts])
+    println("trump: {Suit.spades}")
+}
+```
+
+```text title="Output"
+♥ [♠, ♥]
+trump: ♠
+```
+
+It must be written `fn toString() -> string`: not static, async or throwing, with no parameters. See [`toString`](/docs/language/structs#tostring) for the full rules, which are the same for structs.
+
 ## Recursive enums
 
 A case can carry the enum itself, which makes trees and expressions easy to model:
@@ -576,6 +622,7 @@ fn main() {
 - Arms with `when` don't count toward covering a case.
 - `==`, `!=`, ordering, map keys and `Hashable` work only when no case carries values.
 - Enum values never change. Enums can't have setters or operators, and their constants must be `static const`.
+- An enum prints as `Enum.case(values)` unless it has a `fn toString() -> string` method. `Self` in its methods names the enum.
 
 ## Comparison
 
