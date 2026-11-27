@@ -312,7 +312,8 @@ function InputLine({ onType }: { onType: (line: string | null) => void }) {
       aria-label="Type a line for the program"
       spellCheck={false}
       autoComplete="off"
-      className="inline-block w-[min(100%,40ch)] bg-transparent align-baseline text-ocean caret-ocean outline-none dark:text-sky dark:caret-sky"
+      enterKeyHint="send"
+      className="inline-block w-[min(100%,40ch)] bg-transparent text-[16px] md:text-[13px] align-baseline text-ocean caret-ocean outline-none dark:text-sky dark:caret-sky"
     />
   );
 }
