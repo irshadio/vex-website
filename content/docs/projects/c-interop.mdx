@@ -1,6 +1,6 @@
 ---
 title: C interop
-description: Calling C functions from Vex with extern fn, passing C pointers, callbacks and sized numbers, exporting Vex functions to C, and building C code with the [c] section of package.toml.
+description: Calling C functions from Vex with extern fn, passing C pointers, callbacks and sized numbers, exporting Vex functions to C, and building C code with the [c] section of package.toml, including code for one system only.
 ---
 
 Vex compiles to C, so calling C costs nothing extra: an `extern fn` call is a direct C call. You declare the C function with a Vex signature, and the compiler converts strings and other values at the boundary. No header file and no binding generator are needed.
@@ -225,12 +225,98 @@ true
 
 Allowed flags are `-D`, `-U`, `-O`, `-std=`, `-W` warning flags, `-f` and `-m` options, and `-I` or `-L` folders inside the project. The full list, and every error message, is on [Modules and projects](/docs/projects/modules).
 
+### C code for one system
+
+C code that only one operating system needs goes in a `[c.macos]`, `[c.linux]` or `[c.windows]` section. These take the same four keys as `[c]`. When the program is built for that system, their lists are added to those of `[c]`; the sections for other systems are ignored.
+
+<Files>
+  <Folder name="sysinfo" defaultOpen>
+    <File name="package.toml" />
+    <File name="main.vx" />
+    <Folder name="native" defaultOpen>
+      <File name="common.c" />
+      <File name="system_mac.c" />
+      <File name="system_linux.c" />
+      <File name="system_windows.c" />
+    </Folder>
+  </Folder>
+</Files>
+
+```toml title="package.toml"
+[package]
+name = "sysinfo"
+
+[c]
+sources = ["native/common.c"]
+flags = ["-DSCALE=2"]
+
+[c.macos]
+sources = ["native/system_mac.c"]
+frameworks = ["CoreFoundation"]
+
+[c.linux]
+sources = ["native/system_linux.c"]
+
+[c.windows]
+sources = ["native/system_windows.c"]
+```
+
+```c title="native/common.c"
+#include <stdint.h>
+
+int64_t scale(int64_t x) { return x * SCALE; }
+```
+
+```c title="native/system_mac.c"
+const char *system_name(void) { return "macOS"; }
+```
+
+```c title="native/system_linux.c"
+const char *system_name(void) { return "Linux"; }
+```
+
+```c title="native/system_windows.c"
+#include <stdint.h>
+
+const char *system_name(void) { return "Windows"; }
+
+int64_t console_code_page(void) { return 65001; }
+```
+
+```vex title="main.vx"
+import "vex:os"
+
+extern fn scale(x: int) -> int
+extern fn system_name() -> string
+extern fn console_code_page() -> int
+
+fn main() {
+    println(scale(21), system_name())
+    if os.target == .windows {
+        println("code page", console_code_page())
+    }
+}
+```
+
+Built on macOS, it prints:
+
+```text title="Output"
+42 macOS
+```
+
+- `common.c` and `-DSCALE=2` from `[c]` are used everywhere. On macOS, `system_mac.c` is added and `CoreFoundation` is linked; on Linux, `system_linux.c` is added instead.
+- `console_code_page` exists only in the Windows source. The call compiles everywhere because `if os.target == .windows` is decided when the program is compiled: on other systems that branch generates no C, so nothing refers to the missing function. See [Platform conditionals](/docs/stdlib/os#platform-conditionals).
+- Sources are checked only for the system being built, so a missing file in `[c.linux]` goes unnoticed on macOS.
+- Putting `frameworks` in `[c.macos]` keeps the project building on Linux, where frameworks in `[c]` fail: `frameworks in package.toml (Foundation) can only be linked on macOS`.
+- Any other target name is an error: `unknown target 'ios'`, with the hint `use [c.macos], [c.linux], [c.windows]`.
+- The program is built for the system the compiler runs on.
+
 ### How the program is built
 
 `vex run` and `vex build` call the system C compiler once, with the generated C file, your sources and your libraries:
 
 ```sh
-clang -std=gnu11 -fwrapv -O3 -w -pthread <your flags> -o <output> main.c <your sources> -l<libs> -framework <frameworks> -lm
+clang -std=gnu11 -fwrapv -w -pthread -O3 <your flags> -o <output> main.c <your sources> -l<libs> -framework <frameworks> -lm
 ```
 
 - The compiler is `$CC` if it is set (it may include arguments), otherwise `clang`, `cc` or `gcc`, whichever is found first.
@@ -419,7 +505,7 @@ HELLO, VEX 10 5
 
 The object crosses as a handle: `__bridge_retained` hands ownership to the Vex side, and `str_free` gives it back with `CFRelease`. `plain_add` returns a C `int`, so it is declared `-> int32`.
 
-Linking frameworks anywhere but macOS fails: `frameworks in package.toml (Foundation) can only be linked on macOS`.
+Linking frameworks anywhere but macOS fails: `frameworks in package.toml (Foundation) can only be linked on macOS`. A project that also builds elsewhere lists them in [`[c.macos]`](#c-code-for-one-system) instead, with its `.m` files.
 
 ## Wrapping C in a module
 

@@ -65,7 +65,7 @@ The four ranges are counted at the same time on four threads. `await all(parts)`
 - **A closure with no parameters**, such as `fn() -> int { return countPrimes(lo, lo + size) }`. The variables it uses are copied to the new isolate.
 - **The name of a top-level function with no parameters**, such as `isolate.run(heavy)`.
 
-A trailing block works too: `isolate.run { println("hi") }` gives a `Future<void>`.
+Either one can be async; see [Async work on another isolate](#async-work-on-another-isolate). A trailing block works too: `isolate.run { println("hi") }` gives a `Future<void>`. A trailing block isn't async, so it can't await.
 
 ### From code that isn't async
 
@@ -136,6 +136,59 @@ A runtime error inside an isolate, such as an index out of range, is not a throw
 error: index 5 is out of range for a list of length 3
  --> crash.vx:5
 ```
+
+### Async work on another isolate
+
+`isolate.run` and `isolate.spawn` also take async closures and the names of async functions. The function runs as a task on the new isolate's own event loop, so it can await timers and start tasks there:
+
+```vex title="iso_async.vx"
+import "vex:isolate"
+import "vex:time"
+
+fn sumTo(n: int) -> int {
+    var s = 0
+    for i in 1..=n {
+        s += i
+    }
+    return s
+}
+
+async fn fetch(url: string) -> string {
+    await time.sleep(5)
+    return "page of {url}"
+}
+
+async fn main() {
+    let page = await isolate.run(async fn() -> string {
+        let a = fetch("a.com")
+        let b = fetch("b.com")
+        return "{await a} + {await b}"
+    })
+    println(page)
+    println(await isolate.run(async fn() -> int {
+        await time.sleep(1)
+        return sumTo(100)
+    }))
+}
+```
+
+```text title="Output"
+page of a.com + page of b.com
+5050
+```
+
+The same copying rules apply: what the closure uses is copied when it starts, and its result is copied back.
+
+### Cancelling and timeouts
+
+A future from `isolate.run` can be [cancelled](/docs/concurrency/async#cancellation) like any other. That drops its result, but the other isolate still finishes its work. [`time.timeout`](/docs/concurrency/async#timeouts) works on it too:
+
+```vex
+let total = await time.timeout(isolate.run(fn() -> int { return sumTo(1000) }), 5000)
+println(total ?? -1)
+```
+
+When the time runs out, `total` is `nil` and the isolate's result is dropped.
 
 ## Copies, not shared memory
 
@@ -268,7 +321,7 @@ job 3: 0 words
 all done
 ```
 
-`isolate.spawn` accepts the same two forms as `isolate.run`, a closure or the name of a top-level function with no parameters, and a trailing block:
+`isolate.spawn` accepts the same two forms as `isolate.run`, a closure or the name of a top-level function with no parameters, async or not, and a trailing block:
 
 ```vex
 isolate.spawn {

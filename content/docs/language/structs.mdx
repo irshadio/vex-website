@@ -1,6 +1,6 @@
 ---
 title: Structs
-description: Declaring structs, creating them with named and default arguments, methods, static members, properties, operators, and why structs are shared references.
+description: Declaring structs, creating them with named and default arguments, methods, static members and static variables, equality and hashing, properties, operators, and why structs are shared references.
 ---
 
 A struct groups named values, called fields, into one type, and can carry methods that work on them. Structs are the main way to model data in Vex.
@@ -457,7 +457,50 @@ error: 'guest' is a static method
 3 errors
 ```
 
-A `const` inside a struct must be `static`. There are no static stored variables, and no variables at the top level of a file either: state lives in values that you create and pass around.
+A `const` inside a struct must be `static`.
+
+### Static variables
+
+`static var` and `static let` declare a variable that belongs to the type, with one copy shared by the whole program. Unlike a `static const`, the starting value can be anything, function calls included:
+
+```vex title="statics.vx"
+struct Router {
+    static var stack: [string] = []
+    static let home = "/"
+
+    static fn push(page: string) {
+        stack.push(page)
+    }
+}
+
+enum Level {
+    low
+    high
+
+    static var changes = 0
+}
+
+fn main() {
+    Router.push(Router.home)
+    Router.push("/settings")
+    println(Router.stack)
+    Router.stack = []
+    Level.changes += 1
+    println(Router.stack, Level.changes)
+}
+```
+
+```text title="Output"
+["/", "/settings"]
+[] 1
+```
+
+Static variables follow the rules of [top-level variables](/docs/language/basics#top-level-variables):
+
+- Each one is set up the first time it is used, and each [isolate](/docs/concurrency/isolates) has its own copy.
+- Inside the type they are used by name, as `stack` above; outside it, through the type: `Router.stack`.
+- A `static let` can't be assigned again: `can't change 'Router.home': it's declared with let`.
+- Generic structs and enums can't have static variables (`a generic struct can't have static variables`), and neither can extensions of built-in types.
 
 <Callout type="warn" title="Not yet">
 Static methods of a generic struct, such as `Box<T>`, can be declared but not called yet: `Box<int>.make()` is reported as `'Box' is a type, not a value`. Use a top-level generic function instead. Static methods of generic enums work.
@@ -627,10 +670,13 @@ To control how a struct reads, write a method such as `fn describe() -> string` 
 
 ## Equality
 
-Structs can't be compared with `==` unless they define it. Two separate structs with the same fields aren't automatically equal, and Vex has no identity operator (`===`):
+Two struct values are only compared with `==` when the struct asks for it. Without that, `==` is an error and the compiler suggests the fix:
 
 ```vex title="equality.vx"
-struct Point { x: int, y: int }
+struct Point {
+    x: int
+    y: int
+}
 
 fn main() {
     let p = Point(x: 1, y: 2)
@@ -641,33 +687,111 @@ fn main() {
 
 ```text title="Output"
 error: values of type Point can't be compared with ==
- --> equality.vx:6:13
+ --> equality.vx:9:13
   |
-6 |     println(p == q)
-  |             ^^^^^^ define it in Point: operator ==(other: Point) -> bool
+9 |     println(p == q)
+  |             ^^^^^^ list Equatable on it to compare the fields: struct Point: Equatable
 ```
 
-Define `operator ==` to say what equal means for your type. `!=` then works too, and so do `list.contains` and the `Equatable` constraint:
+### Identity
 
-```vex title="eq.vx"
+Any struct can be compared with `===` and `!==`, which tell whether two names refer to the same object:
+
+```vex title="identity.vx"
 struct Point {
     x: int
     y: int
-
-    operator ==(other: Point) -> bool => x == other.x && y == other.y
 }
 
 fn main() {
     let p = Point(x: 1, y: 2)
-    println(p == Point(x: 1, y: 2), p != Point(x: 0, y: 0))
-    println([Point(x: 0, y: 0), p].contains(Point(x: 1, y: 2)))
+    let same = p
+    let other = Point(x: 1, y: 2)
+    println(p === same, p === other, p !== other)
 }
 ```
 
 ```text title="Output"
-true true
+true false true
+```
+
+### Equatable and Hashable
+
+Listing `Equatable` after a `:` gives a struct an `==` that compares every field. Listing `Hashable` does the same and adds a hash, so its values can be [map keys](/docs/language/maps#structs-enums-and-records-as-keys):
+
+```vex title="hashable.vx"
+struct Point: Hashable {
+    x: int
+    y: int
+}
+
+fn main() {
+    let a = Point(x: 1, y: 2)
+    let b = Point(x: 1, y: 2)
+    println(a == b, a != b, a === b)
+    var labels = [a: "home"]
+    labels[Point(x: 0, y: 0)] = "origin"
+    println(labels[b] ?? "?", labels.len)
+    println([a, b].contains(Point(x: 1, y: 2)))
+}
+```
+
+```text title="Output"
+true false false
+home 2
 true
 ```
+
+`!=`, `list.contains`, `list.indexOf` and the `Equatable` constraint come with it. Enums can list them too; their `==` compares the case and then its values.
+
+- `Equatable` needs every field to have `==`. A field such as a function or an interface value doesn't:
+
+```vex title="eqerr.vx"
+struct Button: Equatable {
+    title: string
+    onTap: fn()
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: field 'onTap' is fn(), which has no ==, so Button can't be Equatable
+ --> eqerr.vx:3:12
+  |
+3 |     onTap: fn()
+  |            ^^^^ write your own operator ==
+```
+
+- `Hashable` needs every field to be hashable, or a `float`.
+- A generic struct lists the constraint on its parameter: `struct Box<T: Equatable>: Equatable`.
+- A struct can contain itself, such as `next: Node?`; the comparison follows the fields.
+
+### Writing your own == and hash
+
+To decide what equal means, define `operator ==`. A struct with its own `==` is `Equatable` without listing it. To also list `Hashable`, write `fn hash() -> int` so that equal values hash the same. The built-in `hash(a, b, ...)` combines the hashes of its arguments:
+
+```vex title="custom.vx"
+struct Email: Hashable {
+    address: string
+
+    operator ==(other: Email) -> bool => address.lower() == other.address.lower()
+    fn hash() -> int => hash(address.lower())
+}
+
+fn main() {
+    let owners = [Email(address: "Ann@Example.com"): "ann"]
+    println(owners[Email(address: "ann@example.com")] ?? "nobody")
+    println(Email(address: "A@b.c") == Email(address: "a@B.C"))
+}
+```
+
+```text title="Output"
+ann
+true
+```
+
+Leaving out `hash` gives `Email writes its own ==, so it needs a matching fn hash() -> int to be Hashable`. `hash` takes no parameters and returns `int`.
 
 ## Properties: getters and setters
 
@@ -808,7 +932,7 @@ true false
 |---|---|
 | `+ - * / %` (one parameter, any type) | the operator, and its compound assignment (`+=` ...) when it returns the struct |
 | unary `-` (no parameter) | `-value` |
-| `==` (takes the struct, returns `bool`) | `==`, `!=`, `contains`, the `Equatable` constraint |
+| `==` (takes the struct, returns `bool`) | `==`, `!=`, `contains`, the `Equatable` constraint; add `fn hash() -> int` to list `Hashable` |
 | `<` and `==` | `<`, `<=`, `>`, `>=`, the `Comparable` constraint |
 | `[]` and `[]=` | indexing, `value[i]` and `value[i] = x` |
 
@@ -872,8 +996,9 @@ The parent and child refer to each other. That cycle is fine: the [garbage colle
 - Fields are always changeable; `let` and `var` apply to names, not fields.
 - A `const` inside a struct must be written `static const`.
 - Parameters, loop variables and `self` can't be reassigned, but the fields of a struct they refer to can be changed.
-- Structs have no built-in `==`, no identity comparison and no built-in copy.
-- A struct can't be a map key. Map keys are `int`, `string`, `bool` and enums whose cases carry no values.
+- `==` works only on structs that list `Equatable` or `Hashable` or define `operator ==`. `===` works on every struct.
+- A struct can be a map key when it lists `Hashable`.
+- Structs have no built-in copy.
 - Default values are evaluated at each creation, can't use other fields, and can't recreate the struct endlessly.
 - `didSet` doesn't run during creation, and getters and setters can't throw.
 - Structs can't inherit from other structs. Share behavior with [interfaces](/docs/language/interfaces) and their default methods, or by holding another struct in a field.
@@ -886,7 +1011,7 @@ The parent and child refer to each other. That cycle is fine: the [garbage colle
 | Constructor | generated, named args | memberwise init | primary constructor | written by hand | literal `T{...}` |
 | Field access in methods | bare name | bare name | bare name | bare name | `t.field` |
 | Change fields of a `let` value | yes | no | `val` fields: no | `final` fields: no | n/a |
-| Built-in `==` | no, define `operator ==` | with `Equatable` | `data class` | no | yes |
+| Built-in `==` | with `Equatable` or `Hashable` | with `Equatable` | `data class` | no | yes |
 
 ## See also
 

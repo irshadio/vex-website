@@ -423,51 +423,47 @@ error: the default after ?? must be string, found int
 
 ## Comparing with nil
 
-An optional can be compared with `nil` using `==` and `!=`. It can't be compared with a plain value or another optional, and comparing doesn't unwrap it:
+An optional can be compared with `nil`, with a plain value or with another optional, using `==` and `!=`. Two optionals are equal when both are `nil` or both hold equal values, and an optional equals a plain value only when it isn't `nil` and holds that value:
 
 ```vex title="nil_compare.vx"
 fn main() {
     var selected: string? = nil
-    println(selected == nil)
+    println(selected == nil, selected == "Lena")
     selected = "Lena"
-    println(selected != nil)
+    println(selected != nil, selected == "Lena")
+    let other: string? = "Lena"
+    println(selected == other)
 }
 ```
 
 ```text title="Output"
-true
+true false
+true true
 true
 ```
+
+Comparing doesn't unwrap the optional, so its value still can't be used as a plain one:
 
 ```vex title="compare_errors.vx"
 fn main() {
     let a: int? = 5
-    println(a == 5)
-    if a != nil {
+    if a == 5 {
         println(a + 1)
     }
 }
 ```
 
 ```text title="Output"
-error: can't compare int? with int
- --> compare_errors.vx:3:13
-  |
-3 |     println(a == 5)
-  |             ^^^^^^
-
 error: can't use '+' with int? and int
- --> compare_errors.vx:5:17
+ --> compare_errors.vx:4:17
   |
-5 |         println(a + 1)
+4 |         println(a + 1)
   |                 ^^^^^
-
-2 errors
 ```
 
-To use the value after a check, use `if let`, which checks and unwraps in one step. To compare with a value, give a default first: `(a ?? 0) == 5`.
+To use the value after a check, use `if let`, which checks and unwraps in one step.
 
-Comparing a plain value with `nil` is an error too: `can't compare int with nil: only optional values can be nil`.
+Comparing a plain value with `nil` is an error: `can't compare int with nil: only optional values can be nil`.
 
 ## Printing
 

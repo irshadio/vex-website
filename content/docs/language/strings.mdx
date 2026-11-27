@@ -1,6 +1,6 @@
 ---
 title: Strings
-description: String literals, escape sequences, interpolation, multi-line and raw strings, characters and Unicode, comparison, and an overview of the string methods.
+description: String literals, escape sequences, interpolation, multi-line and raw strings, characters and Unicode, comparison, an overview of the string methods, and formatting and parsing numbers.
 ---
 
 A `string` holds text encoded as UTF-8. Strings are values: they can't be changed in place, and every method that seems to change one returns a new string. Text and values combine through interpolation, `"Hi {name}"`, rather than with `+`.
@@ -375,6 +375,30 @@ The [`vex:strings`](/docs/stdlib/strings) module adds `repeat`, `join`, `padLeft
 | function | its type: `<fn(int) -> int>` |
 
 `println(a, b, c)` separates its arguments with one space and ends with a line break. `print` does the same without the line break. `println()` prints an empty line.
+
+### Formatting and parsing numbers
+
+`x.toFixed(n)` writes a `float` with exactly `n` digits after the point, and `str(n, radix: r)` writes an `int` in another base. Going the other way, `int.parse` and `float.parse` read text that may not be a number and give `nil` when it isn't:
+
+```vex title="format.vx"
+fn main() {
+    let price = 4.5
+    let qty = 3
+    println("{qty} x {price.toFixed(2)} = {(price * float(qty)).toFixed(2)}")
+    println("0x{str(255, radix: 16)}", str(5, radix: 2))
+    let typed = " 12 "
+    let n = int.parse(typed) ?? 0
+    println(n + 1, int.parse("twelve") ?? 0)
+}
+```
+
+```text title="Output"
+3 x 4.50 = 13.50
+0xff 101
+13 0
+```
+
+See [int.parse and float.parse](/docs/stdlib/built-ins#intparse-and-floatparse) and [Number members](/docs/stdlib/built-ins#number-members) for the details.
 
 ## Rules and edge cases
 

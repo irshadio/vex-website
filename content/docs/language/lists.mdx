@@ -1,9 +1,9 @@
 ---
 title: Lists
-description: Creating lists, indexing, every list member and its edge cases, looping, collection if, for and spread, reference semantics, copying, and how to add the operations lists don't have yet.
+description: Creating lists, indexing, every list member including sorting, searching and changing lists in place, looping, collection if, for and spread, reference semantics, copying, and adding your own members.
 ---
 
-A list, written `[T]`, is an ordered, growable sequence of values of one type. Lists are the main collection in Vex: they back loops, `filter` and `map`, builder blocks and list patterns. Lists are shared references, so passing one to a function lets the function change it.
+A list, written `[T]`, is an ordered, growable sequence of values of one type. Lists are the main collection in Vex: they back loops, sorting, `filter` and `map`, builder blocks and list patterns. Lists are shared references, so passing one to a function lets the function change it.
 
 ## Creating lists
 
@@ -80,40 +80,225 @@ Use `push` to add elements, and check `i < xs.len` before indexing when the inde
 | Member | Result | Description |
 |---|---|---|
 | `xs.len` | `int` | Number of elements. A property: no `()`. |
+| `xs.isEmpty` | `bool` | Whether the list has no elements. A property. |
+| `xs.first`, `xs.last` | `T?` | The first and last element, or `nil` for an empty list. Properties. |
 | `xs.push(item)` | nothing | Adds `item` at the end. |
 | `xs.pop()` | `T` | Removes and returns the last element. Stops the program on an empty list. |
-| `xs.contains(item)` | `bool` | Whether any element equals `item`. Needs an element type that supports `==`. |
-| `xs.filter(f)` | `[T]` | A new list of the elements for which `f` returns `true`. |
+| `xs.insert(item, at: i)` | nothing | Puts `item` at index `i`, moving later elements up. `i` may be `len`. |
+| `xs.remove(at: i)` | `T` | Removes and returns the element at `i`. |
+| `xs.removeWhere(test)` | nothing | Removes every element for which `test` returns `true`. |
+| `xs.clear()` | nothing | Removes every element. |
+| `xs.sort()`, `xs.sort(by: f)` | nothing | Sorts the list in place. |
+| `xs.sorted()`, `xs.sorted(by: f)` | `[T]` | A sorted copy. |
+| `xs.reversed()` | `[T]` | A copy in reverse order. |
+| `xs.contains(item)` | `bool` | Whether any element equals `item`. |
+| `xs.indexOf(item)` | `int?` | The index of the first element that equals `item`, or `nil`. |
+| `xs.find(test)` | `T?` | The first element for which `test` returns `true`, or `nil`. |
+| `xs.any(test)`, `xs.all(test)` | `bool` | Whether any element passes `test`; whether every element does. |
+| `xs.filter(test)` | `[T]` | A new list of the elements for which `test` returns `true`. |
 | `xs.map(f)` | `[U]` | A new list of what `f` returns for each element. |
+| `xs.flatMap(f)` | `[U]` | The lists `f` returns for each element, joined into one. |
+| `xs.reduce(initial, f)` | the type of `initial` | Combines the elements one by one, starting from `initial`. |
+| `xs.min()`, `xs.max()` | `T?` | The smallest and largest element, or `nil` for an empty list. |
+| `xs.sum()` | `T` | The total of an `[int]` or `[float]`; `0` for an empty list. |
+| `xs.join(separator)` | `string` | The elements as text, with `separator` between them. The separator may be left out. |
+| `xs.slice(from, to)` | `[T]` | A new list of the elements from index `from` up to, not including, `to`. |
 | `xs.copy()` | `[T]` | A new list with the same elements. |
 
-```vex title="members.vx"
+`push`, `pop`, `insert`, `remove`, `removeWhere`, `clear` and `sort` change the list. Every other member leaves it as it is and returns something new.
+
+### Length and ends
+
+```vex title="ends.vx"
 fn main() {
-    var nums = [3, 1, 2]
-    nums.push(4)
-    let last = nums.pop()
-    println(nums, nums.len, last)
-    println(nums.contains(2), nums.contains(9))
-    let evens = nums.filter(fn(n) => n % 2 == 0)
-    let labels = nums.map(fn(n) => "#{n}")
-    println(evens, labels, nums)
+    let nums = [4, 8, 15]
+    let empty: [int] = []
+    println(nums.len, nums.isEmpty, nums.first, nums.last)
+    println(empty.len, empty.isEmpty, empty.first, empty.last)
+    let top = nums.first ?? 0
+    println(top)
 }
 ```
 
 ```text title="Output"
-[3, 1, 2] 3 4
-true false
-[2] ["#3", "#1", "#2"] [3, 1, 2]
+3 false 4 15
+0 true nil nil
+4
 ```
+
+`first` and `last` are [optionals](/docs/language/optionals), so reading them never stops the program. Unwrap them with `if let`, or give a default with `??`.
+
+### Adding and removing
+
+```vex title="changing.vx"
+fn main() {
+    var xs = [10, 20, 30]
+    xs.push(40)
+    xs.insert(5, at: 0)
+    xs.insert(25, at: 3)
+    println(xs)
+    let last = xs.pop()
+    let second = xs.remove(at: 1)
+    println(xs, last, second)
+    xs.removeWhere(fn(x) => x % 10 == 0)
+    println(xs)
+    xs.clear()
+    println(xs, xs.isEmpty)
+}
+```
+
+```text title="Output"
+[5, 10, 20, 25, 30, 40]
+[5, 20, 25, 30] 40 10
+[5, 25]
+[] true
+```
+
+### Sorting
+
+`sort()` sorts the list in place, smallest first. `sorted()` returns a sorted copy and leaves the original alone. Both take an order with `by:`, a function that returns whether `a` goes before `b`:
+
+```vex title="sorting.vx"
+struct Task {
+    title: string
+    priority: int
+}
+
+fn main() {
+    var nums = [5, 3, 8, 1]
+    nums.sort()
+    println(nums)
+    println(nums.sorted(by: fn(a, b) => a > b), nums.reversed(), nums)
+    println(["pear", "Fig", "apple"].sorted())
+
+    var tasks = [
+        Task(title: "write", priority: 2),
+        Task(title: "test", priority: 1),
+        Task(title: "ship", priority: 2),
+        Task(title: "plan", priority: 1),
+    ]
+    tasks.sort(by: fn(a, b) => a.priority < b.priority)
+    println(tasks.map(fn(t) => t.title))
+}
+```
+
+```text title="Output"
+[1, 3, 5, 8]
+[8, 5, 3, 1] [8, 5, 3, 1] [1, 3, 5, 8]
+["Fig", "apple", "pear"]
+["test", "plan", "write", "ship"]
+```
+
+- Sorting is stable: elements the order treats as equal keep their order. Above, `test` stays before `plan` and `write` before `ship`.
+- Without `by:`, the elements must be ordered by `<`: numbers, strings, enums whose cases carry no values, and structs that define `operator <`. Strings compare code point by code point, so `"Fig"` sorts before `"apple"`.
+- On any other element type, `sort()` is a compile error, `sort can't be used on a list of Task`, with the hint `pass the order: sort(by: fn(a, b) => ...)`.
+
+A struct that defines `operator <` sorts without `by:`, and so does an enum whose cases carry no values, in the order the cases are declared:
+
+```vex title="ordered.vx"
+struct Version {
+    major: int
+    minor: int
+
+    operator <(other: Version) -> bool => major < other.major || (major == other.major && minor < other.minor)
+}
+
+enum Level { low, mid, high }
+
+fn main() {
+    let versions = [Version(major: 1, minor: 2), Version(major: 0, minor: 9), Version(major: 1, minor: 0)]
+    println(versions.sorted().map(fn(v) => "{v.major}.{v.minor}"))
+    println([Level.high, Level.low, Level.mid].sorted())
+}
+```
+
+```text title="Output"
+["0.9", "1.0", "1.2"]
+[Level.low, Level.mid, Level.high]
+```
+
+### Searching
+
+```vex title="searching.vx"
+fn main() {
+    let words = ["apple", "kiwi", "banana", "fig"]
+    println(words.contains("fig"), words.indexOf("banana"), words.indexOf("plum"))
+    println(words.find(fn(w) => w.len > 4), words.find(fn(w) => w.len > 9))
+    println(words.any(fn(w) => w.startsWith("k")), words.all(fn(w) => w.len > 3))
+    if let i = words.indexOf("kiwi") {
+        println("kiwi at {i}")
+    }
+}
+```
+
+```text title="Output"
+true 2 nil
+apple nil
+true false
+kiwi at 1
+```
+
+`contains` and `indexOf` compare with `==`. `find`, `any` and `all` take a function instead, so they work on any element type.
+
+### Transforming
+
+```vex title="transforming.vx"
+fn main() {
+    let nums = [3, 1, 2]
+    println(nums.filter(fn(n) => n > 1), nums.map(fn(n) => "#{n}"))
+    println(nums.flatMap(fn(n) => [n, -n]))
+    let lines = ["a b", "c"]
+    println(lines.flatMap(fn(l) => l.split(" ")))
+    println(nums.reduce(0, fn(sum, n) => sum + n), nums.reduce("", fn(s, n) => s + str(n)))
+    println(nums, nums.map(fn(n) => n * 2).filter(fn(n) => n > 2).sorted())
+}
+```
+
+```text title="Output"
+[3, 2] ["#3", "#1", "#2"]
+[3, -3, 1, -1, 2, -2]
+["a", "b", "c"]
+6 312
+[3, 1, 2] [4, 6]
+```
+
+`reduce` passes the running value and the next element to the function, and its result has the type of the starting value: `0` gives an `int`, `""` a `string`.
+
+### Totals, text and slices
+
+```vex title="totals.vx"
+fn main() {
+    let prices = [2.5, 0.75, 4.0]
+    let words = ["pear", "fig", "apple"]
+    let empty: [int] = []
+    println(prices.sum(), prices.min(), prices.max())
+    println(words.min(), words.max(), empty.min(), empty.sum())
+    println(words.join(", "), [1, 2, 3].join(), [[1, 2], [3]].join(" + "))
+    println(words.slice(1, 3), words.slice(2, 2), words.copy())
+}
+```
+
+```text title="Output"
+7.25 0.75 4.0
+apple pear nil 0
+pear, fig, apple 123 [1, 2] + [3]
+["fig", "apple"] [] ["pear", "fig", "apple"]
+```
+
+- `min` and `max` need elements ordered by `<`, as `sort()` does. They return optionals, which are `nil` for an empty list.
+- `join` shows each element as `str` would, so strings appear without quotes and inner lists as `[1, 2]`.
 
 ### Member edge cases
 
-- `pop()` on an empty list stops the program with `can't pop from an empty list`. Check `xs.len > 0` first, or use a `while xs.len > 0` loop.
-- `contains` compares with `==`, so it works on lists of `int`, `float`, `bool`, `string`, enums whose cases carry no values, records of those, and structs that define `operator ==`. On other element types it's a compile error: `contains can't be used on a list of P`, with the hint `define it in P: operator ==(other: P) -> bool`.
-- `filter` and `map` never change the original list; they return a new one, even when nothing is removed.
-- `filter`'s function must return `bool` (`closure result: expected bool, found int`), and `map`'s must return a value (`map needs a function that returns a value`).
-- `len` can't be assigned (`len can't be changed`), and `xs.len()` gives `len is a property, not a method`.
-- On a [constant](/docs/language/constants) list, `push`, `pop` and element assignment are errors.
+- `pop()` on an empty list stops the program with `can't pop from an empty list`. Check `xs.isEmpty` first, or read `xs.last`, which gives `nil` instead.
+- `insert`, `remove` and `slice` stop the program when an index is out of range, as `xs[i]` does: `insert at 5 is out of range for a list of length 3`, `index 5 is out of range for a list of length 3`, `slice(2, 1) is out of range for a list of length 3`. `slice` needs `0 <= from <= to <= len`.
+- Changing the list from inside the function passed to `sort(by:)` or `removeWhere` stops the program: `the list changed while it was being sorted`, or `the list changed while removeWhere was running`. `filter`, `map`, `find` and the others visit the elements the list had when they started, as a `for` loop does.
+- `sum` works on `[int]` and `[float]` only (`sum needs a list of int or float, found [string]`). An `int` total that overflows stops the program, as `+` does.
+- `contains` and `indexOf` compare with `==`, so they need an element type that has it: numbers, `bool`, `string`, enums whose cases carry no values, structs that define `operator ==` or list `Equatable` or `Hashable`, and lists, maps, optionals and records of those. On other element types they're a compile error, `contains can't be used on a list of P`, with the hint `define it in P: operator ==(other: P) -> bool`.
+- The functions passed to `filter`, `removeWhere`, `find`, `any`, `all` and `sort(by:)` must return `bool` (`closure result: expected bool, found int`). `map` needs a function that returns a value, and `flatMap` one that returns a list.
+- `len`, `isEmpty`, `first` and `last` are properties: `xs.first()` gives `first is a property, not a method`, and `len` can't be assigned (`len can't be changed`).
+- `map`, `flatMap` and `reduce` can't be used as values (`'map' can't be used as a value`). The other members can, as in `let add = nums.push`.
+- On a [constant](/docs/language/constants) list, the members that change it and element assignment are errors.
 
 ## Looping over a list
 
@@ -274,51 +459,45 @@ empty just 7 1 then 2 more
 
 `...rest` copies the remaining elements into a new list. See [Patterns](/docs/language/patterns).
 
-## Operations lists don't have yet
+## Adding your own members
 
-The built-in list API is small. There's no `sort`, `reverse`, `indexOf`, `insert`, `remove(at:)`, `first`, `last`, `isEmpty`, slicing, `+` or `==` on lists yet. Each gives a compile error such as `[int] has no method 'sort'` or `'+' can't be used with [int]`.
-
-You can write them once as [extensions](/docs/language/extensions) and call them like built-in members:
+A list member you need often can be written once as an [extension](/docs/language/extensions) and called like a built-in one. Inside the extension, `self` is the list and its members can be used without `self.`:
 
 ```vex title="extend.vx"
-extension<T: Equatable> [T] {
-    fn indexOf(item: T) -> int? {
-        for i, x in self {
-            if x == item { return i }
-        }
-        return nil
-    }
-}
-
 extension<T> [T] {
-    fn reversed() -> [T] {
-        var out: [T] = []
-        var i = len - 1
-        while i >= 0 {
-            out.push(self[i])
-            i -= 1
+    fn chunks(size: int) -> [[T]] {
+        var out: [[T]] = []
+        var i = 0
+        while i < len {
+            let end = if i + size < len { i + size } else { len }
+            out.push(slice(i, end))
+            i = end
         }
         return out
     }
+
+    fn count(test: fn(T) -> bool) -> int => filter(test).len
 }
 
 fn main() {
-    let xs = ["a", "b", "c"]
-    println(xs.indexOf("b"), xs.indexOf("z"), xs.reversed())
+    let xs = [1, 2, 3, 4, 5]
+    println(xs.chunks(2), xs.count(fn(x) => x % 2 == 1))
 }
 ```
 
 ```text title="Output"
-1 nil ["c", "b", "a"]
+[[1, 2], [3, 4], [5]] 3
 ```
 
-The [sorting example](/docs/examples/sorting) shows in-place bubble sort and insertion sort. To join two lists, use spread: `[...a, ...b]`.
+An extension can't reuse the name of a built-in member: `[T] already has a member 'reversed'`.
+
+Lists have no `+`: `'+' can't be used with [int]`. To join two lists, use spread: `[...a, ...b]`.
 
 ## Rules and edge cases
 
 - A list holds one element type, fixed when it's created.
 - Indexes are `int` and must be in range: there's no wrap-around or auto-growth.
-- Lists can't be compared with `==` (`values of type [int] can't be compared with ==`) and can't be map keys.
+- Lists compare with `==` element by element, when their elements have `==`: `[1, 2] == [1, 2]` is `true`. Lists can't be map keys (`[int] can't be a map key`).
 - A list prints as `[1, 2, 3]`, with strings in quotes: `["a", "b"]`.
 - `[int?]` is a list of optional ints; `[int]?` is a list that may be `nil`.
 

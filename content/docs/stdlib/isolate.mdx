@@ -112,6 +112,33 @@ nil
 
 A trailing block works too: `isolate.run { return 7 }`.
 
+`f` may be async: an `async fn` closure or the name of an async function. It runs on the new isolate's own event loop (see [Async work on another isolate](/docs/concurrency/isolates#async-work-on-another-isolate)), so it can `await` there, and the future completes when it returns:
+
+```vex title="isolate_async.vx"
+import "vex:isolate"
+import "vex:time"
+
+async fn slowSquare(n: int) -> int {
+    await time.sleep(10)
+    return n * n
+}
+
+async fn main() {
+    let a = await isolate.run(async fn() -> int {
+        let x = await slowSquare(3)
+        let y = await slowSquare(4)
+        return x + y
+    })
+    println(a)
+}
+```
+
+```text title="Output"
+25
+```
+
+The future from `run` can be cancelled with `cancel()`, which drops its result. The other isolate still finishes its work. See [Cancelling and timeouts](/docs/concurrency/isolates#cancelling-and-timeouts).
+
 Each call starts a new thread, which costs far more than a function call. Use `run` for work that takes at least milliseconds, and split big jobs into a few large pieces rather than many small ones.
 
 ## spawn
@@ -122,7 +149,7 @@ isolate.spawn(f: fn())
 
 Starts a new isolate that runs `f` until it and the tasks it starts are done.
 
-- **Parameters:** `f`, a function with no parameters and no result, written as a closure or the name of a top-level function, as for `run`.
+- **Parameters:** `f`, a function with no parameters and no result, written as a closure or the name of a top-level function, as for `run`. It may be async.
 - **Returns:** nothing. To get results out, pass the isolate a [channel](#channels).
 - **Errors:** `f` can't throw, since nothing would receive the error. Handle errors inside it with `try ... catch`. A runtime error inside it stops the program.
 

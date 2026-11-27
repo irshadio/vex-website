@@ -34,11 +34,11 @@ Pages are ordered so that each one only relies on the pages before it, but each 
 
 ## Keywords
 
-These 32 words are reserved and can't be used as names:
+These 33 words are reserved and can't be used as names:
 
 | Keyword | Use | Page |
 |---|---|---|
-| `as` | Rename an import; give an `extern` declaration its C name | [Modules](/docs/projects/modules), [C interop](/docs/projects/c-interop) |
+| `as` | Rename an import; give an `extern` declaration its C name; `as?` casts an interface value | [Modules](/docs/projects/modules), [C interop](/docs/projects/c-interop), [Types](/docs/language/types#type-tests) |
 | `async` | Declare a function that can `await` | [Async](/docs/concurrency/async) |
 | `await` | Wait for a future without blocking | [Async](/docs/concurrency/async) |
 | `break` | Leave the innermost loop | [Control flow](/docs/language/control-flow) |
@@ -52,23 +52,24 @@ These 32 words are reserved and can't be used as names:
 | `fn` | Declare a function, closure or function type | [Functions](/docs/language/functions) |
 | `for` | Loop over a range, list or map; produce collection elements | [Control flow](/docs/language/control-flow) |
 | `guard` | Unwrap an optional or leave: `guard let` | [Control flow](/docs/language/control-flow) |
-| `if` | Conditional; `if let`, `if case`; collection elements | [Control flow](/docs/language/control-flow) |
+| `if` | Conditional, also as a value; `if let`, `if case`; collection elements | [Control flow](/docs/language/control-flow) |
 | `import` | Use another module | [Modules](/docs/projects/modules) |
 | `in` | Separate loop variables from the sequence in `for` | [Control flow](/docs/language/control-flow) |
 | `interface` | Declare an interface | [Interfaces](/docs/language/interfaces) |
-| `let` | Declare a name that can't be reassigned | [Basics](/docs/language/basics) |
+| `is` | Test which type an interface value holds | [Types](/docs/language/types#type-tests) |
+| `let` | Declare a name that can't be reassigned, in a function or at the top level | [Basics](/docs/language/basics) |
 | `match` | Choose by pattern | [Patterns](/docs/language/patterns) |
 | `nil` | The absent value of an optional | [Optionals](/docs/language/optionals) |
 | `pub` | Make a declaration visible to other modules | [Modules](/docs/projects/modules) |
 | `return` | Leave a function, with or without a value | [Functions](/docs/language/functions) |
-| `static` | A member that belongs to the type: `static fn`, `static const` | [Structs](/docs/language/structs) |
+| `static` | A member that belongs to the type: `static fn`, `static const`, `static var` | [Structs](/docs/language/structs) |
 | `struct` | Declare a struct | [Structs](/docs/language/structs) |
 | `throw` | Raise an error | [Errors](/docs/language/errors) |
 | `throws` | Mark a function that can fail | [Errors](/docs/language/errors) |
 | `true` | Boolean literal | [Types](/docs/language/types) |
 | `try` | Call a function that can fail; `try?` | [Errors](/docs/language/errors) |
 | `typedef` | Declare a type alias | [Types](/docs/language/types#type-aliases) |
-| `var` | Declare a name that can be reassigned | [Basics](/docs/language/basics) |
+| `var` | Declare a name that can be reassigned, in a function or at the top level | [Basics](/docs/language/basics) |
 | `while` | Loop while a condition holds; `while let` | [Control flow](/docs/language/control-flow) |
 
 ### Contextual words
@@ -97,11 +98,11 @@ The built-in type names (`int`, `float`, `bool`, `string`), the built-in functio
 ### Basics
 
 <Cards>
-  <Card title="Basics" href="/docs/language/basics" description="Program structure, main, let and var, inference, names, scope, line breaks and comments." />
-  <Card title="Types" href="/docs/language/types" description="int, float, bool, string, collections, optionals, function types, conversions and type aliases." />
+  <Card title="Basics" href="/docs/language/basics" description="Program structure, main, let and var, top-level variables, inference, names, scope, line breaks and comments." />
+  <Card title="Types" href="/docs/language/types" description="int, float, bool, string, collections, optionals, function types, conversions, type aliases and type tests." />
   <Card title="Strings" href="/docs/language/strings" description="Literals, escapes, interpolation, multi-line and raw strings, Unicode and string methods." />
-  <Card title="Operators" href="/docs/language/operators" description="Arithmetic, overflow, comparison, logic, assignment, ranges, ?? and the precedence table." />
-  <Card title="Control flow" href="/docs/language/control-flow" description="if, for, while, break and continue, guard let, and a first look at match." />
+  <Card title="Operators" href="/docs/language/operators" description="Arithmetic, overflow, comparison and identity, logic, assignment, ranges, ?? and the precedence table." />
+  <Card title="Control flow" href="/docs/language/control-flow" description="if, if as a value, for, while, break and continue, guard let, and a first look at match." />
 </Cards>
 
 ### Functions
@@ -116,16 +117,16 @@ The built-in type names (`int`, `float`, `bool`, `string`), the built-in functio
 
 <Cards>
   <Card title="Lists" href="/docs/language/lists" description="Indexing, every list member, looping, collection if, for and spread, copying." />
-  <Card title="Maps" href="/docs/language/maps" description="Keys and values, missing keys, adding and removing, iteration order." />
+  <Card title="Maps" href="/docs/language/maps" description="Keys and values, custom keys, missing keys, adding and removing, iteration order." />
   <Card title="Records" href="/docs/language/records" description="Grouping values without a type, destructuring, equality and immutability." />
 </Cards>
 
 ### Types you define
 
 <Cards>
-  <Card title="Structs" href="/docs/language/structs" description="Fields, defaults, methods, getters and setters, didSet, operators and reference semantics." />
+  <Card title="Structs" href="/docs/language/structs" description="Fields, defaults, methods, static variables, equality and hashing, properties, operators and reference semantics." />
   <Card title="Enums" href="/docs/language/enums" description="Cases with values, methods, the .case shorthand and match." />
-  <Card title="Patterns" href="/docs/language/patterns" description="Matching and taking apart values in match, if case, let and for." />
+  <Card title="Patterns" href="/docs/language/patterns" description="Matching and taking apart values in match, if case, let and for, type patterns included." />
   <Card title="Optionals" href="/docs/language/optionals" description="T?, nil, if let, guard let, while let, ?. and ??." />
   <Card title="Errors" href="/docs/language/errors" description="throws, throw, try, catch, try?, typed errors and panics." />
 </Cards>

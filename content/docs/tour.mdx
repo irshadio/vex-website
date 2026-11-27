@@ -101,7 +101,43 @@ error: can't change a constant list: 'primes' is constant
   |     ^^^^^^ change a copy instead: var mine = primes.copy()
 ```
 
-More: [Basics](/docs/language/basics), [Constants](/docs/language/constants).
+**Top-level and static variables.** `let` and `var` outside a function, and `static var` inside a type, hold state the whole program shares. Each one is set up the first time it is used, so its starting value can call functions, and each isolate has its own copy.
+
+```vex title="globals.vx"
+var visits = 0
+let greeting = makeGreeting()
+
+fn makeGreeting() -> string {
+    println("making greeting")
+    return "hello"
+}
+
+struct Router {
+    static var stack: [string] = []
+
+    static fn push(page: string) {
+        stack.push(page)
+        visits += 1
+    }
+}
+
+fn main() {
+    println("start")
+    Router.push("/home")
+    Router.push("/settings")
+    println(Router.stack, visits)
+    println(greeting, greeting)
+}
+```
+
+```text title="Output"
+start
+["/home", "/settings"] 2
+making greeting
+hello hello
+```
+
+More: [Basics](/docs/language/basics), [Constants](/docs/language/constants), [Structs](/docs/language/structs#static-variables).
 
 ## Numbers
 
@@ -253,7 +289,20 @@ A B C
 [1, 3, 5, 7]
 ```
 
-`if` is a statement, not an expression. To pick a value, use `match`, shown below.
+An `if` with an `else` also gives a value, so it can pick one in a `let`, a `return` or an interpolation. There is no `? :` operator.
+
+```vex title="ifvalue.vx"
+fn main() {
+    let score = 82
+    let grade = if score >= 90 { "A" } else if score >= 75 { "B" } else { "C" }
+    let items = 3
+    println(grade, "{items} {if items == 1 { "item" } else { "items" }}")
+}
+```
+
+```text title="Output"
+B 3 items
+```
 
 More: [Control flow](/docs/language/control-flow).
 
@@ -537,7 +586,42 @@ fn main() {
 Vec(x: 7.0, y: 10.0)
 ```
 
-More: [Structs](/docs/language/structs).
+**Equality and hashing.** A struct listing `Equatable` gets an `==` that compares its fields; `Hashable` also lets it be a map key. Without either, `==` on a struct is a compile error. `===` and `!==` tell whether two names refer to the same object, for any struct.
+
+```vex title="equality.vx"
+struct Point: Hashable {
+    x: int
+    y: int
+}
+
+struct Tag {
+    name: string
+}
+
+fn main() {
+    let a = Point(x: 1, y: 2)
+    let b = Point(x: 1, y: 2)
+    println(a == b, a === b)
+
+    var labels = [a: "home"]
+    labels[Point(x: 0, y: 0)] = "origin"
+    println(labels[b] ?? "?", labels.len)
+
+    let t = Tag(name: "new")
+    let same = t
+    println(t === same, t === Tag(name: "new"))
+}
+```
+
+```text title="Output"
+true false
+home 2
+true false
+```
+
+Lists compare element by element and maps entry by entry, and records of keys such as `(int, int)` work as map keys too.
+
+More: [Structs](/docs/language/structs), [Maps](/docs/language/maps).
 
 ## Enums and match
 
@@ -653,7 +737,7 @@ empty | just 7 | 1 then 2 more
 matched 3
 ```
 
-The compiler checks that a `match` covers every value, including nested shapes, and reports arms that can never run.
+The compiler checks that a `match` covers every value, including nested shapes, and reports arms that can never run. On an interface value, struct patterns and typed patterns such as `t: Text` also test which type it holds; see [Interfaces](#interfaces) below.
 
 More: [Patterns](/docs/language/patterns).
 
@@ -934,7 +1018,53 @@ error: Square doesn't implement 'area' from Shape
   |        ^^^^^^ add fn area() -> float
 ```
 
-More: [Interfaces](/docs/language/interfaces).
+**Type tests.** `x is T` asks whether an interface value holds a `T`. After the test, `x` has type `T` in the code it guards, so its fields can be used directly. `x as? T` gives the value as a `T`, or `nil`. In a `match`, `r: Rect` matches a `Rect` and binds it as one; a match on an interface always needs a `_` arm.
+
+```vex title="typetests.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.14 * radius * radius
+}
+
+struct Rect: Shape {
+    width: float
+    height: float
+    fn area() -> float => width * height
+}
+
+fn describe(s: Shape) -> string {
+    if s is Circle {
+        return "circle, radius {s.radius}"
+    }
+    return match s {
+        Rect(:width, :height) when width == height => "square, side {width}"
+        r: Rect => "rect, {r.width} by {r.height}"
+        _ => "shape"
+    }
+}
+
+fn main() {
+    let shapes: [Shape] = [Circle(radius: 1), Rect(width: 2, height: 2), Rect(width: 2, height: 3)]
+    for s in shapes {
+        println(describe(s))
+    }
+    let wide = (shapes[2] as? Rect)?.width ?? 0.0
+    println(wide)
+}
+```
+
+```text title="Output"
+circle, radius 1.0
+square, side 2.0
+rect, 2.0 by 3.0
+2.0
+```
+
+More: [Interfaces](/docs/language/interfaces), [Types](/docs/language/types#type-tests), [Patterns](/docs/language/patterns#type-patterns).
 
 ## Extensions
 
@@ -1064,7 +1194,44 @@ page of a.com
 
 The two fetches sleep at the same time, so together they take about 100 ms, not 200. Async code runs on one thread; for parallel work, use isolates.
 
-More: [Async](/docs/concurrency/async), [vex:time](/docs/stdlib/time).
+A `Stream<T>` gives many values over time. An `async fn` that returns a stream gives each value with `yield`, and `for await` reads them. A `StreamController<T>` makes a stream that other code fills with `add` and ends with `close`.
+
+```vex title="streams.vx"
+import "vex:time"
+
+async fn ticks(n: int) -> Stream<int> {
+    for i in 0..n {
+        await time.sleep(10)
+        yield i
+    }
+}
+
+async fn main() {
+    for await t in ticks(3) {
+        println("tick", t)
+    }
+
+    let messages = StreamController<string>()
+    messages.add("hello")
+    messages.add("bye")
+    messages.close()
+    for await m in messages.stream {
+        println(m)
+    }
+}
+```
+
+```text title="Output"
+tick 0
+tick 1
+tick 2
+hello
+bye
+```
+
+A stream function starts when its stream is first read and pauses at each `yield` until the reader takes the value. Leaving a `for await` loop early stops it.
+
+More: [Async](/docs/concurrency/async), [Streams](/docs/concurrency/async#streams), [vex:time](/docs/stdlib/time).
 
 ## Isolates
 
@@ -1323,6 +1490,47 @@ fn main() {
 Each pass through the loop creates a two-node cycle that becomes unreachable at the end of the iteration. The collector reclaims them as the program runs, so its memory stays small.
 
 More: [Memory](/docs/language/memory), [Memory management](/docs/internals/memory).
+
+## Tests
+
+A `test` block names a test and holds its code. `expect(cond)` reports a failure without stopping the test, and when `cond` compares two values, the report shows both. `vex test` runs the tests; other builds leave them out.
+
+```vex title="math.vx"
+fn add(a: int, b: int) -> int => a + b
+
+fn average(xs: [int]) -> int {
+    var sum = 0
+    for x in xs {
+        sum += x
+    }
+    return sum / xs.len
+}
+
+test "adds two numbers" {
+    expect(add(2, 3) == 5)
+    expect(add(-1, 1) == 0)
+}
+
+test "averages a list" {
+    expect(average([2, 4, 9]) == 5)
+    expect(average([1, 2]) == 2, "should round up")
+}
+```
+
+```text title="vex test math.vx"
+✓ adds two numbers
+✗ averages a list
+  math.vx:18: expect(average([1, 2]) == 2)
+    should round up
+    left:  1
+    right: 2
+
+2 tests: 1 passed, 1 failed
+```
+
+Integer division rounds down, so the second `expect` fails; its message and both sides show why. Each test runs in its own process, and the exit status is 1 when a test fails.
+
+More: [Testing](/docs/tools/testing).
 
 ## Built-in functions
 

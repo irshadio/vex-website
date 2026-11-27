@@ -13,6 +13,7 @@ A package is code written by someone else that your project uses. Vex has a desi
 | Folders of your own project, `import "models"` | Works |
 | `package.toml` with `[package]` and `[c]` | Works |
 | C libraries through the `[c]` section | Works |
+| C code for one system through `[c.macos]`, `[c.linux]` and `[c.windows]` | Works |
 | `[dependencies]` and `[dev-dependencies]` sections | Accepted and skipped |
 | `import "package:name"` | Planned; a compile error today |
 | `vex get` | Planned; not a command yet |

@@ -1,6 +1,6 @@
 ---
 title: Patterns
-description: Every pattern form in Vex, where patterns can be used (match, if case, let, var, for), guards with when, and how exhaustiveness and unreachable arms are checked.
+description: Every pattern form in Vex, including type patterns on interface values, where patterns can be used (match, if case, let, var, for), guards with when, and how exhaustiveness and unreachable arms are checked.
 ---
 
 A pattern describes the shape of a value. In one step it tests whether a value has that shape and takes it apart into names. Patterns are used in `match` arms, `if case`, and in `let`, `var` and `for` to destructure values.
@@ -115,7 +115,8 @@ error: match arms must have the same type: expected string, found int
 | `1..=9`, `0..10` | an `int` or `float` in the range |
 | `> 100`, `<= 0` | an `int`, `float` or `string` that compares so |
 | `circle(r)`, `rect(height: h)` | that enum case, with its values matching the inner patterns |
-| `Point(x: 0, :y)` | a struct whose named fields match; other fields are ignored |
+| `Point(x: 0, :y)` | a struct whose named fields match; other fields are ignored. On an interface value, it also tests that the value is a `Point` |
+| `t: Text` | an interface value that is a `Text`, bound to `t` as one |
 | `(a, b)`, `(:min, max: _)` | a record, with every field given |
 | `[]`, `[a, b]`, `[first, ...rest]`, `[..., last]` | a list of that exact length, or at least that long with `...` |
 | `a \|\| b` | either pattern |
@@ -188,7 +189,7 @@ fn main() {
 minus one zero other true false
 ```
 
-A name that refers to a `const` matches values equal to the constant, unless a local variable has the same name:
+A name that refers to a `const` matches values equal to the constant, unless a local variable has the same name. Only constants are compared: a name in a pattern binds a new variable even when a [top-level variable](/docs/language/basics#top-level-variables) has the same name.
 
 ```vex title="const_pattern.vx"
 const okCode = 200
@@ -420,6 +421,63 @@ error: field 'x' is matched twice
 
 3 errors
 ```
+
+### Type patterns
+
+On a value of an [interface](/docs/language/interfaces) type, a pattern can test which struct or enum the value holds. A struct pattern does this by itself: `Button(:label)` matches only a `Button`. A typed pattern, `name: Type`, matches a value of that type and binds the whole value to `name` as that type:
+
+```vex title="type_patterns.vx"
+interface View {
+    fn describe() -> string
+}
+
+struct Text: View {
+    content: string
+    fn describe() -> string => "text"
+}
+
+struct Button: View {
+    label: string
+    fn describe() -> string => "button"
+}
+
+struct Image: View {
+    width: int
+    fn describe() -> string => "image"
+}
+
+fn render(view: View) -> string => match view {
+    Button(:label) => "button {label}"
+    t: Text => "text {t.content}"
+    i: Image when i.width == 0 => "empty image"
+    _ => "other {view.describe()}"
+}
+
+fn main() {
+    let views: [View] = [Button(label: "OK"), Text(content: "hi"), Image(width: 0), Image(width: 40)]
+    for v in views {
+        println(render(v))
+    }
+    for v in views {
+        if v case Image(width: w) when w > 0 {
+            println("image {w} wide")
+        }
+    }
+}
+```
+
+```text title="Output"
+button OK
+text hi
+empty image
+other image
+image 40 wide
+```
+
+- The type is a struct, an enum or another interface that the value's interface allows. A type that can't hold it is an error, as with [`is`](/docs/language/types#type-tests).
+- Interfaces are open: another struct can implement one at any time. A `match` on an interface value always needs a `_` arm.
+- Type patterns nest like any other: `[t: Text, Image(:width)]` matches a list of views that starts with a text and ends with an image.
+- On a value whose type is already a struct, a typed pattern is an error, since it always matches; use a binding instead.
 
 ### Record patterns
 
@@ -665,6 +723,7 @@ What counts as covered:
 - **`bool`** is covered by `true` and `false`.
 - **Records** are covered when every combination of their fields is.
 - **Lists** are covered by `[]` together with `[_, ...]`, or by any set of lengths that ends with a `...` pattern.
+- **Interface values** are never covered by type patterns alone, since any struct may implement the interface later. Add a `_` arm.
 - **`int`, `float` and `string`** have too many values to list, so a match on them always needs a `_` arm, even as a statement:
 
 ```vex title="needs_wildcard.vx"
@@ -893,7 +952,8 @@ fn main() {
 - `let`, `var` and `for` patterns can't fail. `var` patterns make changeable names; names from `match` and `if case` can't change.
 - `...rest` copies, and a list pattern has at most one `...`.
 - `nil` isn't a pattern. Unwrap optionals with `if let` or `??` first.
-- Interface values can't be matched against a struct pattern: there is no downcasting.
+- On an interface value, struct patterns and typed patterns (`t: Text`) test the type. A match on an interface needs `_`.
+- A name in a pattern binds a new variable even when a top-level variable has that name; only constants are compared.
 
 ## See also
 

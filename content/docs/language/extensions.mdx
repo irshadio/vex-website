@@ -241,7 +241,7 @@ A list or map extension is either for one element type, such as `extension [int]
 
 ```vex title="collections.vx"
 extension [int] {
-    fn sum() -> int {
+    fn total() -> int {
         var total = 0
         for x in self {
             total += x
@@ -280,7 +280,7 @@ extension [string: int] {
 }
 
 fn main() {
-    println([1, 2, 3].sum())
+    println([1, 2, 3].total())
     println([3, 9, 2].largest() ?? 0, ["b", "c", "a"].largest() ?? "")
     let empty: [int] = []
     println(empty.largest() ?? -1)

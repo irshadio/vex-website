@@ -1,6 +1,6 @@
 ---
 title: Closures
-description: Closures and function values, function types, capturing variables, higher-order functions, tear-offs, trailing blocks and builder blocks.
+description: Closures and function values, function types, capturing variables, higher-order functions, async closures, tear-offs, trailing blocks and builder blocks.
 ---
 
 Functions are values in Vex. You can store them in variables, pass them to other functions, return them, and keep them in lists and struct fields. A closure is a function without a name, written inline, that can use the variables around it.
@@ -67,6 +67,7 @@ A function type is written `fn(ParamTypes) -> Result`:
 | `fn(int, int) -> int` | Takes two ints, returns an int |
 | `fn() -> [string]` | Takes nothing, returns a list |
 | `fn(int) throws -> int` | May throw an error |
+| `async fn(string) -> string` | An async function; see [Async closures](#async-closures) |
 | `fn()?` | An optional function |
 | `(fn() -> int)?` | An optional function that returns an int; the parentheses are needed |
 
@@ -214,29 +215,42 @@ fn main() {
 [42, 88, 56] ["42 pts", "88 pts", "56 pts"] 2
 ```
 
-There are no built-in `reduce`, `forEach`, `sort` or `any` yet. Write a `for` loop, or your own function, possibly as a list [extension](/docs/language/extensions):
+Lists have more members that take functions, such as `reduce`, `find`, `any`, `all` and `sort(by:)`:
+
+```vex title="listfns.vx"
+fn main() {
+    let scores = [42, 7, 19, 88, 3, 56]
+    println(scores.reduce(0, fn(sum, s) => sum + s))
+    println(scores.any(fn(s) => s > 80), scores.all(fn(s) => s > 5))
+    println(scores.find(fn(s) => s > 50))
+    println(scores.sorted(by: fn(a, b) => a > b))
+}
+```
+
+```text title="Output"
+215
+true false
+88
+[88, 56, 42, 19, 7, 3]
+```
+
+See [Lists](/docs/language/lists) for all of them. Your own functions can take and return functions too, possibly as a list [extension](/docs/language/extensions):
 
 ```vex title="compose.vx"
 fn compose(f: fn(int) -> int, g: fn(int) -> int) -> fn(int) -> int {
     return fn(x: int) -> int => g(f(x))
 }
 
-fn reduce(xs: [int], start: int, combine: fn(int, int) -> int) -> int {
-    var acc = start
-    for x in xs { acc = combine(acc, x) }
-    return acc
-}
-
 fn main() {
     let incThenDouble = compose(fn(x) => x + 1, fn(x) => x * 2)
     println(incThenDouble(3))
-    println(reduce([1, 2, 3, 4], 0, fn(a, b) => a + b))
+    println([1, 2, 3].map(incThenDouble))
 }
 ```
 
 ```text title="Output"
 8
-10
+[4, 6, 8]
 ```
 
 ### Closures that throw
@@ -269,7 +283,46 @@ negative: -2
 [2, 4] [] [4]
 ```
 
-See [Errors](/docs/language/errors). Closures can't be `async`.
+See [Errors](/docs/language/errors).
+
+## Async closures
+
+A closure written `async fn(...)` is async: it can `await`, and calling it gives a future unless the call is awaited. Its type is `async fn(T) -> R`. A closure passed or assigned where an async function is expected is async too, even without the keyword:
+
+```vex title="asyncclosure.vx"
+import "vex:time"
+
+fn later(ms: int, action: async fn() -> string) -> Future<string> {
+    return action()
+}
+
+async fn main() {
+    let delayed = async fn(text: string, ms: int) -> string {
+        await time.sleep(ms)
+        return text
+    }
+    println(await delayed("hi", 5))
+    let pending = later(5) {
+        await time.sleep(5)              // async, since action is an async fn
+        return "done"
+    }
+    println(pending)
+    println(await pending)
+    println(delayed)
+}
+```
+
+```text title="Output"
+hi
+<Future<string>>
+done
+<async fn(string, int) -> string>
+```
+
+- Only async closures can await: `await is only allowed in async closures`.
+- A plain function or closure can be used where an async one is expected; it never waits. An async one can't be used where a plain one is expected: `expected fn() -> int, found async fn() -> int`.
+
+See [Async closures and function values](/docs/concurrency/async#async-closures-and-function-values) for more.
 
 ## Tear-offs
 
@@ -307,11 +360,12 @@ HI
 - A tear-off keeps the value it was taken from, even if the variable changes later.
 - `x?.method` is `nil` when `x` is `nil`, and otherwise a function bound to the value inside.
 - A method must be torn off a value: `User.greet` gives `method 'greet' isn't static, so it needs a value of type User`.
-- Async methods, generic methods and `map` can't be torn off yet: `async method 'load' can't be used as a value yet`, `'map' can't be used as a value`. Wrap them in a closure.
+- An async method tears off as an async function value, such as `async fn(int) -> string?`.
+- Generic methods and `map` can't be torn off: `generic method 'pick' can't be used as a value`, `'map' can't be used as a value`. Wrap them in a closure.
 
 ## Trailing blocks
 
-When the last parameter of a function has type `fn()`, you can pass a block after the call's parentheses instead of inside them:
+When the last parameter of a function has type `fn()` or `async fn()`, you can pass a block after the call's parentheses instead of inside them:
 
 ```vex title="trailing.vx"
 fn repeat(times: int, action: fn()) {
@@ -337,7 +391,7 @@ fn main() {
 23
 ```
 
-- The block is a closure with no parameters, so the last parameter must be `fn()` (or a list, for builder blocks below). For other function types, pass a closure in the parentheses: `a trailing block needs the last parameter of each to be fn() or a list, but 'f' is fn(int)`.
+- The block is a closure with no parameters, so the last parameter must be `fn()` (or a list, for builder blocks below). For an `async fn()` parameter, the block is an [async closure](#async-closures) and can await. For other function types, pass a closure in the parentheses: `a trailing block needs the last parameter of each to be fn() or a list, but 'f' is fn(int)`.
 - A call with only a trailing block can leave out the `()`: `Column { ... }`.
 - Passing the last argument both in the parentheses and as a trailing block is an error: `the last argument of onTap is given twice: in the call and as a trailing block`.
 - After `if`, `for`, `while` and similar headers, a `{` always starts the body, never a trailing block.

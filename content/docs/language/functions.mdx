@@ -114,9 +114,11 @@ error: this expression has no value to store
   |             ^^^^^
 ```
 
-`if` isn't an expression, so it can't be an `=>` body. Use `match`, or a block:
+An [`if` with an `else`](/docs/language/control-flow#if-as-a-value) and a `match` both give a value, so either can be an `=>` body:
 
 ```vex title="matchbody.vx"
+fn sign(n: int) -> string => if n < 0 { "negative" } else if n == 0 { "zero" } else { "positive" }
+
 fn label(n: int) -> string => match n {
     0 => "none"
     1 => "one"
@@ -124,11 +126,13 @@ fn label(n: int) -> string => match n {
 }
 
 fn main() {
+    println(sign(-3), sign(0), sign(8))
     println(label(0), label(1), label(5))
 }
 ```
 
 ```text title="Output"
+negative zero positive
 none one many
 ```
 
@@ -405,6 +409,7 @@ Methods, `static` members and getters are covered on the [Structs](/docs/languag
 | Generic functions | `fn first<T>(xs: [T]) -> T?` | [Generics](/docs/language/generics) |
 | Functions that can fail | `fn parse(s: string) throws -> int` | [Errors](/docs/language/errors) |
 | Async functions | `async fn fetch(url: string) -> string` | [Async](/docs/concurrency/async) |
+| Async function values | `async fn(string) -> string` | [Async](/docs/concurrency/async#async-closures-and-function-values) |
 | Public functions | `pub fn` | [Modules](/docs/projects/modules) |
 | C functions | `extern fn`, `export fn` | [C interop](/docs/projects/c-interop) |
 

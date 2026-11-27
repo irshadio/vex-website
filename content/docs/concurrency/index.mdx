@@ -1,6 +1,6 @@
 ---
 title: Concurrency
-description: The two concurrency tools in Vex, async functions on one event loop and isolates on other cores, and how to choose between them.
+description: The two concurrency tools in Vex, async functions and streams on one event loop and isolates on other cores, and how to choose between them.
 ---
 
 Vex has two tools for doing more than one thing at a time. **Async functions** let one thread wait for timers and messages without stopping, by switching between tasks at each `await`. **Isolates** run code in parallel on other processor cores, each with its own memory, and talk to each other through copies of values.
@@ -21,7 +21,7 @@ Between isolates:
 
 - Each isolate runs on its own thread, truly in parallel.
 - Values never move between isolates by reference. They are copied, deeply, when an isolate starts, when it returns its result and when they pass through a channel.
-- A `Channel<T>` is the one object every isolate that has it can see: a shared queue of copied messages.
+- A `Channel<T>` is the one object every isolate that has it can see: a shared queue of copied messages. Futures and streams stay in the isolate that made them.
 
 ## Async or isolates
 
@@ -30,6 +30,11 @@ Between isolates:
 | Wait for a timer without stopping the rest of the program | `async fn` and `await time.sleep(ms)` |
 | Run several waits at once and collect the results | Call async functions without `await`, then `await all([...])` |
 | Take whichever of several operations finishes first | `await any([...])` |
+| Stop a task whose result is no longer needed | `f.cancel()` |
+| Give up waiting after a time limit | `await time.timeout(f, ms) ?? fallback` |
+| Handle values that arrive over time, one by one | A stream function (`async fn f() -> Stream<T>` with `yield`) and `for await` |
+| Turn callbacks, such as taps, into a stream | `StreamController<T>` with `add` and `close` |
+| Pass async work around, such as a button's action | `async fn()` values and async closures |
 | Run CPU-heavy work without freezing the main isolate | `await isolate.run(fn() -> T { ... })` |
 | Use more than one core for a batch of work | Several `isolate.run` calls, then `await all([...])` |
 | Keep a background worker running and feed it jobs | `isolate.spawn` with `Channel<T>` |
@@ -70,14 +75,14 @@ tick 2
 total 500500
 ```
 
-## What is planned
+## Host run loops
 
-Streams (`async*` and `for await`) are planned. A host program that has its own run loop can already drive the Vex event loop through the C function `vex_poll`; see [Async](/docs/concurrency/async#embedding-the-event-loop).
+A host program that has its own run loop, such as a game engine or a GUI toolkit, can drive the Vex event loop through the C function `vex_poll`; see [Async](/docs/concurrency/async#embedding-the-event-loop).
 
 ## Pages in this section
 
 <Cards>
-  <Card title="Async and await" href="/docs/concurrency/async" description="Tasks, futures, the event loop, all, any, run, errors and ordering rules." />
+  <Card title="Async and await" href="/docs/concurrency/async" description="Tasks, futures, the event loop, all, any, run, errors, async closures, cancellation, timeouts, streams and ordering rules." />
   <Card title="Isolates and channels" href="/docs/concurrency/isolates" description="isolate.run, isolate.spawn, Channel<T>, what can be copied, and blocking." />
 </Cards>
 

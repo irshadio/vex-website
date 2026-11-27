@@ -1,0 +1,568 @@
+---
+title: Testing
+description: Writing test blocks and _test.vx files, checking values with expect, running them with vex test and -filter, the exact output format, how each test runs in its own process, and the compile errors for misuse.
+---
+
+Tests are part of the language. A `test` block names a test and holds its code, `expect` checks a condition, and `vex test` builds and runs every test of a project or a file. Other builds, `vex run`, `vex build` and `vex emit-c`, leave tests out, so they cost nothing in the program you ship.
+
+## A first test
+
+```toml title="package.toml"
+[package]
+name = "calc"
+```
+
+```vex title="main.vx"
+fn add(a: int, b: int) -> int => a + b
+
+fn parse(text: string) throws -> [int] {
+    if text == "" {
+        throw Error("empty input")
+    }
+    var out: [int] = []
+    for part in text.split(",") {
+        guard let n = int.parse(part) else {
+            throw Error("not a number: {part}")
+        }
+        out.push(n)
+    }
+    return out
+}
+
+fn main() {
+    println(add(1, 2))
+}
+
+test "adds in the same file" {
+    expect(add(2, 2) == 4)
+}
+```
+
+```vex title="main_test.vx"
+test "adds two numbers" {
+    expect(add(2, 3) == 5)
+}
+
+test "parses a list" throws {
+    let xs = try parse("1,2,3")
+    expect(xs.len == 2, "two items")
+    expect(xs[0] == 1)
+}
+
+test "rejects empty input" throws {
+    let xs = try parse("")
+    expect(xs.isEmpty)
+}
+
+test "reads past the end" {
+    let xs = [1, 2, 3]
+    println(xs[5])
+}
+```
+
+```sh
+vex test
+```
+
+```text title="Output"
+✓ adds in the same file
+✓ adds two numbers
+✗ parses a list
+  main_test.vx:7: expect(xs.len == 2)
+    two items
+    left:  3
+    right: 2
+✗ rejects empty input
+  error: empty input
+✗ reads past the end
+error: index 5 is out of range for a list of length 3
+ --> main_test.vx:18
+
+5 tests: 2 passed, 3 failed
+```
+
+`vex test` exits with status 1 because tests failed. `vex run` in the same folder still prints `3`: the tests aren't part of the program.
+
+## Test blocks
+
+```vex
+test "name" {
+    // statements
+}
+
+test "name" throws {
+    // statements that may use try
+}
+```
+
+- A test is a top-level declaration, like a function. `test` is followed by a string literal, its name, and a block.
+- The name is any non-empty text, spaces included. Two tests of one program can't have the same name.
+- A test takes no parameters and returns nothing.
+- The body is ordinary code: it can declare variables, call any function, use loops and closures, and print. What it prints is mixed with the report in the order it happens: a passing test's `✓` line comes after its output, and a failing test's `✗` line comes at its first failure.
+- With `throws` after the name, the body may use `try` without a `catch`. An error passed up out of the test fails it, and the output shows `error:` with the error's message.
+- `test` is only special at the top level and before a string. It isn't reserved, so a function or variable can still be named `test`.
+
+## expect
+
+```vex
+expect(condition)
+expect(condition, message)
+```
+
+`expect` reports a failed condition and lets the test go on, so one run shows every problem in the test. The test fails if any `expect` in it fails.
+
+A failure prints the file and line, and the condition as it is written in the source. The optional message, a `string`, comes on the next line. When the condition is a single comparison with `==`, `!=`, `<`, `<=`, `>` or `>=`, the failure also shows the value of each side, as `println` would show it, with strings in quotes. Each side is evaluated once.
+
+```vex title="checks.vx"
+struct Point: Equatable {
+    x: int
+    y: int
+}
+
+test "shows what failed" {
+    let p = Point(x: 1, y: 2)
+    expect(p == Point(x: 1, y: 3))
+    expect([1, 2].len >= 3, "needs three items")
+    let name: string? = nil
+    expect(name != nil)
+    expect(name == "Ann")
+    expect(p.x > 0 && p.y > 5)
+    println("still running")
+}
+```
+
+```sh
+vex test checks.vx
+```
+
+```text title="Output"
+✗ shows what failed
+  checks.vx:8: expect(p == Point(x: 1, y: 3))
+    left:  Point(x: 1, y: 2)
+    right: Point(x: 1, y: 3)
+  checks.vx:9: expect([1, 2].len >= 3)
+    needs three items
+    left:  2
+    right: 3
+  checks.vx:11: expect(name != nil)
+  checks.vx:12: expect(name == "Ann")
+    left:  nil
+    right: "Ann"
+  checks.vx:13: expect(p.x > 0 && p.y > 5)
+still running
+
+1 test: 0 passed, 1 failed
+```
+
+- A comparison with a `nil` literal on either side shows no values; there would be nothing to add.
+- A condition built from several parts, such as `a && b`, shows no values either. Split it into one `expect` per comparison to see them.
+- `expect` only works in a program built by `vex test`. There it can also go in a helper function that tests call; in any other build it is a compile error. Use [`assert`](/docs/stdlib/built-ins#panic-and-assert), which stops the program, for checks that belong in the program itself.
+
+Put helpers that call `expect` in a `_test.vx` file, which only `vex test` reads, so `vex run`, `vex build` and `vex check` never see them. A failure points at the `expect` inside the helper, so a message that names the inputs helps:
+
+```vex title="helpers_test.vx"
+fn expectSum(a: int, b: int, want: int) {
+    expect(add(a, b) == want, "{a} + {b}")
+}
+
+test "adds with a helper" {
+    expectSum(1, 2, 3)
+    expectSum(2, 2, 5)
+}
+```
+
+```text title="vex test -filter helper"
+✗ adds with a helper
+  helpers_test.vx:2: expect(add(a, b) == want)
+    2 + 2
+    left:  4
+    right: 5
+
+1 test: 0 passed, 1 failed
+```
+
+To stop a test at a failure, because the rest of it would make no sense, use `assert` or `panic`. The test fails with their runtime error, and earlier `expect` failures are still shown.
+
+## Where tests go
+
+Tests can go in any `.vx` file, next to the code they test, or in files whose names end in `_test.vx`.
+
+| File | Read by `vex test` | Read by other commands |
+|---|---|---|
+| `main.vx`, any `.vx` file | Yes, tests included | Yes, tests left out |
+| `main_test.vx`, any `*_test.vx` file in the project's top folder | Yes | No |
+| `*_test.vx` in a module folder | No | No |
+
+- Test files belong to the module of their folder, so tests see every private declaration of it, not only `pub` ones. In the first example, the tests call `add` and `parse`, which aren't `pub`.
+- Imports belong to each file, so a test file imports what it uses, the same way as any other file.
+- Only the tests of the top-level module run: the project's top folder, or the file given to `vex test`. Tests in imported modules, including their `_test.vx` files, are left out, so a project's tests never run the tests of its dependencies.
+
+```text
+shop/
+  package.toml
+  main.vx
+  main_test.vx
+  prices/
+    prices.vx        // its test blocks don't run
+    prices_test.vx   // never read
+```
+
+```vex title="main_test.vx"
+import "prices"
+
+test "labels whole amounts" {
+    expect(label(1200) == "12.0")
+}
+
+test "adds tax" {
+    expect(prices.withTax(1000) == 1200)
+}
+```
+
+```text title="vex test"
+✓ labels whole amounts
+✓ adds tax
+
+2 tests: 2 passed, 0 failed
+```
+
+A program built for tests needs no `main`, and its `main` doesn't run.
+
+## Running tests
+
+```text
+vex test [file or folder] [flags]
+```
+
+The target works as for the other commands (see [File mode and project mode](/docs/tools/cli#file-mode-and-project-mode)):
+
+| Target | Tests that run |
+|---|---|
+| nothing | The project in the current folder: its top-folder `.vx` and `_test.vx` files |
+| a folder | The project in that folder, which must have a `package.toml` |
+| `file.vx` | The tests in that one file. Other files, `_test.vx` ones included, aren't read |
+
+A `_test.vx` file usually needs the rest of its project, so run it through the project. Given alone, it is a single-file program, and names from the other files are unknown:
+
+```sh
+vex test main_test.vx
+```
+
+```text title="Output"
+error: unknown function 'add'
+ --> main_test.vx:2:12
+  |
+2 |     expect(add(2, 3) == 5)
+  |            ^^^
+
+error: unknown function 'parse'
+ --> main_test.vx:6:18
+  |
+6 |     let xs = try parse("1,2,3")
+  |                  ^^^^^
+
+error: unknown function 'parse'
+  --> main_test.vx:12:18
+   |
+12 |     let xs = try parse("")
+   |                  ^^^^^
+
+3 errors
+```
+
+`vex test main.vx`, on the other hand, runs the one test inside `main.vx`:
+
+```text title="vex test main.vx"
+✓ adds in the same file
+
+1 test: 1 passed, 0 failed
+```
+
+Tests run in the order they appear, file by file, in the order the files are read: alphabetically by name.
+
+### Flags
+
+| Flag | Effect |
+|---|---|
+| `-filter text` | Run only the tests whose names contain `text`. The match is exact and case-sensitive |
+| `--debug` | Compile the tests without optimizations and with debug information (`-O0 -g`) |
+| `--sanitize=list` | Build in sanitizers: `address`, `undefined` and `thread`, comma-separated |
+
+Flags can come before or after the target, and take one dash or two: `-filter adds`, `--filter adds` and `-filter=adds` are the same. `--debug` and `--sanitize` work as for `vex build`; see [Build modes](/docs/tools/cli#build-modes).
+
+```sh
+vex test -filter adds
+```
+
+```text title="Output"
+✓ adds in the same file
+✓ adds two numbers
+
+2 tests: 2 passed, 0 failed
+```
+
+```sh
+vex test calc -filter parses
+```
+
+```text title="Output"
+✗ parses a list
+  calc/main_test.vx:7: expect(xs.len == 2)
+    two items
+    left:  3
+    right: 2
+
+1 test: 0 passed, 1 failed
+```
+
+File names in the output are shown as they are reached from the target, so running from the parent folder gives `calc/main_test.vx`.
+
+## The output
+
+`vex test` prints to standard output:
+
+| Line | Meaning |
+|---|---|
+| `✓ name` | The test passed |
+| `✗ name` | The test failed; the lines below it say why |
+| `  file:line: expect(condition)` | A failed `expect`, followed by its message and the two values when there are any, indented by four spaces |
+| `  error: message` | An error passed up out of a `throws` test |
+| `  stopped with exit status n` | The test ended the process, for example with `os.exit(n)`, without another failure |
+| `  crashed with signal n` | The test's process was killed by a signal, for example from C code |
+| `n tests: p passed, f failed` | The summary, after a blank line. It says `1 test` for one |
+| `no tests` | The program has no tests. Exit status 0 |
+| `no tests match 'text'` | `-filter` matched no test. Exit status 1 |
+
+A runtime error in a test, such as an index out of range, a failed `assert` or a `panic`, prints the test's `✗` line, then the usual runtime error message on standard error, in the format of [Runtime errors](/docs/tools/runtime-errors).
+
+Compile errors and [warnings](/docs/tools/compile-errors#warnings) are printed before anything runs, as for `vex run`. With compile errors, no test runs.
+
+## Each test runs in its own process
+
+`vex test` builds one executable with every test in it, then starts a fresh copy of the process for each test. A test can't change what another one sees, and a runtime error or a crash fails only that test; the others still run.
+
+```vex title="isolation.vx"
+import "vex:os"
+
+extern fn abort()
+
+var counter = 0
+
+test "counts to one" {
+    counter += 1
+    expect(counter == 1)
+}
+
+test "starts from zero again" {
+    counter += 1
+    expect(counter == 1)
+}
+
+test "divides by zero" {
+    let zero = counter
+    println(10 / zero)
+}
+
+test "exits" {
+    os.exit(3)
+}
+
+test "aborts in C" {
+    abort()
+}
+```
+
+```sh
+vex test isolation.vx
+```
+
+```text title="Output"
+✓ counts to one
+✓ starts from zero again
+✗ divides by zero
+error: division by zero
+ --> isolation.vx:19
+✗ exits
+  stopped with exit status 3
+✗ aborts in C
+  crashed with signal 6
+
+5 tests: 2 passed, 3 failed
+```
+
+A test that exits with status 0 before its end, with `os.exit(0)`, passes unless an `expect` failed first.
+
+## Async code in tests
+
+A test isn't async, so it can't use `await`. Wait for a future with [`run`](/docs/stdlib/built-ins#run-all-and-any), which runs the event loop until the future is done:
+
+```vex title="fetch.vx"
+import "vex:time"
+
+async fn load(id: int) -> string {
+    await time.sleep(10)
+    return "item {id}"
+}
+
+test "loads an item" {
+    let name = run(load(7))
+    expect(name == "item 7")
+}
+
+test "loads two items" {
+    let names = run(all([load(1), load(2)]))
+    expect(names == ["item 1", "item 2"])
+}
+```
+
+```text title="vex test fetch.vx"
+✓ loads an item
+✓ loads two items
+
+2 tests: 2 passed, 0 failed
+```
+
+A future that can fail needs `try run(...)` in a `throws` test. After the test's body, its process also finishes the tasks and timers it started, as a program does after `main`.
+
+## Exit status
+
+| Status | When |
+|---|---|
+| 0 | Every test that ran passed, or the program has no tests |
+| 1 | A test failed, `-filter` matched no test, or the tests didn't compile |
+| 2 | A usage error, such as an unknown flag, `-filter` without a value or more than one target |
+
+## Compile errors
+
+Test code is only checked by `vex test`. `vex check`, `vex run` and `vex build` leave test blocks out before checking types, so a type error inside a test shows up only when the tests run. Syntax errors in test blocks are reported by every command.
+
+### expect outside a test
+
+```vex title="outside.vx"
+fn main() {
+    expect(1 + 1 == 2)
+}
+```
+
+```text title="vex run outside.vx"
+error: expect only works in tests
+ --> outside.vx:2:5
+  |
+2 |     expect(1 + 1 == 2)
+  |     ^^^^^^ use it in a test block, run by vex test, or use assert
+```
+
+`vex run`, `vex build`, `vex check` and `vex emit-c` report every `expect` in the code they read, including one in a helper function meant for tests. `vex test` accepts `expect` anywhere: `vex test outside.vx` prints `no tests`, since the file has none. Keep helpers that call `expect` in `_test.vx` files.
+
+`expect` is a built-in name, so it can't be used for a variable, function or type, the same as `assert`.
+
+### a test named 'name' is already on line n
+
+```vex title="dup.vx"
+test "adds" {
+    expect(1 + 1 == 2)
+}
+
+test "adds" {
+    expect(2 + 2 == 4)
+}
+```
+
+```text title="Output"
+error: a test named 'adds' is already on line 1
+ --> dup.vx:5:6
+  |
+5 | test "adds" {
+  |      ^^^^^^ give each test its own name
+```
+
+### a test needs a name
+
+```vex title="noname.vx"
+test "" {
+    expect(true)
+}
+```
+
+```text title="Output"
+error: a test needs a name
+ --> noname.vx:1:6
+  |
+1 | test "" {
+  |      ^^ e.g. test "adds two numbers" { ... }
+```
+
+Leaving the string out entirely, as in `test {`, isn't read as a test at all, and gives `expected 'fn', 'struct', 'enum' or 'interface', found 'test'`.
+
+### a test can't return a value
+
+```vex title="ret.vx"
+test "gives a value" -> int {
+    return 1
+}
+```
+
+```text title="Output"
+error: a test can't return a value
+ --> ret.vx:1:22
+  |
+1 | test "gives a value" -> int {
+  |                      ^^ a test returns nothing; check values with expect
+```
+
+### await in a test
+
+```vex title="aw.vx"
+import "vex:time"
+
+async fn load() -> int {
+    await time.sleep(10)
+    return 42
+}
+
+test "loads" {
+    let n = await load()
+    expect(n == 42)
+}
+```
+
+```text title="Output"
+error: await is only allowed in async functions
+ --> aw.vx:9:13
+  |
+9 |     let n = await load()
+  |             ^^^^^^^^^^^^ mark the function async: async fn ...
+```
+
+A test can't be async. Write `let n = run(load())` instead.
+
+### try in a test without throws
+
+```vex title="notry.vx"
+fn parse(s: string) throws -> int {
+    return 1
+}
+
+test "parses" {
+    let n = try parse("1")
+    expect(n == 1)
+}
+```
+
+```text title="Output"
+error: the error can't pass up: test#1 doesn't throw
+ --> notry.vx:6:13
+  |
+6 |     let n = try parse("1")
+  |             ^^^^^^^^^^^^^^ handle it with catch, use try?, or declare fn test#1(...) throws
+```
+
+`test#1` is the compiler's name for the first test. Add `throws` after the test's name, `test "parses" throws { ... }`, or handle the error with `catch`.
+
+## See also
+
+- [The vex command](/docs/tools/cli)
+- [Built-ins](/docs/stdlib/built-ins)
+- [Errors](/docs/language/errors)
+- [Runtime errors](/docs/tools/runtime-errors)
+- [Modules and projects](/docs/projects/modules)

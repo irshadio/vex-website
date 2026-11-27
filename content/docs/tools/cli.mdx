@@ -1,6 +1,6 @@
 ---
 title: The vex command
-description: Every vex subcommand, argument and flag, how file and project mode work, where binaries go, exit codes, and the environment variables the compiler and runtime read.
+description: Every vex subcommand, argument and flag, how file and project mode work, where binaries go, debug and sanitizer builds, exit codes, and the environment variables the compiler and runtime read.
 ---
 
 `vex` is the compiler and toolchain in one command. It checks Vex source, translates it to C, calls the system C compiler to build a native executable, and can run the result right away. This page documents every subcommand as of version `0.1.0-dev`.
@@ -13,9 +13,10 @@ vex <command> [arguments]
 
 | Command | What it does |
 |---|---|
-| [`vex run [file or folder] [-- args]`](#vex-run) | Compile and run a program |
-| [`vex build [file or folder] [-o out]`](#vex-build) | Build a native executable |
+| [`vex run [flags] [file or folder] [-- args]`](#vex-run) | Compile and run a program |
+| [`vex build [file or folder] [-o out] [flags]`](#vex-build) | Build a native executable |
 | [`vex check [file or folder]`](#vex-check) | Check a program for errors without building it |
+| [`vex test [file or folder] [flags]`](#vex-test) | Run the program's tests |
 | [`vex emit-c [file or folder]`](#vex-emit-c) | Print the generated C code |
 | [`vex ast <file>`](#vex-ast) | Print the syntax tree of one source file |
 | [`vex tokens <file>`](#vex-tokens) | Print the tokens of one source file |
@@ -25,12 +26,12 @@ vex <command> [arguments]
 There are no global flags other than `-h`/`--help` (the same as `vex help`) and `-v`/`--version` (the same as `vex version`).
 
 <Callout type="warn" title="Planned">
-There is no `vex test`, `vex fmt`, `vex new` or `vex get` yet. Package fetching is designed but not built; see [Packages](/docs/projects/packages).
+There is no `vex fmt`, `vex new` or `vex get` yet. Package fetching is designed but not built; see [Packages](/docs/projects/packages).
 </Callout>
 
 ## File mode and project mode
 
-`run`, `build`, `check` and `emit-c` take a target, which is either a source file or a project folder.
+`run`, `build`, `check`, `test` and `emit-c` take a target, which is either a source file or a project folder.
 
 | Target | Mode | What is compiled |
 |---|---|---|
@@ -52,10 +53,23 @@ Project structure and `package.toml` are covered in [Modules and projects](/docs
 ## vex run
 
 ```text
-vex run [file or folder] [-- args]
+vex run [flags] [file or folder] [-- args]
 ```
 
 Compiles the program, builds it in a temporary folder, runs it, and deletes the executable afterwards.
+
+| Flag | Effect |
+|---|---|
+| `--debug` | Compile without optimizations and with debug information (`-O0 -g`) instead of `-O3` |
+| `--sanitize=list` | Build in sanitizers that stop the program at memory and other errors: `address`, `undefined` and `thread`, comma-separated |
+
+The flags must come before the program; anything after the program goes to it. See [Build modes](#build-modes).
+
+```sh
+vex run --debug args.vx one     # built with -O0 -g; os.args() is ["one"]
+vex run args.vx --debug         # an optimized build; os.args() is ["--debug"]
+vex run --sanitize=address,undefined app.vx
+```
 
 ```sh
 vex run hello.vx            # a single file
@@ -104,10 +118,18 @@ The second message means the generated program crashed in a way the runtime didn
 ## vex build
 
 ```text
-vex build [file or folder] [-o output]
+vex build [file or folder] [-o out] [flags]
 ```
 
 Builds a native executable and prints its path.
+
+| Flag | Effect |
+|---|---|
+| `-o out` | Where to write the program (default: its name) |
+| `--debug` | Compile without optimizations and with debug information (`-O0 -g`) instead of `-O3`, and keep the generated C next to the program as `<out>.c` |
+| `--sanitize=list` | Build in sanitizers that stop the program at memory and other errors: `address`, `undefined` and `thread`, comma-separated |
+
+Flags can come before or after the target. See [Build modes](#build-modes) for `--debug` and `--sanitize`.
 
 ```sh
 vex build hello.vx
@@ -142,7 +164,7 @@ vex: building would replace the source file h; choose another name with -o
 
 The executable is self-contained: the runtime and garbage collector are compiled into it, and it depends only on the C library and the system math and thread libraries. Copy it to another machine with the same operating system and CPU architecture and it runs there. There is no cross-compilation option yet.
 
-Builds are always optimized (`-O3`). There is no separate debug mode; see [`VEX_CFLAGS`](#environment-variables) to change the C compiler flags.
+Builds are optimized with `-O3` unless `--debug` is given.
 
 ## vex check
 
@@ -162,6 +184,41 @@ hello.vx: no errors
 
 With no target it checks the project in the current folder and prints `.: no errors`. When there are errors, it prints them to standard error and exits with status 1. See [Compile errors](/docs/tools/compile-errors).
 
+## vex test
+
+```text
+vex test [file or folder] [flags]
+```
+
+Builds the program with its `test` blocks and `_test.vx` files, runs every test, each in its own process, and prints a line for each and a summary. The executable is built in a temporary folder and deleted afterwards.
+
+| Flag | Effect |
+|---|---|
+| `-filter text` | Run only the tests whose names contain `text` |
+| `--debug` | Compile without optimizations and with debug information (`-O0 -g`) instead of `-O3` |
+| `--sanitize=list` | Build in sanitizers that stop the program at memory and other errors: `address`, `undefined` and `thread`, comma-separated |
+
+Flags can come before or after the target.
+
+```sh
+vex test                        # the project in the current folder
+vex test math.vx                # the tests in one file
+vex test -filter parse          # only tests whose names contain "parse"
+```
+
+```text title="Output of vex test"
+✓ adds two numbers
+✗ parses a list
+  math_test.vx:7: expect(xs.len == 2)
+    two items
+    left:  3
+    right: 2
+
+2 tests: 1 passed, 1 failed
+```
+
+The exit status is 0 when every test passed or there are none, and 1 when a test failed, `-filter` matched nothing, or the program doesn't compile. [Testing](/docs/tools/testing) covers test blocks, `expect`, the output format and the rules in full.
+
 ## vex emit-c
 
 ```text
@@ -172,8 +229,10 @@ Prints the C code that `vex build` would compile, to standard output. The output
 
 ```sh
 vex emit-c hello.vx > hello.c
-cc -std=gnu11 -fwrapv -O3 -w -pthread hello.c -o hello -lm
+cc -std=gnu11 -fwrapv -w -pthread -O3 hello.c -o hello -lm
 ```
+
+`emit-c` leaves test blocks out, like `vex build`.
 
 [Generated C](/docs/tools/generated-c) explains how each Vex construct appears in it.
 
@@ -253,7 +312,7 @@ vex version
 ```
 
 ```text title="Output"
-vex 0.1.0-dev+3a88a7e
+vex 0.1.0-dev+23e1fe8
 ```
 
 The part after `+` is the commit the compiler was built from. Release builds set the version at build time.
@@ -268,10 +327,11 @@ Vex is a compiled language for native apps.
 Usage: vex <command> [arguments]
 
 Commands:
-  run [file or folder] [-- args] Compile and run a program
-  build [file or folder] [-o out] Build a native executable
+  run [flags] [file or folder] [-- args] Compile and run a program
+  build [file or folder] [-o out] [flags] Build a native executable
   emit-c [file or folder] Print the generated C code
   check [file or folder] Check a program for errors
+  test [file or folder] [flags] Run the program's tests
   ast <file>             Print the syntax tree of a source file
   tokens <file>          Print the tokens of a source file
   version                Print the Vex version
@@ -280,21 +340,175 @@ Commands:
 Run 'vex help <command>' for details.
 ```
 
-`vex help <command>` prints the usage line of one command:
+`vex help <command>` prints the usage line of one command, and for `run`, `build` and `test` their flags and the environment variables they read:
 
 ```text title="vex help build"
-Usage: vex build [file or folder] [-o out]
+Usage: vex build [file or folder] [-o out] [flags]
 
 Build a native executable.
+
+Flags:
+  -o out            where to write the program (default: its name)
+  --debug           compile without optimizations and with debug information
+                    (-O0 -g) instead of -O3
+  --sanitize=list   build in sanitizers that stop the program at memory and
+                    other errors: address, undefined and thread, e.g.
+                    --sanitize=address,undefined
+
+Environment:
+  CC                the C compiler (default: clang, then cc, then gcc)
+  VEX_CFLAGS        more flags for the C compiler, after the others, so they
+                    can override them, e.g. VEX_CFLAGS="-march=native"
+
+With --debug, the generated C is kept next to the program as <out>.c, so a
+debugger can step through it.
 ```
+
+```text title="vex help test"
+Usage: vex test [file or folder] [flags]
+
+Run the program's tests.
+
+Flags:
+  -filter text      run only the tests whose names contain text
+  --debug           compile without optimizations and with debug information
+                    (-O0 -g) instead of -O3
+  --sanitize=list   build in sanitizers that stop the program at memory and
+                    other errors: address, undefined and thread, e.g.
+                    --sanitize=address,undefined
+
+Environment:
+  CC                the C compiler (default: clang, then cc, then gcc)
+  VEX_CFLAGS        more flags for the C compiler, after the others, so they
+                    can override them, e.g. VEX_CFLAGS="-march=native"
+```
+
+`vex help run` lists the same flags as `build` without `-o`, under `Flags, before the program:`. The other commands print only their usage line and summary:
+
+```text title="vex help check"
+Usage: vex check [file or folder]
+
+Check a program for errors.
+```
+
+An unknown command name prints `vex help: unknown command "name"` and exits with status 2.
+
+## Build modes
+
+`vex build`, `vex run` and `vex test` build an optimized program by default. Two flags change that, for finding bugs:
+
+| Flags | C compiler flags added |
+|---|---|
+| none | `-O3` |
+| `--debug` | `-O0 -g` |
+| `--sanitize=list` | `-O3 -fsanitize=list -fno-sanitize-recover=all -fno-omit-frame-pointer -g` |
+| `--debug --sanitize=list` | `-O0 -g -fsanitize=list -fno-sanitize-recover=all -fno-omit-frame-pointer` |
+
+### --debug
+
+`--debug` turns off optimizations and adds debug information, so a debugger such as lldb or gdb can show every variable and step line by line. With `vex build`, the generated C is also kept next to the program as `<out>.c`, and debug information points into it:
+
+```sh
+vex build --debug app.vx
+```
+
+```text title="Output"
+Built app
+Kept the C code in app.c
+```
+
+```sh
+vex build --debug args.vx -o bin/tool
+```
+
+```text title="Output"
+Built bin/tool
+Kept the C code in bin/tool.c
+```
+
+On macOS, clang also writes the debug information into a folder next to the program, such as `app.dSYM`. If `<out>.c` would be the source file itself, the build stops with `vex: keeping the C would replace <file>; choose another name with -o`. [Generated C](/docs/tools/generated-c#debugging) explains how to find your code in the C file.
+
+`vex run --debug` and `vex test --debug` build the same way, in a temporary folder that is deleted afterwards.
+
+### --sanitize
+
+`--sanitize` builds in the C compiler's sanitizers, which check the program as it runs and stop it with a report at the first problem. It takes a comma-separated list of:
+
+| Sanitizer | Finds |
+|---|---|
+| `address` | Reads and writes outside an allocation, use after free and other memory errors |
+| `undefined` | Undefined behaviour in C, such as a misaligned pointer or a shift out of range |
+| `thread` | Data races between threads |
+
+Vex code itself is checked by the runtime, so the sanitizers are mainly useful for C code called through [`extern fn`](/docs/projects/c-interop). `thread` can't be combined with `address`, and a name that isn't in the list is refused; both are usage errors, with exit status 2:
+
+```text
+vex: unknown sanitizer "memory"; use address, undefined, thread
+```
+
+```text
+vex: the thread sanitizer can't be combined with address
+```
+
+A program built with `address` doesn't report memory leaks: the garbage collector owns the heap, so every report would only list its memory. Which sanitizers work depends on the C compiler and the system. Here a C function writes past the end of an allocation:
+
+```c title="native/sum.c"
+#include <stdint.h>
+#include <stdlib.h>
+
+int64_t sum_first(int64_t n) {
+    int64_t *xs = malloc(4 * sizeof(int64_t));
+    for (int64_t i = 0; i < n; i++) xs[i] = i;
+    int64_t total = 0;
+    for (int64_t i = 0; i < n; i++) total += xs[i];
+    free(xs);
+    return total;
+}
+```
+
+```vex title="main.vx"
+extern fn sum_first(n: int) -> int
+
+fn main() {
+    println(sum_first(8))
+}
+```
+
+With `sources = ["native/sum.c"]` in the `[c]` section of `package.toml`, `vex run` prints `28` and exits normally, hiding the bug. `vex run --sanitize=address` stops at the bad write (the report is trimmed here):
+
+```text title="Output of vex run --sanitize=address"
+=================================================================
+==91450==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x603000001c20 at pc 0x0001041ee85c bp 0x00016bc16080 sp 0x00016bc16078
+WRITE of size 16 at 0x603000001c20 thread T0
+    #0 0x0001041ee858 in sum_first sum.c:6
+    #1 0x0001041e9d04 in main main.c:3472
+    #2 0x000189c7fda0 in start+0x1b4c (dyld:arm64e+0x1fda0)
+
+0x603000001c20 is located 0 bytes after 32-byte region [0x603000001c00,0x603000001c20)
+allocated by thread T0 here:
+    #0 0x0001049f1164 in malloc+0x78 (libclang_rt.asan_osx_dynamic.dylib:arm64e+0x41164)
+    #1 0x0001041ee63c in sum_first sum.c:5
+    #2 0x0001041e9d04 in main main.c:3472
+
+SUMMARY: AddressSanitizer: heap-buffer-overflow sum.c:6 in sum_first
+...
+==91450==ABORTING
+vex: the program crashed (abort trap); this is a bug in vex
+```
+
+On macOS the sanitizer ends the program with an abort signal, so `vex run` adds its crash line and exits with status 134; the bug here is in the C code, as the report shows. Under `vex test`, the report goes to standard error and the test fails with `crashed with signal 6`.
+
+### VEX_CFLAGS and CC
+
+`VEX_CFLAGS` adds flags to every C compile, after the build-mode flags, so they win when they conflict: `VEX_CFLAGS="-O2" vex build app.vx` builds with `-O2`. `CC` picks the C compiler. Both are described under [Environment variables](#environment-variables).
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| 0 | Success. For `vex run`, the program exited with 0 |
-| 1 | Compile errors, a file that can't be read, a missing `package.toml`, or a C compiler failure |
-| 2 | Usage error: an unknown command, an unknown flag, a missing `-o` value or too many targets |
+| 0 | Success. For `vex run`, the program exited with 0. For `vex test`, every test passed or there were none |
+| 1 | Compile errors, a file that can't be read, a missing `package.toml`, or a C compiler failure. For `vex test`, a failed test or a `-filter` that matched nothing |
+| 2 | Usage error: an unknown command, an unknown flag, a missing `-o` or `-filter` value, too many targets, or a bad `--sanitize` list |
 | any | `vex run` passes on the program's exit status: 1 after a runtime error or an error escaping `main`, the value given to `os.exit`, or 128 plus the signal number |
 
 Usage errors print the command's usage line:
@@ -306,8 +520,20 @@ Run 'vex help' for a list of commands.
 
 ```text
 flag needs an argument: -o
-Usage: vex build [file or folder] [-o output]
+Usage: vex build [file or folder] [-o output] [--debug] [--sanitize=list]
 ```
+
+```text
+flag provided but not defined: -fast
+Usage: vex run [--debug] [--sanitize=list] [file or folder] [-- args]
+```
+
+```text
+flag needs an argument: -filter
+Usage: vex test [file or folder] [-filter text] [--debug] [--sanitize=list]
+```
+
+Flags take one dash or two, and a value can follow `=` or a space: `-o app`, `--o=app`, `-filter=parse` and `--filter parse` all work.
 
 ## Environment variables
 
@@ -316,7 +542,7 @@ Usage: vex build [file or folder] [-o output]
 | Variable | Effect |
 |---|---|
 | `CC` | The C compiler to use, which may include arguments, such as `CC="clang -v"`. When unset, `vex` uses the first of `clang`, `cc` and `gcc` found on the `PATH`. |
-| `VEX_CFLAGS` | Extra flags for the C compiler, added after the default ones so they can override them, for example `VEX_CFLAGS="-O0 -g"` for a debuggable build. |
+| `VEX_CFLAGS` | Extra flags for the C compiler, split at spaces and added after the default and build-mode flags, so they can override them, for example `VEX_CFLAGS="-march=native"`. |
 | `NO_COLOR` | When set to any non-empty value, diagnostics are printed without color. Color is also off when standard error isn't a terminal. |
 
 If no C compiler is found, every build fails with:
@@ -325,7 +551,7 @@ If no C compiler is found, every build fails with:
 vex: no C compiler found; install clang (on macOS: xcode-select --install) or set $CC
 ```
 
-The C compiler is called with `-std=gnu11 -fwrapv -O3 -w -pthread`, then `VEX_CFLAGS`, then the flags, sources, libraries and frameworks from the `[c]` section of `package.toml`, and finally `-lm`. `-fwrapv` defines what `&+`, `&-` and `&*` do on overflow, and `-w` hides warnings about the generated code. See [C interop](/docs/projects/c-interop) for the `[c]` section.
+The C compiler is called with `-std=gnu11 -fwrapv -w -pthread`, then the [build mode](#build-modes) flags (`-O3` by default), then `VEX_CFLAGS`, then the flags from the `[c]` section of `package.toml`, the output and the generated C file, the sources, libraries and frameworks from the `[c]` section, and finally `-lm`. `-fwrapv` defines what `&+`, `&-` and `&*` do on overflow, and `-w` hides warnings about the generated code. See [C interop](/docs/projects/c-interop) for the `[c]` section.
 
 When the C compiler fails, `vex` says whose fault it is likely to be:
 

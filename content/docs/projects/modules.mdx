@@ -424,7 +424,7 @@ error: 'shout' comes from an extension in module text
 - Lists may span several lines and may end with a trailing comma.
 - `#` starts a comment, except inside quotes.
 
-Anything else, such as numbers, booleans or nested tables, is not accepted in `[package]` and `[c]`.
+Anything else, such as numbers, booleans or nested tables, is not accepted in `[package]` and the `[c]` sections.
 
 ```toml
 [package]
@@ -444,6 +444,14 @@ flags = [
     "-DSTORE_DEBUG=1",
     "-Inative",
 ]
+
+[c.macos]
+sources = ["native/clipboard_mac.m"]
+frameworks = ["AppKit"]
+
+[c.linux]
+sources = ["native/clipboard_x11.c"]
+libs = ["X11"]
 
 [dependencies]
 # read by the package manager, which is planned
@@ -496,6 +504,10 @@ Allowed flags are:
 
 Flags that could load code into the compiler, pass options to other tools or write files are refused, such as `-fplugin=...`, `-o` or `-Xlinker`. `-I` and `-L` folders must be relative and inside the project; they are made absolute before the C compiler runs.
 
+### `[c.macos]`, `[c.linux]` and `[c.windows]`
+
+C code for one operating system. Each section takes the same keys as `[c]`. When the program is built for that system, its lists are added to those of `[c]`, and the sections for other systems are ignored, including their source files. The program is built for the system the compiler runs on. See [C code for one system](/docs/projects/c-interop#c-code-for-one-system).
+
 ### `[dependencies]` and `[dev-dependencies]`
 
 These sections are accepted, and their contents are skipped without being checked. They are reserved for the package manager, which is not built yet. See [Packages](/docs/projects/packages).
@@ -511,6 +523,8 @@ Mistakes in `package.toml` are reported like compile errors, with the line and a
 | Unknown section, such as `[tools]` | `unknown section [tools]` |
 | Unknown key in `[package]` | `unknown key 'author' in [package]` |
 | Unknown key in `[c]` | `unknown key 'include' in [c]` |
+| Unknown key in `[c.macos]` | `unknown key 'include' in [c.macos]` |
+| Unknown target, such as `[c.ios]` | `unknown target 'ios'` |
 | A `[package]` value without quotes | `the value of 'name' must be a string in quotes` |
 | A `[c]` value that isn't a list | `the value of 'libs' must be a list of strings` |
 | A key set twice | `'name' is already set on line 2` |
@@ -547,6 +561,14 @@ error: unknown key 'include' in [c]
   |
 4 | include = ["x"]
   | ^^^^^^^ known keys are sources, libs, frameworks and flags
+```
+
+```text
+error: unknown target 'ios'
+ --> package.toml:4:1
+  |
+4 | [c.ios]
+  | ^^^^^^^ use [c.macos], [c.linux], [c.windows]
 ```
 
 ## Rules and edge cases

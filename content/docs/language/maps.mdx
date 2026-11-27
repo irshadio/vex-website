@@ -1,6 +1,6 @@
 ---
 title: Maps
-description: Creating maps, key and value rules, reading missing keys, adding, replacing and removing entries, every map member, iteration order, reference semantics and copying.
+description: Creating maps, key and value rules, structs, enums and records as keys, reading missing keys, adding, replacing and removing entries, every map member, iteration order, equality, reference semantics and copying.
 ---
 
 A map, written `[K: V]`, stores values under unique keys. Reading a key gives an optional, since the key may be missing, so a missing key can never crash your program. Maps keep their entries in the order the keys were first added, and like lists they are shared references.
@@ -30,7 +30,7 @@ fn main() {
 
 ### Key and value types
 
-Keys can be `int`, `string`, `bool`, or an enum whose cases carry no values. These are the types with a reliable equality and hash. Other key types are errors:
+Keys can be `int`, `string`, `bool`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable`. These are the types with a reliable equality and hash. Other key types are errors:
 
 ```vex title="badkey.vx"
 struct Point {
@@ -48,18 +48,54 @@ error: Point can't be a map key
  --> badkey.vx:6:20
   |
 6 |     let byPoint = [Point(x: 1): "p"]
-  |                    ^^^^^^^^^^^ use int, string, bool or an enum whose cases carry no values
+  |                    ^^^^^^^^^^^ list Hashable on it: struct Point: Hashable
 
 error: float can't be a map key
  --> badkey.vx:7:20
   |
 7 |     let byFloat = [1.5: "x"]
-  |                    ^^^ use int, string, bool or an enum whose cases carry no values
+  |                    ^^^ use int, string, bool, a record of those, or a struct or enum that lists Hashable
 
 2 errors
 ```
 
-Records, lists and enums whose cases carry values can't be keys either. To key by several values, build a string key such as `"{x},{y}"`.
+Lists, maps and floats can't be keys.
+
+### Structs, enums and records as keys
+
+A struct or enum that lists `Hashable` compares by its fields and has a hash, so it works as a key. Records of key types work without declaring anything:
+
+```vex title="customkeys.vx"
+struct Point: Hashable {
+    x: int
+    y: int
+}
+
+enum Cell: Hashable {
+    empty
+    wall(height: int)
+}
+
+fn main() {
+    var names = [Point(x: 1, y: 2): "home"]
+    names[Point(x: 0, y: 0)] = "origin"
+    println(names[Point(x: 1, y: 2)] ?? "?", names.len)
+
+    let grid: [(int, int): string] = [(0, 0): "start", (2, 1): "tree"]
+    println(grid[(2, 1)] ?? "-", grid[(5, 5)] ?? "-")
+
+    let costs = [Cell.empty: 1, Cell.wall(height: 2): 5]
+    println(costs[.wall(height: 2)] ?? 0, costs[.wall(height: 3)] ?? 0)
+}
+```
+
+```text title="Output"
+home 2
+tree -
+5 0
+```
+
+A new `Point(x: 1, y: 2)` finds the entry stored under another `Point` with the same fields. To decide yourself what counts as the same key, write `operator ==` and `fn hash() -> int`; see [Equality](/docs/language/structs#equality).
 
 Values can be any type except an optional. A missing key already reads as `nil`, so a stored `nil` would be indistinguishable from a missing one:
 
@@ -290,6 +326,24 @@ a c ["a": 1, "c": 3, "d": 4]
 
 To visit keys in sorted order, sort a copy of `m.keys` and look each one up.
 
+## Equality
+
+`==` compares two maps entry by entry, whatever their order. `===` tells whether two names refer to the same map:
+
+```vex title="mapeq.vx"
+fn main() {
+    let a = ["x": 1, "y": 2]
+    let b = ["y": 2, "x": 1]
+    println(a == b, a === b, a == ["x": 1])
+}
+```
+
+```text title="Output"
+true false false
+```
+
+The values must be comparable with `==` themselves.
+
 ## Maps are shared references
 
 Like lists and structs, a map is shared by every name that refers to it:
@@ -334,10 +388,10 @@ fn main() {
 
 ## Rules and edge cases
 
-- Keys: `int`, `string`, `bool`, or an enum whose cases carry no values.
+- Keys: `int`, `string`, `bool`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable`.
 - Values: anything but an optional.
 - Reading always gives an optional; writing never fails.
-- Maps can't be compared with `==` (`values of type [string: int] can't be compared with ==`) and have no operators.
+- `==` compares entries whatever their order, and `===` compares identity. Maps have no other operators.
 - An empty map prints as `[:]`.
 
 ## Comparison

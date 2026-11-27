@@ -1,11 +1,11 @@
 ---
 title: Standard library
-description: What comes with every Vex program, from built-in functions and members to the six vex modules, and how to import them.
+description: What comes with every Vex program, from built-in functions, number parsing and members to the six vex modules, and how to import them.
 ---
 
-Vex ships with two layers of library code. Built-ins, such as `println`, `int(...)` and the members of strings, lists and maps, are part of the language and need no import. Standard modules, such as `vex:math` and `vex:fs`, come with the compiler and are imported by name.
+Vex ships with two layers of library code. Built-ins, such as `println`, `int(...)`, `int.parse` and the members of strings, lists and maps, are part of the language and need no import. Standard modules, such as `vex:math` and `vex:fs`, come with the compiler and are imported by name.
 
-The standard library is small on purpose at version 0.1. It covers printing, conversion, text, collections, math, files, the clock, the process environment and parallel work. Anything else, such as JSON or networking, isn't there yet; you can reach C libraries through [C interop](/docs/projects/c-interop) in the meantime.
+The standard library is small on purpose at version 0.1. It covers printing, conversion and parsing, text, collections, math, files, the clock, the process environment and parallel work. Anything else, such as JSON or networking, isn't there yet; you can reach C libraries through [C interop](/docs/projects/c-interop) in the meantime.
 
 ## Built-ins
 
@@ -13,16 +13,17 @@ Built-ins are available in every file without an import.
 
 | Kind | Names |
 |---|---|
-| Functions | `print`, `println`, `input`, `str`, `int`, `float`, `panic`, `assert` |
+| Functions | `print`, `println`, `input`, `str`, `int`, `float`, `int.parse`, `float.parse`, `panic`, `assert` |
 | Async functions | `run`, `all`, `any` |
 | Types | `int`, `float`, `bool`, `string`, `Error`, `Future<T>`, `Channel<T>` |
 | Constraints | `Equatable`, `Comparable`, `Hashable` |
 | String members | `len`, `upper`, `lower`, `contains`, `split`, `replace`, `trim`, `trimStart`, `trimEnd`, `startsWith`, `endsWith`, `indexOf`, `substring`, `chars`, `lines` |
-| List members | `len`, `push`, `pop`, `contains`, `filter`, `map`, `copy` |
+| Number members | `int.max`, `int.min`, `float.infinity`, `float.nan`, `isNaN`, `isFinite`, `toFixed` |
+| List members | `len`, `isEmpty`, `first`, `last`, `push`, `pop`, `insert`, `remove`, `removeWhere`, `clear`, `sort`, `sorted`, `reversed`, `contains`, `indexOf`, `find`, `any`, `all`, `filter`, `map`, `flatMap`, `reduce`, `min`, `max`, `sum`, `join`, `slice`, `copy` |
 | Map members | `len`, `keys`, `values`, `contains`, `remove`, `copy` |
 | Channel members | `send`, `receive`, `receiveSync`, `close` |
 
-`int` and `float` have no built-in members. You can add your own to any built-in type with an [extension](/docs/language/extensions).
+You can add your own members to any built-in type with an [extension](/docs/language/extensions).
 
 The full reference, with every signature and edge case, is on [Built-ins](/docs/stdlib/built-ins).
 
@@ -32,8 +33,8 @@ The full reference, with every signature and edge case, is on [Built-ins](/docs/
 |---|---|---|
 | `vex:math` | Integer helpers (`abs`, `min`, `max`, `clamp`, `pow`, `gcd`) and float functions from the C math library | [math](/docs/stdlib/math) |
 | `vex:strings` | Building and padding strings: `repeat`, `join`, `padLeft`, `padRight` | [strings](/docs/stdlib/strings) |
-| `vex:time` | Reading the clock and sleeping in async code: `nanos`, `unix`, `sleep` | [time](/docs/stdlib/time) |
-| `vex:os` | Arguments, environment variables, the working folder, exit status and shell commands | [os](/docs/stdlib/os) |
+| `vex:time` | Reading the clock, sleeping and timeouts in async code: `nanos`, `unix`, `sleep`, `timeout` | [time](/docs/stdlib/time) |
+| `vex:os` | Arguments, environment variables, the working folder, exit status, shell commands, and the system the program is built for | [os](/docs/stdlib/os) |
 | `vex:fs` | Reading, writing and listing files and folders | [fs](/docs/stdlib/fs) |
 | `vex:isolate` | Running work in parallel on other cores: `run`, `spawn`, `cores` | [isolate](/docs/stdlib/isolate) |
 
