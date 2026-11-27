@@ -82,7 +82,7 @@ error: unknown name 'math'
 
 ## How the modules are written
 
-Each standard module is an ordinary Vex module stored inside the compiler, under `compiler/modules/std/<name>/<name>.vx` in the [language repository](https://github.com/irshadio/vex-lang). Many functions are thin wrappers around C: `math.sqrt` is declared as `pub extern fn sqrt(x: float) -> float` and calls the C library's `sqrt` directly, and the file and process functions call small helpers in the Vex runtime. Reading those files is a good way to see `extern fn`, `throws` and `guard let` used in real code.
+Each standard module is an ordinary Vex module stored inside the compiler, under `compiler/modules/std/<name>/<name>.vx` in the [language repository](https://github.com/vex-language/vex-lang). Many functions are thin wrappers around C: `math.sqrt` is declared as `pub extern fn sqrt(x: float) -> float` and calls the C library's `sqrt` directly, and the file and process functions call small helpers in the Vex runtime. Reading those files is a good way to see `extern fn`, `throws` and `guard let` used in real code.
 
 Because the modules are Vex code, their runtime errors point into them. For example, `math.pow(2, -1)` fails an `assert` inside the module:
 

@@ -41,7 +41,7 @@ interface GitHubRelease {
   assets: { name: string; browser_download_url: string; size: number }[];
 }
 
-export const releasesApi = 'https://api.github.com/repos/irshadio/vex-lang/releases?per_page=30';
+export const releasesApi = 'https://api.github.com/repos/vex-language/vex-lang/releases?per_page=30';
 
 // Archives are named vex-<version>-<os>-<arch>.tar.gz, for example vex-0.2.0-macos-arm64.tar.gz.
 const assetPattern = /^vex-.+-(macos|linux)-(arm64|x64)\.tar\.gz$/;

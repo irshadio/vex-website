@@ -1,6 +1,6 @@
 # vex-website
 
-The website for the [Vex](https://github.com/irshadio/vex-lang) programming language, built with [Next.js](https://nextjs.org), [Fumadocs](https://fumadocs.dev) and Tailwind CSS. It is exported as a static site.
+The website for the [Vex](https://github.com/vex-language/vex-lang) programming language, built with [Next.js](https://nextjs.org), [Fumadocs](https://fumadocs.dev) and Tailwind CSS. It is exported as a static site.
 
 ## Development
 
@@ -15,7 +15,7 @@ npm start        # serve the built site
 
 ## Content from the language repository
 
-Some content is generated from a checkout of [vex-lang](https://github.com/irshadio/vex-lang), found at `../VEX` or at `VEX_LANG_DIR`. The generated files are committed, so building the site doesn't need the checkout.
+Some content is generated from a checkout of [vex-lang](https://github.com/vex-language/vex-lang), found at `../VEX` or at `VEX_LANG_DIR`. The generated files are committed, so building the site doesn't need the checkout.
 
 ```sh
 npm run sync        # examples, playground examples and roadmap
