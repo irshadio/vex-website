@@ -156,7 +156,7 @@ The generated C uses GNU statement expressions, which is why it needs `clang` or
 `compiler/cc` runs the C compiler. It uses `$CC` if set, otherwise the first of `clang`, `cc` and `gcc` on the `PATH`, with these flags:
 
 ```text
--std=gnu11 -fwrapv -O3 -w -pthread
+-std=gnu11 -fwrapv -w -pthread -O3
 ```
 
 Flags in the `VEX_CFLAGS` environment variable come next, so they can override the defaults (for example `-g` to debug a program, or sanitizer flags). Then come the `[c]` flags, sources, libraries and frameworks from `package.toml`, and finally `-lm`.
