@@ -4,7 +4,7 @@ import { Logo } from '@/components/logo';
 const columns = [
   { title: 'Learn', links: [['Get started', '/docs'], ['Install', '/docs/install'], ['Language tour', '/docs/tour'], ['Examples', '/docs/examples']] },
   { title: 'Reference', links: [['Language guide', '/docs/language'], ['Standard library', '/docs/stdlib'], ['The vex command', '/docs/tools/cli'], ['Compile errors', '/docs/tools/compile-errors']] },
-  { title: 'Project', links: [['Roadmap', '/roadmap'], ['Benchmarks', '/benchmarks'], ['Design notes', '/docs/internals/compiler']] },
+  { title: 'Project', links: [['Roadmap', '/roadmap'], ['Benchmarks', '/benchmarks'], ['Design notes', '/docs/internals/compiler'], ['Brand', '/brand']] },
 ];
 
 /// The site footer.
