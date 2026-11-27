@@ -1,6 +1,6 @@
 ---
 title: Async and await
-description: How async functions, futures and the event loop work in Vex, with the exact rules for ordering, errors, all, any and run.
+description: How async functions, futures, streams and the event loop work in Vex, with async closures, cancellation, timeouts, Stream<T>, for await and StreamController<T>, and the exact rules for ordering, errors, all, any and run.
 ---
 
 An `async fn` can wait for something, such as a timer, without stopping the rest of the program. While it waits, other tasks and timers on the same isolate run. When the thing it waits for is done, it continues where it left off.
@@ -30,7 +30,7 @@ async fn main() throws {
 page of a.com
 ```
 
-- `async fn` marks a function that may wait. `await` is only allowed inside one.
+- `async fn` marks a function that may wait. `await` is only allowed inside one, or inside an [async closure](#async-closures).
 - `time.sleep(ms)` from [`vex:time`](/docs/stdlib/time) gives a future that completes after `ms` milliseconds.
 - An async function that throws needs `try` (or `try?`, or `try ... catch`) at the `await`, like any other throwing call.
 - `async fn main()` makes the whole program a task, so `main` can await.
@@ -151,9 +151,9 @@ page of fast.com
 done
 ```
 
-`any` doesn't cancel the others. In the program above, the `slow.com` task is still sleeping when `main` returns, and the program waits for it before it exits (see [When the program ends](#when-the-program-ends)). Vex has no task cancellation.
+`any` doesn't cancel the others. In the program above, the `slow.com` task is still sleeping when `main` returns, and the program waits for it before it exits (see [When the program ends](#when-the-program-ends)). To stop the ones you no longer need, call [`cancel()`](#cancellation) on them.
 
-A list of futures often comes from `map`. Closures can't await, but they can start tasks:
+A list of futures often comes from `map`. The closure given to `map` can't await, but it can start tasks:
 
 ```vex
 let urls = ["a.com", "bb.com", "c.io"]
@@ -299,6 +299,584 @@ error: boom
 ```
 
 The exit code is 1. The `error:` line goes to standard error.
+
+## Cancellation
+
+`f.cancel()` stops the task behind the future `f`. `f.isCancelled` tells whether that happened.
+
+```vex title="cancel.vx"
+import "vex:time"
+
+async fn download(name: string, ms: int) -> string {
+    println("{name}: start")
+    await time.sleep(ms)
+    println("{name}: done")
+    return name
+}
+
+async fn main() {
+    let big = download("big", 50)
+    let small = download("small", 10)
+    big.cancel()
+    println(big.isCancelled, small.isCancelled)
+    println(await small)
+    await time.sleep(60)
+    big.cancel()
+    small.cancel()
+    println(big.isCancelled, small.isCancelled)
+}
+```
+
+```text title="Output"
+big: start
+small: start
+true false
+small: done
+small
+true false
+```
+
+`big` never prints `done`: it stops at the `await` it was waiting at, and the code after it never runs. Cancelling a future that is already done does nothing, so `small` stays done.
+
+### Where a task stops
+
+- A cancelled task stops at its next `await` that waits for a future or a timer. Code between two awaits always runs to the end, so a task never stops halfway through a statement.
+- Work that never awaits runs to its end. A new task runs at once up to its first wait, so in the program below the loop is already finished when `cancel()` is called:
+
+```vex title="cancel_late.vx"
+import "vex:time"
+
+async fn count(to: int) -> int {
+    var n = 0
+    for i in 0..to {
+        n += 1
+    }
+    println("counted", n)
+    await time.sleep(1)
+    println("never")
+    return n
+}
+
+async fn main() {
+    let f = count(1000)
+    f.cancel()
+    await time.sleep(10)
+    println(f.isCancelled)
+}
+```
+
+```text title="Output"
+counted 1000
+true
+```
+
+### Cancellation spreads
+
+Cancelling a task also cancels every task it started that is still running, and theirs in turn. A task waiting for a cancelled future stops too, so cancellation reaches the code that needed the result:
+
+```vex title="cancel_tree.vx"
+import "vex:time"
+
+async fn fetch(name: string, ms: int) -> string {
+    await time.sleep(ms)
+    println("fetched {name}")
+    return name
+}
+
+async fn loadScreen() -> string {
+    let header = fetch("header", 5)    // started by loadScreen
+    let body = fetch("body", 30)
+    return "{await header} and {await body}"
+}
+
+async fn show(screen: Future<string>) {
+    println("showing", await screen)
+}
+
+async fn main() {
+    let screen = loadScreen()
+    let view = show(screen)
+    await time.sleep(15)
+    screen.cancel()                    // stops loadScreen, body and show
+    await time.sleep(40)
+    println(screen.isCancelled, view.isCancelled)
+}
+```
+
+```text title="Output"
+fetched header
+true true
+```
+
+A task that stops because it awaited a cancelled future is cancelled itself, with the tasks it started. In `async fn main`, that ends the program quietly. When the code after an `await` must run, check `f.isCancelled` first.
+
+In code that isn't async, `run` of a cancelled future stops the program:
+
+```text
+error: run: the future was cancelled
+ --> main.vx:9
+```
+
+### Futures without a task
+
+- A future from `time.sleep` can be cancelled too. Tasks waiting for it stop.
+- A future from [`isolate.run`](/docs/concurrency/isolates) can be cancelled, which drops its result. The other isolate still finishes its work.
+
+## Timeouts
+
+`time.timeout(f, ms)` from [`vex:time`](/docs/stdlib/time) waits for the future `f` for at most `ms` milliseconds. It gives a future of the value as an optional: the value when `f` finishes in time, otherwise `nil`. When the time runs out, it cancels `f`.
+
+```vex title="timeout.vx"
+import "vex:time"
+
+async fn fetch(url: string, ms: int) -> string {
+    await time.sleep(ms)
+    return "page of {url}"
+}
+
+async fn upload(ms: int) throws {
+    await time.sleep(ms)
+    throw Error("upload failed")
+}
+
+async fn main() throws {
+    let fast = await time.timeout(fetch("fast.com", 5), 50)
+    println(fast)
+    let slow = fetch("slow.com", 1000)
+    println(await time.timeout(slow, 20) ?? "offline", slow.isCancelled)
+
+    let finished = await time.timeout(time.sleep(5), 50)
+    println(finished)
+
+    let sent = try await time.timeout(upload(5), 50) catch e {
+        println(e.message)
+        false
+    }
+    println(sent)
+}
+```
+
+```text title="Output"
+page of fast.com
+offline true
+true
+upload failed
+false
+```
+
+| `f` | `time.timeout(f, ms)` |
+|---|---|
+| `Future<string>` | `Future<string?>` |
+| `Future<string, Error>` | `Future<string?, Error>` |
+| `Future<void>` | `Future<bool>`: whether `f` finished in time |
+| `Future<string?>` | a compile error |
+
+- Errors from `f` still need `try` at the `await`, as above.
+- A future whose value is already optional can't be timed out, since `nil` would be ambiguous. Wrap the value, for example in a record.
+- `ms` must be an `int`.
+
+## Streams
+
+A future gives one value. A `Stream<T>` gives any number of values over time, and then ends. There are two ways to make one: a **stream function**, an `async fn` that returns `Stream<T>` and gives each value with `yield`, or a [`StreamController<T>`](#streamcontroller), which other code fills by calling `add`. Either way, `for await` reads the values.
+
+```vex title="ticks.vx"
+import "vex:time"
+
+async fn ticks(n: int) -> Stream<int> {
+    for i in 0..n {
+        await time.sleep(10)
+        yield i
+    }
+}
+
+async fn squares(source: Stream<int>) -> Stream<int> {
+    for await x in source {
+        yield x * x
+    }
+}
+
+async fn main() {
+    for await t in ticks(3) {
+        println("tick", t)
+    }
+    var sum = 0
+    for await s in squares(ticks(4)) {
+        sum += s
+    }
+    println("sum", sum)
+}
+```
+
+```text title="Output"
+tick 0
+tick 1
+tick 2
+sum 14
+```
+
+`squares` reads one stream and gives another, so stream functions chain: each value of `ticks(4)` is squared as it arrives.
+
+### Stream functions
+
+An `async fn` whose result type is `Stream<T>` is a stream function. Its body can `await` like any async function, and it gives the values of its stream with `yield value`, where the value must be a `T`.
+
+- **Calling it gives its stream at once, without `await`.** That works in any code, async or not, since nothing runs yet.
+- **Its body starts when the stream is first read**, not when it is called.
+- **It pauses at each `yield`** until the reader takes the value, then waits there until the reader asks for the next one. A stream function never runs ahead of its reader.
+
+```vex title="lazy.vx"
+async fn count(n: int) -> Stream<int> {
+    println("start")
+    for i in 0..n {
+        println("give", i)
+        yield i
+    }
+    println("end")
+}
+
+async fn main() {
+    let s = count(2)
+    println("made the stream")
+    for await x in s {
+        println("got", x)
+    }
+    println(s)
+}
+```
+
+```text title="Output"
+made the stream
+start
+give 0
+got 0
+give 1
+got 1
+end
+<Stream<int>>
+```
+
+The stream ends when the body finishes, or at a bare `return`. A stream function returns no value of its own, so `return x` is a compile error:
+
+```vex title="early_end.vx"
+async fn upTo(limit: int, items: [int]) -> Stream<int> {
+    for x in items {
+        if x > limit {
+            return
+        }
+        yield x
+    }
+}
+
+async fn main() {
+    for await x in upTo(5, [1, 4, 9, 2]) {
+        println(x)
+    }
+}
+```
+
+```text title="Output"
+1
+4
+```
+
+- A stream function can't `throw` yet: `async fn f() throws -> Stream<int>` gives `a stream function can't throw yet`. Catch errors inside it, or yield a value that carries the result, such as an enum with a success and a failure case.
+- It needs a block body. `=> value` gives `a stream function needs a block body`.
+- `yield` works only in the body of the stream function itself, not in a closure inside it. To give values from a callback, use a [`StreamController`](#streamcontroller).
+- Methods and generic functions can be stream functions, and a stream function is a value of its type, such as `async fn(int) -> Stream<int>`. See [Streams are values](#streams-are-values).
+- A closure can't be a stream function: `async fn() -> Stream<int> { ... }` gives `an async closure can't be a stream function`. A plain closure or function can still return a stream it got elsewhere.
+
+### Reading with for await
+
+`for await x in stream { ... }` runs its body once for each value, waiting between values without blocking the isolate. Other tasks and timers run while it waits. The loop ends when the stream ends.
+
+- `for await` works only in async code: an async function or an async closure.
+- The loop variable can be a pattern, as in `for await (n, name) in pairs`.
+- A stream has no index, so `for await i, x in s` is an error.
+- `for await` needs a `Stream<T>`. A list, map or range takes a plain `for`, and a controller is read through its `stream` member.
+
+**Leaving the loop early stops the stream.** A `break`, a `return` or an error out of the loop body stops a stream function at its next `yield` or `await`, and the code after that point never runs. A stopped stream stays ended, so a later loop over it gets no values:
+
+```vex title="stop.vx"
+async fn naturals() -> Stream<int> {
+    var i = 0
+    while true {
+        println("make", i)
+        yield i
+        i += 1
+    }
+}
+
+async fn firstOver(limit: int) -> int {
+    for await x in naturals() {
+        if x * x > limit {
+            return x
+        }
+    }
+    return -1
+}
+
+async fn check(stop: int) throws {
+    for await x in naturals() {
+        if x == stop {
+            throw Error("hit {x}")
+        }
+    }
+}
+
+async fn main() {
+    let s = naturals()
+    for await x in s {
+        if x == 1 {
+            break
+        }
+        println("got", x)
+    }
+    for await x in s {
+        println("never", x)
+    }
+    println("first over 5:", await firstOver(5))
+    try await check(0) catch e { println(e.message) }
+}
+```
+
+```text title="Output"
+make 0
+got 0
+make 1
+make 0
+make 1
+make 2
+make 3
+first over 5: 3
+make 0
+hit 0
+```
+
+`naturals` never ends by itself, yet each loop stops it: after `break`, after `return x`, and after the thrown error.
+
+**A stream has one reader at a time.** Two loops reading the same stream at once stop the program:
+
+```text
+error: two loops are reading the same stream; a stream has one reader
+ --> readers.vx:9
+```
+
+Reading a stream again after a loop has finished with it is allowed. A stream function's stream is ended by then, so the new loop gets nothing. A controller's stream gives the values still queued, as shown below.
+
+### StreamController
+
+`StreamController<T>()` makes a stream that other code fills. It suits values that come from callbacks, such as taps or messages, where a stream function can't `yield`. It needs no import.
+
+| Member | Type | Description |
+|---|---|---|
+| `StreamController<T>()` | `StreamController<T>` | Makes an open controller with no values. It takes no arguments. |
+| `add(value: T)` | `void` | Queues `value` for the reader and wakes it. Never waits. Adding to a closed controller stops the program. |
+| `close()` | `void` | Ends the stream once the values already queued are read. Closing again does nothing. |
+| `stream` | `Stream<T>` | The stream that gives the added values. It is the same stream each time you read the property. |
+| `isClosed` | `bool` | Whether `close()` was called. A property, not a method. |
+
+```vex title="controller.vx"
+import "vex:time"
+
+struct Point {
+    x: int
+    y: int
+}
+
+async fn main() {
+    let taps = StreamController<Point>()
+    let reader = async fn() {
+        for await p in taps.stream {
+            println("tap at {p.x},{p.y}")
+        }
+        println("no more taps")
+    }
+    let done = reader()
+    taps.add(Point(x: 1, y: 2))
+    taps.add(Point(x: 3, y: 4))
+    await time.sleep(5)
+    taps.add(Point(x: 5, y: 6))
+    taps.close()
+    println("closed:", taps.isClosed)
+    await done
+}
+```
+
+```text title="Output"
+tap at 1,2
+tap at 3,4
+closed: true
+tap at 5,6
+no more taps
+```
+
+The reader is a task. It reads the first two points while `main` sleeps. The third point and the close happen without an `await` in between, so `main` prints `closed: true` first; the reader then takes the queued point, sees the end and finishes.
+
+- Values added before anyone reads are kept in order, and a closed controller's queued values are still given before the stream ends.
+- When the type of the value can't be inferred, write it: `StreamController()` alone gives `can't tell what the stream carries`. With a declared type, it can be left out: `let words: StreamController<string> = StreamController()`.
+- Leaving a loop over a controller's stream early doesn't close it. The values not read yet stay queued for the next loop:
+
+```vex title="queued.vx"
+async fn main() {
+    let words: StreamController<string> = StreamController()
+    for w in ["one", "two", "three"] {
+        words.add(w)
+    }
+    words.close()
+    for await w in words.stream {
+        println(w)
+        if w == "one" {
+            break
+        }
+    }
+    for await w in words.stream {
+        println("later:", w)
+    }
+}
+```
+
+```text title="Output"
+one
+later: two
+later: three
+```
+
+- A loop over a controller that is never closed keeps waiting. If nothing else is left that could add a value, the program ends there, and the code after the loop never runs. Call `close()` when no more values will come.
+- Adding to a closed controller is a runtime error:
+
+```text
+error: add() on a closed StreamController
+ --> taps.vx:8
+```
+
+### Streams are values
+
+`Stream<T>` and `StreamController<T>` are normal types. Store streams in variables, fields, lists and optionals, pass them to functions, and return them, from async functions or plain ones. Printing one shows its type, such as `<Stream<int>>` or `<StreamController<int>>`.
+
+```vex title="values.vx"
+async fn count(n: int) -> Stream<int> {
+    for i in 0..n {
+        yield i
+    }
+}
+
+struct Bag {
+    items: [string]
+
+    async fn each() -> Stream<string> {
+        for s in items {
+            yield s
+        }
+    }
+}
+
+async fn repeat<T>(x: T, n: int) -> Stream<T> {
+    for _ in 0..n {
+        yield x
+    }
+}
+
+async fn collect<T>(s: Stream<T>) -> [T] {
+    var out: [T] = []
+    for await x in s {
+        out.push(x)
+    }
+    return out
+}
+
+fn evens(n: int) -> Stream<int> {
+    let c = StreamController<int>()
+    for i in 0..n {
+        c.add(i * 2)
+    }
+    c.close()
+    return c.stream
+}
+
+async fn main() {
+    let bag = Bag(items: ["x", "y"])
+    println(await collect(bag.each()))
+    println(await collect(repeat(1.5, 3)))
+    println(await collect(evens(3)))
+
+    let make: async fn(int) -> Stream<int> = count
+    let sources = [make(2), evens(2)]
+    for s in sources {
+        println(await collect(s))
+    }
+
+    let pairs = StreamController<(int, string)>()
+    pairs.add((1, "one"))
+    pairs.add((2, "two"))
+    pairs.close()
+    for await (n, name) in pairs.stream {
+        println(n, name)
+    }
+}
+```
+
+```text title="Output"
+["x", "y"]
+[1.5, 1.5, 1.5]
+[0, 2, 4]
+[0, 1]
+[0, 2]
+1 one
+2 two
+```
+
+- `each` is a stream method and `repeat` a generic stream function. `collect` is an ordinary async function that reads a stream.
+- `make` holds the stream function `count` as a value. Calling it gives a stream at once, as calling `count` does.
+- `evens` is a plain function: it fills a controller and returns its stream.
+- `await` doesn't work on a stream, since a stream gives many values: `await count(3)` gives `await waits for one value, but a stream gives many`.
+
+### Streams and isolates
+
+A stream belongs to the isolate that made it. It can't be copied to another isolate, so a channel can't carry one, and an [`isolate.run`](/docs/concurrency/isolates) closure can't use one:
+
+```text
+error: a channel can't carry Stream<int>: it can't be copied to another isolate
+ --> chan.vx:6:22
+  |
+6 |     let ch = Channel<Stream<int>>()
+  |                      ^^^^^^^^^^^ send plain values: numbers, strings, lists, maps, structs, enums and channels
+```
+
+A closure given to `isolate.run` that uses a stream `s` gives `the closure uses 's', a Stream<int>: it can't be copied to another isolate`. To get values from another isolate as they arrive, receive them from a channel and add them to a controller, or loop on `await channel.receive()` directly.
+
+### Stream errors
+
+Every compile error for streams, with the hint the compiler gives:
+
+| Code | Error | Hint |
+|---|---|---|
+| `yield "one"` in `-> Stream<int>` | `expected int, found string` | depends on the types |
+| `return 3` in a stream function | `a stream function returns no value` | `give values with yield, and end the stream with a bare return` |
+| `async fn f() throws -> Stream<int>` | `a stream function can't throw yet` | `catch errors inside it, or yield a result value` |
+| `async fn f() -> Stream<int> => 1` | `a stream function needs a block body` | `write a body that gives values with yield` |
+| `yield` outside a stream function | `yield is only allowed in an async fn that returns a Stream` | `declare an async fn that returns a Stream: async fn f() -> Stream<int>` |
+| `yield` in a closure | `yield can't be used inside a closure` | `yield in the stream function itself, or add to a StreamController` |
+| `async fn() -> Stream<int> { ... }` | `an async closure can't be a stream function` | `write a named async fn that yields, or drop async to return an existing stream` |
+| `for await` in a plain function | `for await is only allowed in async functions` | `mark the function async: async fn ...` |
+| `for await` in a plain closure | `for await is only allowed in async functions` | `mark the closure async: async fn() { ... }` |
+| `for await x in [1, 2]` | `for await needs a stream, found [int]` | `use for x in items for lists, maps and ranges` |
+| `for await x in controller` | `for await needs a stream, found StreamController<int>` | `read its stream: for await x in controller.stream` |
+| `for await i, x in s` | `a stream has no index` | `write for await x in stream` |
+| `await s` or `await f()` of a stream | `await waits for one value, but a stream gives many` | `read it with for await x in stream { ... }` |
+| `Stream` alone | `Stream needs a type argument` | `write its value type, e.g. Stream<int>` |
+| `StreamController` alone, as a type | `StreamController needs a type argument` | `write its value type, e.g. StreamController<int>` |
+| `Stream<int, int>` | `Stream takes 1 type argument, found 2` | `write Stream<int>` |
+| `Stream<void>` | `'void' is not a type` | `leave out the return type for functions that return nothing` |
+| `StreamController()` with nothing to infer from | `can't tell what the stream carries` | `write its value type: StreamController<int>()` |
+| `StreamController<int>(1)` | `StreamController<T>() takes no arguments` | `write StreamController<int>()` |
+| `c.add("x")` on a `StreamController<int>` | `argument 'value': expected int, found string` | depends on the types |
+| `c.close(1)` | `too many arguments: close takes 0 arguments` | |
+| `c.isClosed()` | `isClosed is a property, not a method` | `write it without (): .isClosed` |
+| `s.add(1)` on a `Stream<int>` | `Stream<int> has no method 'add'` | |
+| `Channel<Stream<int>>()` | `a channel can't carry Stream<int>: it can't be copied to another isolate` | `send plain values: numbers, strings, lists, maps, structs, enums and channels` |
+| a stream used in an `isolate.run` closure | `the closure uses 's', a Stream<int>: it can't be copied to another isolate` | `copy the values it needs into plain variables first` |
+
+At run time, a stream has two errors, both shown above: `add() on a closed StreamController` and `two loops are reading the same stream; a stream has one reader`.
 
 ## The event loop
 
@@ -467,15 +1045,17 @@ While `run` waits, the `background` task makes progress too. `later` only starts
 
 ## When the program ends
 
-The program ends when `main` has returned (or, for `async fn main`, finished) **and** nothing is pending on the main isolate: no ready tasks, no timers, and no futures waiting for another isolate.
+The program ends when `main` has returned (or, for `async fn main`, finished) **and** nothing is pending on the main isolate: no tasks still running, and no futures waiting for another isolate.
 
-- A task that is still sleeping keeps the program alive. Even `time.sleep(500)` without `await` in a plain `main` delays the exit by half a second.
+- A task that is still sleeping keeps the program alive, and so does the timer it waits for.
+- A timer that no task waits for doesn't. `time.sleep(500)` without `await` in a plain `main` doesn't delay the exit.
 - A task awaiting `receive()` on a channel keeps the program alive until a message arrives or the channel is closed. If neither ever happens, the program never ends.
+- A `for await` loop waiting on a stream doesn't keep the program alive by itself. When nothing else is left to run, the program ends, even if the loop never finished. See [StreamController](#streamcontroller).
 - Isolates started with `isolate.spawn` do **not** keep the program alive. See [Isolates](/docs/concurrency/isolates#when-isolates-end).
 
 ## Async methods and generics
 
-Methods, static methods, enum methods and generic functions can be async:
+Methods, static methods, enum methods, interface methods and generic functions can be async:
 
 ```vex title="kinds.vx"
 import "vex:time"
@@ -512,6 +1092,141 @@ async fn main() {
 hi 4.5
 ```
 
+An interface method marked `async` is awaited through the interface like any async call. A struct method that implements it must be async too:
+
+```vex title="store.vx"
+import "vex:time"
+
+interface Store {
+    async fn find(id: int) -> string?
+    fn name() -> string
+}
+
+struct MemoryStore: Store {
+    users: [int: string]
+
+    async fn find(id: int) -> string? {
+        await time.sleep(1)
+        return users[id]
+    }
+
+    fn name() -> string => "memory"
+}
+
+async fn main() {
+    let store: Store = MemoryStore(users: [1: "Ann", 2: "Bo"])
+    println(await store.find(1), await store.find(9), store.name())
+    println(await all([store.find(1), store.find(2)]))
+}
+```
+
+```text title="Output"
+Ann nil memory
+["Ann", "Bo"]
+```
+
+Leaving out `async` on the struct's method gives `'find' must be async, since it implements Store`.
+
+## Async closures and function values
+
+`async fn(T) -> R` is the type of an async function used as a value. Calling such a value works like calling an async function: `await` gives the result, and a call without `await` starts a task and gives a future.
+
+```vex title="values.vx"
+import "vex:time"
+
+async fn fetch(url: string) -> string {
+    await time.sleep(5)
+    return "page of {url}"
+}
+
+fn cached(url: string) -> string => "cached {url}"
+
+async fn twice(load: async fn(string) -> string, url: string) -> string {
+    let first = await load(url)
+    return "{first}, {await load(url)}"
+}
+
+async fn main() {
+    let load: async fn(string) -> string = fetch
+    println(await load("a.com"))
+    let later = load("b.com")
+    println(later)
+    println(await later)
+    println(await twice(fetch, "c.com"))
+    println(await twice(cached, "d.com"))
+    println(load)
+}
+```
+
+```text title="Output"
+page of a.com
+<Future<string>>
+page of b.com
+page of c.com, page of c.com
+cached d.com, cached d.com
+<async fn(string) -> string>
+```
+
+- A named async function, such as `fetch`, is a value of its async function type.
+- A plain function can be used where an async one is expected, as `cached` is above; it simply never waits.
+- An async function can't be used where a plain one is expected: `expected fn() -> int, found async fn() -> int`.
+- A throwing async function has a type such as `async fn(string) throws -> string`. A call of it without `await` gives `Future<string, Error>`.
+
+### Async closures
+
+A closure is async when it is written `async fn(...)`, or when it is passed or assigned where an async function is expected. Only async closures can `await`.
+
+```vex title="async_closure.vx"
+import "vex:time"
+
+struct Button {
+    title: string
+    onTap: async fn()
+}
+
+async fn main() {
+    let delayed = async fn(text: string, ms: int) -> string {
+        await time.sleep(ms)
+        return text
+    }
+    let slow = delayed("slow", 20)
+    let fast = delayed("fast", 10)
+    println(await any([slow, fast]))
+    println(await slow)
+
+    let square = async fn(x: int) -> int => x * x
+    println(await square(7))
+
+    var log: [string] = []
+    let save = Button(title: "Save") {
+        await time.sleep(5)              // async, since onTap is an async fn()
+        log.push("saved")
+    }
+    await save.onTap()
+    println(log)
+}
+```
+
+```text title="Output"
+fast
+slow
+49
+["saved"]
+```
+
+A trailing block is async when the parameter it fills has type `async fn()`. An `await` in a closure that isn't async gives `await is only allowed in async closures`, with the hint `mark the closure async: async fn() { ... }`.
+
+### Tear-offs
+
+Async methods tear off like other methods, including interface methods. The result is an async function value bound to the value it was taken from:
+
+```vex
+let find = store.find                  // async fn(int) -> string?
+println(await all([find(1), find(2)]))
+```
+
+[`isolate.run` and `isolate.spawn`](/docs/concurrency/isolates#async-work-on-another-isolate) take async closures and async functions too.
+
 ## Embedding the event loop
 
 A program normally runs its own loop after `main`. A host program with its own run loop, such as a game engine or a GUI toolkit written in C, can drive the Vex loop instead by calling this C function, which the runtime exports:
@@ -542,16 +1257,19 @@ It runs every task that is ready and every timer that is due, then returns the n
 
   In `fn main()`, the hint says `make main async: async fn main()`.
 
-- Closures can't be async and can't await: `closures can't await yet`. Await in the enclosing async function instead. A closure can still start tasks by calling an async function without `await`.
-- An async function can't be used as a value: `async functions can't be used as values yet`. Call it instead; the call starts it and gives its future.
-- Interface methods can't be async: `interface methods can't be async yet`. Make the struct's method async and call it from a non-async interface method.
+- Only async closures can await: `await is only allowed in async closures`. A closure that isn't async can still start tasks by calling an async function without `await`.
+- An async function can't be used where a plain function is expected: `expected fn() -> int, found async fn() -> int`. The other way round works.
+- A struct method that implements an async interface method must be async: `'find' must be async, since it implements Store`.
 - `extern fn` and `export fn` can't be async.
-- `await` needs a future or a call of an async function: `await 5` gives `await needs a future or a call of an async function, found int`.
+- `cancel()` takes no arguments, and `isCancelled` is a property: `f.isCancelled()` gives `isCancelled is a property, not a method`.
+- `time.timeout` takes a future and an `int`: `time.timeout(5, 10)` gives `time.timeout needs a future, found int`, and a future of an optional gives `time.timeout gives nil when the time runs out, so the future's value can't be optional itself`.
+- `await` needs a future or a call of an async function: `await 5` gives `await needs a future or a call of an async function, found int`. A stream gives `await waits for one value, but a stream gives many`.
 - `Future` needs its value type: a bare `Future` is `Future needs a type argument`. The error type must be `Error` or an enum: `Future<int, int>` gives `a future fails with Error or an enum, found int`.
 - `all` and `any` need a list of futures: `all(5)` gives `all needs a list of futures, found int`.
 - A future is not its value. Using one where the value is expected is a type error, such as `expected int, found Future<void>`.
 - An awaited throwing call needs `try`: `load can throw, so the call needs try`.
-- Futures can't cross between isolates or be sent on channels. See [Isolates](/docs/concurrency/isolates#what-can-be-copied).
+- Futures and streams can't cross between isolates or be sent on channels. See [Isolates](/docs/concurrency/isolates#what-can-be-copied).
+- `for await` is only allowed in async code, needs a `Stream<T>`, and has no index. `yield` is only allowed in a stream function. See [Stream errors](#stream-errors) for every stream error.
 
 ## Comparison
 
@@ -561,7 +1279,7 @@ It runs every task that is ready and every timer that is due, then returns the n
 | Start without waiting | `let x = f()` | `final x = f();` | `async let x = f()` | `async { f() }` | `const x = f()` |
 | Wait for many | `await all([a, b])` | `await Future.wait([a, b])` | `await (a, b)` | `awaitAll(a, b)` | `await Promise.all([a, b])` |
 | Threads | one per isolate | one per isolate | thread pool | thread pool | one |
-| Cancellation | none | none | yes | yes | none |
+| Cancellation | `f.cancel()` | none | yes | yes | none |
 
 ## See also
 
