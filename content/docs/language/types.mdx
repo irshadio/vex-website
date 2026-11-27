@@ -1,9 +1,9 @@
 ---
 title: Types
-description: The built-in types (int, float, bool, string, lists, maps, records, optionals, function types), number semantics, conversions, type inference rules and type aliases.
+description: The built-in types (int, float, bool, string, lists, maps, records, optionals, function types), number semantics, conversions and safe parsing, type inference rules, type aliases, comparing values, and type tests with is and as?.
 ---
 
-Vex is statically typed: every value has a type known at compile time, and the compiler rejects a program that mixes types in ways that don't fit. You write few types yourself, because the compiler infers them from values. This page lists the built-in types, explains how numbers behave, how to convert between types, how inference works, and how to name a type with `typedef`.
+Vex is statically typed: every value has a type known at compile time, and the compiler rejects a program that mixes types in ways that don't fit. You write few types yourself, because the compiler infers them from values. This page lists the built-in types, explains how numbers behave, how to convert between types, how inference works, how to name a type with `typedef`, and how to ask an interface value which type it holds.
 
 ## Overview
 
@@ -17,7 +17,7 @@ Vex is statically typed: every value has a type known at compile time, and the c
 | Map | `[K: V]` | `["a": 1]` | Ordered by insertion, shared reference. [Maps](/docs/language/maps) |
 | Record | `(int, string)`, `({int x, int y})` | `(1, "a")`, `(x: 1, y: 2)` | Fixed group of values. [Records](/docs/language/records) |
 | Optional | `T?` | `nil`, or a `T` | [Optionals](/docs/language/optionals) |
-| Function | `fn(int) -> bool` | `fn(x) => x > 0` | [Closures](/docs/language/closures) |
+| Function | `fn(int) -> bool`, `async fn(int) -> bool` | `fn(x) => x > 0` | [Closures](/docs/language/closures) |
 | Struct | `User` | `User(name: "Ann")` | Shared reference. [Structs](/docs/language/structs) |
 | Enum | `Shape` | `Shape.circle(radius: 1)` | Value. [Enums](/docs/language/enums) |
 | Interface | `Shape` | any value that implements it | [Interfaces](/docs/language/interfaces) |
@@ -99,7 +99,8 @@ false false true
 
 - `%` doesn't work on floats. Use `math.trunc` from [`vex:math`](/docs/stdlib/math) to build one if you need it.
 - `nan` is not equal to anything, itself included.
-- Floats have no members; rounding, square roots and the like are in [`vex:math`](/docs/stdlib/math).
+- `x.isNaN` and `x.isFinite` test for `nan` and for infinity or `nan`. `x.toFixed(2)` gives text with exactly that many digits after the point, from 0 to 20, rounding halves away from zero: `2.5.toFixed(0)` is `"3"`. Rounding, square roots and the like are in [`vex:math`](/docs/stdlib/math).
+- `float.infinity` and `float.nan` name the special values, and `int.max` and `int.min` the limits of `int`. Constants can use them.
 
 ### How floats print
 
@@ -152,7 +153,7 @@ Write `if items.len > 0`. Booleans compare with `==` and `!=`, but not with `<`.
 ## Collections and records
 
 - `[T]` is a list of `T`. `[int?]` is a list of optional ints; `[int]?` is an optional list.
-- `[K: V]` is a map from `K` to `V`. Keys can be `int`, `string`, `bool` or an enum whose cases carry no values. Values can be anything except an optional.
+- `[K: V]` is a map from `K` to `V`. Keys can be `int`, `string`, `bool`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable`. Values can be anything except an optional.
 - `(int, string)` is a record with two positional fields; `({int x, int y})` one with named fields; `(int, {string name})` mixes both.
 
 Lists and maps are shared references; records are values. See [Lists](/docs/language/lists), [Maps](/docs/language/maps) and [Records](/docs/language/records).
@@ -186,7 +187,7 @@ log: ready
 true <fn(int, string) -> bool>
 ```
 
-A function value prints as its type in angle brackets. Function values can't be compared with `==`. See [Closures](/docs/language/closures).
+A function value prints as its type in angle brackets. Function values can't be compared with `==`. An async function used as a value has a type such as `async fn(string) -> string`. See [Closures](/docs/language/closures) and [Async](/docs/concurrency/async).
 
 ## Conversions
 
@@ -217,6 +218,7 @@ Three built-in functions convert:
 | `int(x)` | `int`, `float`, `string` | `int` |
 | `float(x)` | `int`, `float`, `string` | `float` |
 | `str(x)` | any value | `string`, the same text `println` shows |
+| `int.parse(s)`, `float.parse(s)` | `string` | `int?`, `float?`: `nil` when the text isn't a number |
 
 ```vex title="convert.vx"
 fn main() {
@@ -245,7 +247,25 @@ fn main() {
 - `int` and `float` don't take `bool` (`can't convert bool to int`) or optionals (`can't convert int? to int`). Unwrap an optional first with `??` or `if let`.
 - There are no `bool(...)` or `string(...)` functions.
 
-A failed conversion is a runtime error, not an exception you can catch. To check user input before converting, test it first, for example with `s.trim() != ""` and a check of each character.
+A failed `int(s)` or `float(s)` is a runtime error, not an exception you can catch. For text that may not be a number, such as user input, use `int.parse` and `float.parse`. They follow the same rules but give `nil` instead of stopping the program:
+
+```vex title="parse.vx"
+fn main() {
+    println(int.parse("42"), int.parse("4.5"), int.parse(" 7 "), int.parse("ff", radix: 16))
+    println(float.parse("2.5"), float.parse("abc"))
+    let typed = "12x"
+    let n = int.parse(typed) ?? 0
+    println(n, str(255, radix: 16), str(5, radix: 2))
+}
+```
+
+```text title="Output"
+42 nil 7 255
+2.5 nil
+0 ff 101
+```
+
+`int.parse(s, radix: 16)` reads other bases from 2 to 36, and `str(n, radix: 16)` writes one, with lowercase letters. A radix outside 2 to 36 stops the program.
 
 ## Type inference
 
@@ -349,7 +369,102 @@ Distinct wrapper types, where `UserId` and `int` don't mix, are planned as exten
 
 ## Comparing values
 
-`==` and `!=` work on `int`, `float`, `bool`, `string`, enums whose cases carry no values, records whose fields can all be compared, and structs that define `operator ==`. Optionals compare only with `nil`. `<`, `<=`, `>` and `>=` work on `int`, `float`, `string` and enums whose cases carry no values. Lists, maps, functions and interface values can't be compared. [Operators](/docs/language/operators#comparison) has the details.
+`==` and `!=` work on `int`, `float`, `bool`, `string` and enums whose cases carry no values, and on lists, maps, optionals and records whose contents can be compared. Structs and enums compare with `==` when they list `Equatable` or `Hashable`, or define `operator ==`. `===` and `!==` tell whether two references are the same object. `<`, `<=`, `>` and `>=` work on `int`, `float`, `string` and enums whose cases carry no values. [Operators](/docs/language/operators#comparison) has the details, and [Structs](/docs/language/structs#equality) shows `Equatable` and `Hashable`.
+
+## Type tests
+
+A value of an [interface](/docs/language/interfaces) type holds some struct or enum that implements it. `x is T` asks whether it holds a `T`, and `x as? T` gives it as a `T`, or `nil`:
+
+```vex title="typetest.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.14 * radius * radius
+}
+
+struct Rect: Shape {
+    width: float
+    height: float
+    fn area() -> float => width * height
+}
+
+fn describe(s: Shape) -> string {
+    if s is Circle {
+        return "circle of radius {s.radius}"
+    }
+    if s is Rect && s.width == s.height {
+        return "square of side {s.width}"
+    }
+    return "shape of area {s.area()}"
+}
+
+fn main() {
+    let shapes: [Shape] = [Circle(radius: 1), Rect(width: 2, height: 2), Rect(width: 2, height: 3)]
+    for s in shapes {
+        println(describe(s))
+    }
+    let first = shapes[0]
+    println(first is Circle, first is Rect)
+    if let r = shapes[2] as? Rect {
+        println(r.height)
+    }
+    let width = (shapes[0] as? Rect)?.width ?? 0.0
+    println(width)
+}
+```
+
+```text title="Output"
+circle of radius 1.0
+square of side 2.0
+shape of area 6.0
+true false
+3.0
+0.0
+```
+
+### Smart casts
+
+After `x is T`, `x` has type `T` where the test is known to hold: in the `if` block, in the rest of an `&&` chain, in the branch of an [`if` used as a value](/docs/language/control-flow#if-as-a-value) and in a `while` body. That's why `s.radius` works above without a cast.
+
+This needs a name that can't change: a `let`, a parameter, a loop variable or a name bound by a pattern. A `var` keeps its type, since it could be assigned between the test and the use. Bind it with `as?` instead:
+
+```vex title="vartest.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.14 * radius * radius
+}
+
+fn main() {
+    var s: Shape = Circle(radius: 1)
+    if s is Circle {
+        println(s.radius)
+    }
+}
+```
+
+```text title="Output"
+error: Shape has no member 'radius'
+  --> vartest.vx:13:19
+   |
+13 |         println(s.radius)
+   |                   ^^^^^^ 's' is a var, so 'is' can't narrow it; write if let x = s as? Circle
+```
+
+### Rules for type tests
+
+- The value tested must be an interface. An optional must be unwrapped first, and a value whose type is already known is reported (`'is' tests an interface value, but this is Circle`).
+- The type must be able to hold it: a struct or enum that implements the interface, or another interface. `s is Point` when `Point` doesn't implement `Shape` gives `Point doesn't implement Shape, so a Shape value is never one`, and `s is Shape` gives `every Shape is a Shape, so this always holds`.
+- There is only `as?`. A plain `as` gives `Vex has only as?, not as`, just as there is no force unwrap.
+- `is` and `as?` bind tighter than `??` and comparisons and looser than `+`, so `(x as? T)?.field` needs the parentheses.
+- In a `match`, a struct pattern such as `Circle(:radius)` or a typed pattern such as `c: Circle` tests the type too. See [Patterns](/docs/language/patterns#type-patterns).
+- A test is one comparison: each struct and enum value carries a pointer to its type's method tables.
 
 ## Rules and edge cases
 

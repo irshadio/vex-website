@@ -1,6 +1,6 @@
 ---
 title: Control flow
-description: if and else, if let and if case, for-in loops over ranges, lists and maps, while and while let, break and continue, guard let, and a first look at match.
+description: if and else, if as a value, if let and if case, for-in loops over ranges, lists and maps, while and while let, break and continue, guard let, and a first look at match.
 ---
 
 Vex has a short list of control-flow statements: `if`, `for`, `while`, `guard` and `match`, with `break`, `continue` and `return` to leave early. Conditions don't take parentheses, bodies always take braces, and conditions must be `bool`.
@@ -56,28 +56,71 @@ This rule exists because a line break ends a statement: on its own line, `else` 
 - The condition must be a `bool`. `if items.len` gives `if condition must be bool, found int`; write `if items.len > 0`.
 - A `=` in a condition is reported as a mistake: `use == to compare in a condition`.
 
-### if is a statement
+### if as a value
 
-`if` doesn't produce a value, so `let x = if a { 1 } else { 2 }` doesn't compile. There is no `? :` operator either. Use a `match` on a `bool`, a variable that you set in each branch, or a small function:
+An `if` with an `else` gives a value, so it works anywhere an expression does: in a `let`, a `return`, an argument or an interpolation. Each branch holds a single expression.
 
-```vex title="choose.vx"
+```vex title="ifvalue.vx"
+enum Shape {
+    circle(radius: float)
+    square(side: float)
+}
+
+fn area(s: Shape) -> float {
+    return if s case circle(r) { 3.14 * r * r } else if s case square(side) { side * side } else { 0.0 }
+}
+
 fn main() {
-    let n = 7
-    let size = match n > 5 {
-        true => "big"
-        false => "small"
-    }
-    var parity = "odd"
-    if n % 2 == 0 {
-        parity = "even"
-    }
-    println(size, parity)
+    let n = 42
+    let size = if n > 100 { "large" } else if n > 10 { "medium" } else { "small" }
+    let name: string? = nil
+    let greeting = if let x = name { "Hi {x}" } else { "Welcome" }
+    let count = 1
+    println(size, greeting)
+    println("{count} {if count == 1 { "item" } else { "items" }}")
+    println(area(.circle(radius: 1.0)), area(.square(side: 2.0)))
 }
 ```
 
 ```text title="Output"
-big odd
+medium Welcome
+1 item
+3.14 4.0
 ```
+
+There is no `? :` operator; writing one gives `Vex has no ? : operator` with the hint `write if cond { a } else { b }`.
+
+- `else` is required, and every branch must give the same type:
+
+```vex title="iferr.vx"
+fn main() {
+    let ok = true
+    let a = if ok { 1 }
+    let b = if ok { 1 } else { "one" }
+}
+```
+
+```text title="Output"
+error: an if used as a value needs an else
+ --> iferr.vx:3:13
+  |
+3 |     let a = if ok { 1 }
+  |             ^^ add one: if ok { a } else { b }
+
+error: the branches of an if must have the same type: the first gives int, this one string
+ --> iferr.vx:4:32
+  |
+4 |     let b = if ok { 1 } else { "one" }
+  |                                ^^^^^ make every branch give the same type
+
+2 errors
+```
+
+- A branch holds one expression, not statements: `each branch of an if used as a value must be a single expression`. Compute the value before the `if`, or use an `if` statement. A branch holding only another `if` gives that `if`'s value.
+- A branch may be `panic(...)` instead of a value.
+- With a declared type, the branches convert to it, so `let n: int? = if ok { 5 } else { nil }` works. Without one, `if ok { 5 } else { nil }` is an error, since `nil` doesn't fit the `int` the first branch gives.
+- Only the branch taken runs.
+- The `if` ends at its last `}`, so in `1 + if ok { 2 } else { 3 } * 4` the `* 4` applies to the value of the whole `if`.
 
 ### if let
 
@@ -136,7 +179,7 @@ on the y axis at 7
 
 ## for loops
 
-`for name in sequence` runs its body once per element. The sequence is a range, a list or a map.
+`for name in sequence` runs its body once per element. The sequence is a range, a list or a map. To read a [stream](/docs/concurrency/async#streams) of values that arrive over time, async code uses `for await x in stream`, which works with `break`, `continue` and patterns like the loops below.
 
 ### Over a range
 
@@ -465,6 +508,8 @@ Since a line break ends a statement, the returned value must start on the same l
 - Bodies of `if`, `else`, `for`, `while` and `guard` always need braces, with `{` on the same line.
 - Conditions must be `bool`, including in `while`: `while condition must be bool, found int`.
 - There's no `switch`, `loop`, `do ... while`, labeled loop or C-style `for (i = 0; i < n; i++)`.
+- After `if x is T`, `x` has type `T` inside the block. See [Type tests](/docs/language/types#type-tests).
+- An `if` used as a value needs an `else`, and its branches are single expressions of one type. There is no `? :`.
 - `if` and `for` can also appear inside list and map literals, where they produce elements: `[for x in xs if x > 0 x]`. See [Lists](/docs/language/lists#collection-if-for-and-spread).
 
 ## Comparison
@@ -473,7 +518,7 @@ Since a line break ends a statement, the returned value must start on the same l
 |---|---|---|---|---|
 | Parentheses around conditions | no (warned) | no | yes | no |
 | Braces required | yes | yes | no | yes |
-| `if` as an expression | no, use `match` | yes | yes | no |
+| `if` as an expression | yes | yes | yes | no |
 | Counting loop | `for i in 0..n` | `for i in 0..<n` | `for (i in 0 until n)` | `for i := 0; i < n; i++` |
 | Inclusive range | `1..=5` | `1...5` | `1..5` | none |
 | Loop labels | no | yes | yes | yes |

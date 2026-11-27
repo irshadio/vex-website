@@ -1,13 +1,13 @@
 ---
 title: Basics
-description: Program structure, main, variables with let and var, type inference, naming rules, scope, statements and line breaks, and comments.
+description: Program structure, main, variables with let and var, top-level variables, type inference, naming rules, scope, statements and line breaks, and comments.
 ---
 
 This page covers what every Vex program is made of: a `main` function, variables, names, blocks and comments. If you know Swift, Kotlin, Dart or TypeScript, most of it will look familiar; the differences are called out as they come up.
 
 ## Program structure
 
-A Vex program is one or more `.vx` files. The top level of a file holds declarations only: functions, structs, enums, interfaces, constants, type aliases, extensions, imports and C declarations. Statements such as `println(...)` or `let` go inside functions.
+A Vex program is one or more `.vx` files. The top level of a file holds declarations only: functions, structs, enums, interfaces, constants, [variables](#top-level-variables), type aliases, extensions, imports and C declarations. Statements such as `println(...)` go inside functions.
 
 Execution starts at `fn main()`:
 
@@ -54,28 +54,6 @@ fn isOdd(n: int) -> bool {
 ```text title="Output"
 true true
 ```
-
-### No top-level variables
-
-Variables can only be declared inside functions. There are no global variables:
-
-```vex title="global.vx"
-var counter = 0
-
-fn main() {
-    println(counter)
-}
-```
-
-```text title="Output"
-error: variables must be declared inside a function
- --> global.vx:1:1
-  |
-1 | var counter = 0
-  | ^^^ move it into a function such as fn main()
-```
-
-For a fixed value shared by the whole program, use a [constant](/docs/language/constants). For shared state that changes, create it in `main` and pass it to the functions that need it, or keep it in a [struct](/docs/language/structs).
 
 ## Variables
 
@@ -195,6 +173,71 @@ error: can't change loop variable 'i'
 ```
 
 Copy the value into a `var` when you need a changeable version: `var steps = n`.
+
+## Top-level variables
+
+`let` and `var` outside a function declare a variable that the whole program shares. Its starting value can be any expression, function calls included:
+
+```vex title="globals.vx"
+var visits = 0
+let names = loadNames()
+
+fn loadNames() -> [string] {
+    println("loading names")
+    return ["ann", "bob"]
+}
+
+fn visit() -> int {
+    visits += 1
+    return visits
+}
+
+fn main() {
+    println("start")
+    visit()
+    visit()
+    println(visits)
+    names.push("cat")
+    println(names)
+}
+```
+
+```text title="Output"
+start
+2
+loading names
+["ann", "bob", "cat"]
+```
+
+- Each variable is set up the first time it is used, not before `main`. `loading names` prints after `start`, and a variable that is never used costs nothing. The order of declarations doesn't matter.
+- `let` and `var` mean the same as inside a function: a top-level `let` can't be assigned again, but a list or map it holds can still change.
+- The type is inferred from the starting value or written after a colon, with the same rules as for local variables.
+- Each [isolate](/docs/concurrency/isolates) has its own copy, set up on its first use there. A change made in one isolate is never seen by another, so no locks are needed.
+- `pub var` and `pub let` make the variable visible to other modules, which read and change it as `module.name`. See [Modules](/docs/projects/modules).
+
+A starting value can't use the variable itself:
+
+```vex title="selfref.vx"
+var total: int = total + 1
+
+fn main() {
+    println(total)
+}
+```
+
+```text title="Output"
+error: 'total' is used in its own starting value
+ --> selfref.vx:1:5
+  |
+1 | var total: int = total + 1
+  |     ^^^^^ give it a value that doesn't use it
+```
+
+When the loop goes through a function, the compiler can't see it, and the program stops on first use with `'a' is used before its starting value is ready`.
+
+A starting value can't use `await`, and can't pass errors up with `try` (`a starting value can't pass errors up`); handle them there with `try?` or `try ... catch`.
+
+For a fixed value known when compiling, use a [constant](/docs/language/constants) instead. For variables that belong to a type, use [static variables](/docs/language/structs#static-variables).
 
 ## Type inference
 
@@ -337,7 +380,7 @@ error: 'count' is already declared on line 2
   |         ^^^^^ choose another name, or assign to it without let/var
 ```
 
-A local variable can also hide a top-level function of the same name for the rest of its block.
+A local variable can also hide a top-level function or variable of the same name for the rest of its block.
 
 ## Statements and line breaks
 
@@ -477,7 +520,7 @@ Use `.copy()` on a list or map when you need an independent one. [Memory](/docs/
 
 ## Rules and edge cases
 
-- Top-level code is limited to declarations. A statement at the top level is an error: `expected 'fn', 'struct', 'enum' or 'interface', found 'println'`.
+- Top-level code is limited to declarations, variables included. A statement at the top level is an error: `expected 'fn', 'struct', 'enum' or 'interface', found 'println'`.
 - A program without `main` fails with `no main function`.
 - `main` can't take parameters (`main can't take parameters`) or return a value (`main can't return a value`).
 - Every `let` and `var` needs a value.
@@ -492,7 +535,7 @@ Use `.copy()` on a list or map when you need an independent one. [Memory](/docs/
 |---|---|---|---|---|---|---|
 | Immutable binding | `let` | `let` | `val` | `final` | none | `const` |
 | Mutable binding | `var` | `var` | `var` | `var` | `var`, `:=` | `let` |
-| Global variables | no | yes | yes | yes | yes | yes |
+| Global variables | yes, set up on first use, one copy per isolate | yes | yes | yes | yes | yes |
 | Uninitialized declaration | no | yes, if assigned before use | yes | `late` | zero value | `undefined` |
 | Semicolons | optional, warned at line end | optional | optional | required | inserted | optional |
 

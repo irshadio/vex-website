@@ -507,11 +507,11 @@ fn load(path: string) throws -> string {
 }
 
 fn main() throws {
-    let a = try load("x.cfg") catch e {
+    let _ = try load("x.cfg") catch e {
         println("failed: {e.message}")
         ""
     }
-    let b = try open("y.cfg")                 // reaches main as it is
+    try open("y.cfg")                         // reaches main as it is
 }
 ```
 
@@ -650,7 +650,7 @@ fn get(xs: [int], i: int) throws -> int {
 }
 
 fn main() {
-    let v = try get([1], 5) catch e { -1 }
+    let v = try get([1], 5) catch { -1 }
     println(v)
 }
 ```

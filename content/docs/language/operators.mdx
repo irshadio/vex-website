@@ -1,6 +1,6 @@
 ---
 title: Operators
-description: Arithmetic, integer overflow and division rules, wrapping operators, bitwise operators, comparison, logical operators, assignment, ranges, ?? and ?., and the full precedence table.
+description: Arithmetic, integer overflow and division rules, wrapping operators, bitwise operators, comparison and identity, logical operators, assignment, ranges, ?? and ?., is and as?, and the full precedence table.
 ---
 
 Vex has a small set of operators, and each one works only on the types it makes sense for. Numbers don't convert silently, integer overflow stops the program instead of producing a wrong number, and comparisons can't be chained by accident. This page lists every operator, its exact behaviour and the order in which operators combine.
@@ -31,7 +31,7 @@ fn main() {
 5.0 3.5 10.0 12
 ```
 
-Structs can define `+`, `-`, `*`, `/`, `%`, unary `-`, `==`, `<` and indexing for themselves. See [Structs](/docs/language/structs).
+Structs can define `+`, `-`, `*`, `/`, `%`, unary `-`, `==`, `<` and indexing for themselves. See [Structs](/docs/language/structs#operators).
 
 ## Integer arithmetic
 
@@ -181,6 +181,7 @@ fn main() {
 |---|---|
 | `a == b`, `a != b` | Equal, not equal |
 | `a < b`, `a <= b`, `a > b`, `a >= b` | Ordering |
+| `a === b`, `a !== b` | Same object, not the same object |
 
 Which types can be compared:
 
@@ -190,31 +191,62 @@ Which types can be compared:
 | `string` | yes, by text | yes, code point by code point |
 | `bool` | yes | no |
 | enum whose cases carry no values | yes | yes, in declaration order |
-| enum whose cases carry values | no | no |
-| record | yes, if every field can be compared | no |
-| struct | if it defines `operator ==` | if it defines `operator <` |
-| optional | only with `nil` | no |
-| list, map, function, interface value | no | no |
+| enum whose cases carry values | if it lists `Equatable` or `Hashable`: the case, then its values | no |
+| record | yes, field by field, if every field can be compared | no |
+| struct | if it lists `Equatable` or `Hashable`, which compare every field, or defines `operator ==` | if it defines `operator <` |
+| list | yes, element by element, if the elements can be compared | no |
+| map | yes, entry by entry whatever their order, if the values can be compared | no |
+| optional | yes: equal when both are `nil` or both hold equal values | no |
+| function, interface value | no | no |
 
-Both sides must have the same type. `1 < 2.5` works because the literal `1` adapts, but an `int` variable compared with a `float` is an error (`can't compare int with float`). An optional is compared only with `nil`, which keeps you from forgetting the `nil` case:
+Both sides must have the same type. `1 < 2.5` works because the literal `1` adapts, but an `int` variable compared with a `float` is an error (`can't compare int with float`). An optional can be compared with `nil` or with a plain value; it equals the value only when it isn't `nil` and holds that value:
 
 ```vex title="optcompare.vx"
 fn main() {
     let a: int? = 5
-    println(a == nil)
-    println(a == 5)
+    let b: int? = nil
+    println(a == 5, a == 6, b == 5, b == nil)
+    println(a ?? 0 > 3)
 }
 ```
 
 ```text title="Output"
-error: can't compare int? with int
- --> optcompare.vx:4:13
-  |
-4 |     println(a == 5)
-  |             ^^^^^^
+true false false true
+true
 ```
 
-Write `a ?? 0 == 5`, or unwrap with `if let`. Floats compare by IEEE 754 rules: `nan` isn't equal to anything, and `-0.0 == 0.0`.
+Ordering doesn't work on optionals: `a < 3` gives `can't compare int? with int`. Write `a ?? 0 < 3`, or unwrap with `if let`. Floats compare by IEEE 754 rules: `nan` isn't equal to anything, and `-0.0 == 0.0`.
+
+### Identity
+
+`===` and `!==` tell whether two references point to the same object. `==` asks whether two values are equal, which for a struct means it lists `Equatable` or defines `==`:
+
+```vex title="identity.vx"
+struct Point: Equatable {
+    x: int
+    y: int
+}
+
+fn main() {
+    let p = Point(x: 1, y: 2)
+    let q = Point(x: 1, y: 2)
+    println(p == q, p === q, p === p)
+    let xs = [1, 2]
+    let ys = xs
+    println(xs == [1, 2], xs === [1, 2], xs === ys)
+    println(["a": 1, "b": 2] == ["b": 2, "a": 1])
+}
+```
+
+```text title="Output"
+true false true
+true false true
+true
+```
+
+- `===` works on structs, lists, maps, interface values, C handles and enums whose cases carry values. Any struct can use it, whether or not it has `==`.
+- Ints, strings, functions and other values have no identity: `n === 1` gives `'===' compares references, but an int is a value`, with the hint `use == to compare values`.
+- `===` has the same precedence as `==`, and doesn't chain either.
 
 ### Comparisons don't chain
 
@@ -373,6 +405,17 @@ fallback ran
 - `??` binds tighter than comparisons and looser than arithmetic: `a ?? 0 > 5` is `(a ?? 0) > 5`, and `a ?? 1 + 2` is `a ?? (1 + 2)`.
 - `x?.name` is `nil` when `x` is `nil`, and otherwise the member wrapped in an optional. A call through `?.`, such as `user?.greet()`, runs only when `user` isn't `nil`.
 
+## Type tests
+
+`x is T` asks whether an interface value holds a `T`, and `x as? T` gives it as a `T`, or `nil`. Both are covered on the [Types](/docs/language/types#type-tests) page.
+
+```vex
+if shape is Circle { println(shape.radius) }
+let r = (shape as? Rect)?.width ?? 0.0
+```
+
+`is` and `as?` bind looser than `+` and tighter than `??`, so the parentheses around `shape as? Rect` are needed before `?.`.
+
 ## Precedence
 
 From highest (binds tightest) to lowest:
@@ -384,11 +427,12 @@ From highest (binds tightest) to lowest:
 | 3 | `<<` `>>` | left to right |
 | 4 | `*` `/` `%` `&*` `&` | left to right |
 | 5 | `+` `-` `&+` `&-` `\|` `^` | left to right |
-| 6 | `??` | right to left |
-| 7 | `<` `<=` `>` `>=` | don't chain |
-| 8 | `==` `!=` | don't chain |
-| 9 | `&&` | left to right |
-| 10 | `\|\|` | left to right |
+| 6 | `is` `as?` | left to right |
+| 7 | `??` | right to left |
+| 8 | `<` `<=` `>` `>=` | don't chain |
+| 9 | `==` `!=` `===` `!==` | don't chain |
+| 10 | `&&` | left to right |
+| 11 | `\|\|` | left to right |
 
 Assignment (`=`, `+=` and the rest) isn't an expression and so has no precedence: it's always the whole statement.
 
@@ -419,9 +463,8 @@ When an expression mixes levels in a way that isn't obvious, add parentheses. Th
 | Operator | In Vex |
 |---|---|
 | `x++`, `x--` | `x += 1`, `x -= 1` |
-| `c ? a : b` | `match c { true => a, false => b }`; the compiler suggests it |
+| `c ? a : b` | `if c { a } else { b }`; the compiler suggests it. See [if as a value](/docs/language/control-flow#if-as-a-value) |
 | `a ** b` | `math.pow(a, b)` for `int`, `math.powf(a, b)` for `float`, from [`vex:math`](/docs/stdlib/math) |
-| `===` | `==`; structs compare by identity only if you write `operator ==` yourself |
 | `a % b` on floats | not supported |
 | `cond = x` in a condition | `==` |
 
@@ -431,7 +474,7 @@ When an expression mixes levels in a way that isn't obvious, add parentheses. Th
 - `+` on a string and anything else: `can't use '+' with string and int`.
 - `%`, `%=`, the wrapping operators and the bitwise operators reject floats: `'%' can't be used with float`, `&+= can't be used with float`, `'&' works only on int, found float`.
 - `!` needs a `bool`: `'!' needs a bool, found int`.
-- Lists and maps have no operators: `[1] + [2]` gives `'+' can't be used with [int]`.
+- Lists and maps have no arithmetic operators: `[1] + [2]` gives `'+' can't be used with [int]`. They compare with `==` and `===`.
 - Operands run left to right, including for operators that structs define.
 
 ## Comparison
@@ -444,7 +487,7 @@ When an expression mixes levels in a way that isn't obvious, add parentheses. Th
 | Shift by 64 or more | stops the program | gives 0, or -1 for `>>` of a negative | uses the low 6 bits | gives 0, or -1 for `>>` of a negative | uses the low 5 bits |
 | `-7 / 2` | `-3` | `-3` | `-3` | `-3` | `-3.5` |
 | `-7 % 3` | `-1` | `-1` | `-1` | `-1` | `-1` |
-| Ternary | `match` | `? :` | `if` expression | none | `? :` |
+| Ternary | `if` expression | `? :` | `if` expression | none | `? :` |
 | Null fallback | `??` | `??` | `?:` | none | `??` |
 
 ## See also
