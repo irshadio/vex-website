@@ -3,6 +3,7 @@ import { DocsBody, DocsDescription, DocsPage, DocsTitle } from 'fumadocs-ui/layo
 import { notFound } from 'next/navigation';
 import { getMDXComponents } from '@/components/mdx';
 import type { Metadata } from 'next';
+import { pageMetadata, siteDescription } from '@/lib/metadata';
 import { createRelativeLink } from 'fumadocs-ui/mdx';
 
 export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
@@ -32,8 +33,5 @@ export async function generateMetadata(props: PageProps<'/docs/[[...slug]]'>): P
   const page = source.getPage(params.slug);
   if (!page) notFound();
 
-  return {
-    title: page.data.title,
-    description: page.data.description,
-  };
+  return pageMetadata({ title: page.data.title, description: page.data.description ?? siteDescription, path: page.url });
 }

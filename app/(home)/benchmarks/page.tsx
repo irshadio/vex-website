@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/metadata';
 import { codeToHtml } from 'shiki';
 import { getBenchmarks } from '@/lib/data';
 import { formatBytes, formatTime } from '@/lib/format';
@@ -10,10 +11,11 @@ import { PageHeader } from '@/components/pages/page-header';
 import { SourceTabs } from '@/components/pages/source-tabs';
 import { Footer } from '@/components/home/footer';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Benchmarks',
   description: 'Vex compared with C, Rust, Go, Swift, Dart, Kotlin and JavaScript on the same programs.',
-};
+  path: '/benchmarks',
+});
 
 const sources: Record<string, { file: string; lang: string }> = {
   vex: { file: 'main.vx', lang: 'vex' },
