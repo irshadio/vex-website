@@ -1,6 +1,6 @@
 ---
 title: Functions
-description: Declaring functions, parameters and result types, => bodies, named and default arguments, recursion, static functions, and how arguments are passed.
+description: Declaring functions, parameters and result types, => bodies, named and default arguments, recursion, local functions, static functions, and how arguments are passed.
 ---
 
 Functions are declared with `fn`, take typed parameters, and give their result type after `->`. At the call site, any argument can be named, and parameters can have defaults, so calls stay readable without builder objects or overloads.
@@ -29,7 +29,7 @@ Hello, Ann
 
 - Each parameter is `name: Type`. Parameter types are always written: `fn f(x)` gives `parameter 'x' needs a type`.
 - `-> Type` gives the result type. A function that returns nothing leaves it out; there's no `void`.
-- Functions are declared at the top level of a file, in any order. A function can call one declared after it.
+- Functions are declared at the top level of a file, in any order. A function can call one declared after it. Functions declared inside other functions follow different rules; see [Local functions](#local-functions).
 
 ## Result types and return
 
@@ -350,25 +350,134 @@ fn main() {
 error: stack overflow: too many nested function calls, probably a function that calls itself without stopping
 ```
 
-## No nested functions
+## Local functions
 
-Functions can't be declared inside other functions:
+A function can be declared inside another function, or inside any block. A local function sees the variables around it, like a [closure](/docs/language/closures), and can call itself:
 
-```vex title="nestedfn.vx"
+```vex title="local.vx"
+fn countLeaves(tree: [string: [string]], root: string) -> int {
+    var leaves = 0
+
+    fn visit(node: string) {
+        let children = tree[node] ?? []
+        if children.isEmpty {
+            leaves += 1
+        }
+        for child in children {
+            visit(child)
+        }
+    }
+
+    visit(root)
+    return leaves
+}
+
 fn main() {
-    fn helper() -> int => 1
+    let tree = ["root": ["a", "b"], "a": ["a1", "a2"]]
+    println(countLeaves(tree, "root"))
+
+    fn double(x: int) -> int => x * 2
+    fn quad(x: int) -> int => double(double(x))
+    println(quad(3), [1, 2, 3].map(double))
+    let f = quad
+    println(f(5))
 }
 ```
 
 ```text title="Output"
-error: functions can't be declared inside other functions
- --> nestedfn.vx:2:5
-  |
-2 |     fn helper() -> int => 1
-  |     ^^ declare it at the top level, or store a closure: let helper = fn(...) { ... }
+3
+12 [2, 4, 6]
+20
 ```
 
-Declare the helper at the top level, or store a [closure](/docs/language/closures) in a local variable, which can also use the surrounding variables.
+- A local function captures the variables declared before it by reference, as a closure does: `visit` above adds to the `leaves` of its own call of `countLeaves`. Inside a method, it can use the struct's fields too.
+- It is a value: pass it as `xs.map(double)`, or store it in a variable. Like any function value, it is called with unnamed arguments: `add(a: 1, b: 2)` gives `function values don't have parameter names`.
+- `async`, `throws` and `=>` bodies work as at the top level.
+
+```vex title="local_kinds.vx"
+import "vex:time"
+
+fn sumDigits(s: string) throws -> int {
+    fn digit(c: string) throws -> int {
+        guard let d = int.parse(c) else {
+            throw Error("not a digit: {c}")
+        }
+        return d
+    }
+
+    var total = 0
+    for c in s.chars() {
+        total += try digit(c)
+    }
+    return total
+}
+
+async fn main() {
+    println(try? sumDigits("123"), try? sumDigits("1x"))
+
+    async fn later(x: int) -> int {
+        await time.sleep(1)
+        return x + 1
+    }
+    println(await later(4))
+}
+```
+
+```text title="Output"
+6 nil
+5
+```
+
+### Local function rules
+
+Unlike top-level functions, a local function must be declared before it is used, so two local functions can't call each other. Its parameters can't have default values, and it can't have type parameters yet. It can't be assigned, and its name can't be declared again in the same block:
+
+```vex title="local_errors.vx"
+fn main() {
+    fn first<T>(xs: [T]) -> T => xs[0]
+    fn greet(name: string = "you") {}
+    println(later())
+    fn later() -> int => 1
+    later = fn() => 2
+    fn later() -> int => 3
+}
+```
+
+```text title="Output"
+error: local functions can't have type parameters yet
+ --> local_errors.vx:2:14
+  |
+2 |     fn first<T>(xs: [T]) -> T => xs[0]
+  |              ^ declare it at the top level
+
+error: parameters of local functions can't have default values
+ --> local_errors.vx:3:29
+  |
+3 |     fn greet(name: string = "you") {}
+  |                             ^^^^^ remove the default, or declare the function at the top level
+
+error: local function 'later' is used before it is declared
+ --> local_errors.vx:4:13
+  |
+4 |     println(later())
+  |             ^^^^^ move the declaration of later above this line
+
+error: can't assign to local function 'later'
+ --> local_errors.vx:6:5
+  |
+6 |     later = fn() => 2
+  |     ^^^^^ declare a variable holding a function instead: var f = later
+
+error: 'later' is already declared on line 5
+ --> local_errors.vx:7:8
+  |
+7 |     fn later() -> int => 3
+  |        ^^^^^ choose another name, or assign to it without let/var
+
+5 errors
+```
+
+For functions that call each other, or that need defaults or type parameters, declare them at the top level and pass in what they need.
 
 ## No overloading
 
@@ -406,6 +515,8 @@ Methods, `static` members and getters are covered on the [Structs](/docs/languag
 | Feature | Written | Page |
 |---|---|---|
 | Function values and closures | `fn(x: int) -> int => x * 2` | [Closures](/docs/language/closures) |
+| Trailing blocks | `xs.map { x in x * 2 }`, `xs.filter { it > 0 }` | [Closures](/docs/language/closures#trailing-blocks) |
+| Local functions | `fn helper() { ... }` inside a function | [Local functions](#local-functions) |
 | Generic functions | `fn first<T>(xs: [T]) -> T?` | [Generics](/docs/language/generics) |
 | Functions that can fail | `fn parse(s: string) throws -> int` | [Errors](/docs/language/errors) |
 | Async functions | `async fn fetch(url: string) -> string` | [Async](/docs/concurrency/async) |
@@ -420,6 +531,7 @@ Methods, `static` members and getters are covered on the [Structs](/docs/languag
 - Without `-> T`, a function returns nothing, even with an `=>` body.
 - Function names can't be keywords or built-in function names such as `print` or `str`.
 - A local variable can shadow a function's name for the rest of its block.
+- Local functions are declared before use, capture the variables around them, and can't have default parameter values or type parameters yet.
 - `main` takes no parameters and returns nothing; see [Basics](/docs/language/basics#program-structure).
 
 ## Comparison
@@ -431,7 +543,7 @@ Methods, `static` members and getters are covered on the [Structs](/docs/languag
 | Default values | yes | yes | yes | yes | no |
 | Expression body | `=> x` | implicit return | `= x` | `=> x` | no |
 | Overloading | no | yes | yes | no | no |
-| Nested functions | no, use closures | yes | yes | yes | closures |
+| Nested functions | yes | yes | yes | yes | closures |
 
 ## See also
 

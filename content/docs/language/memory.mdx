@@ -358,7 +358,7 @@ The collector is conservative today: a number on the stack that happens to look 
 
 ## Resources
 
-The collector manages memory, not other resources. There are no destructors, finalizers or `defer` blocks. The standard library's [`vex:fs`](/docs/stdlib/fs) reads and writes whole files in one call, so there are no file handles to close. When you hold C resources through [C interop](/docs/projects/c-interop), close them explicitly through the C API.
+The collector manages memory, not other resources. There are no destructors or finalizers. The standard library's [`vex:fs`](/docs/stdlib/fs) reads and writes whole files in one call, so there are no file handles to close. When you hold C resources through [C interop](/docs/projects/c-interop), release them through the C API, and use a [`defer`](/docs/language/control-flow#defer) block so the release runs however the block ends.
 
 ## Printing cycles
 

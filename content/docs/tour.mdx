@@ -304,7 +304,49 @@ fn main() {
 B 3 items
 ```
 
-More: [Control flow](/docs/language/control-flow).
+**Loops and `defer`.** `repeat { } while cond` runs its body at least once. A name before a loop, such as `outer:`, lets `break` and `continue` leave an outer loop from inside an inner one. A `defer` block runs when the block it is in ends, however it ends; several run last first.
+
+```vex title="loops.vx"
+fn process(name: string) {
+    println("open {name}")
+    defer { println("close {name}") }
+    defer { println("flush {name}") }
+    if name == "" { return }
+    println("write {name}")
+}
+
+fn main() {
+    var n = 100
+    repeat {
+        n /= 3
+    } while n > 5
+    println(n)
+
+    let grid = [[1, 2, 3], [4, -1, 6], [7, 8, 9]]
+    var seen: [int] = []
+    outer: for row in grid {
+        for cell in row {
+            if cell < 0 { continue outer }
+            if cell == 8 { break outer }
+            seen.push(cell)
+        }
+    }
+    println(seen)
+
+    process("log.txt")
+}
+```
+
+```text title="Output"
+3
+[1, 2, 3, 4, 7]
+open log.txt
+write log.txt
+flush log.txt
+close log.txt
+```
+
+More: [Control flow](/docs/language/control-flow), [Named loops](/docs/language/control-flow#named-loops), [defer](/docs/language/control-flow#defer).
 
 ## Functions
 
@@ -336,11 +378,50 @@ Welcome, Sam!
 
 The compiler checks that a function with a result type returns a value on every path.
 
+**Local functions.** A function can be declared inside another. It sees the variables around it, like a closure, and can call itself. It is declared before it is used, and it is a value that can be passed on.
+
+```vex title="local.vx"
+struct Dir {
+    name: string
+    files: int
+    subdirs: [Dir] = []
+}
+
+fn countFiles(root: Dir) -> int {
+    var total = 0
+
+    fn visit(dir: Dir) {
+        total += dir.files
+        for sub in dir.subdirs {
+            visit(sub)
+        }
+    }
+
+    visit(root)
+    return total
+}
+
+fn main() {
+    let tree = Dir(name: "src", files: 2, subdirs: [Dir(name: "lib", files: 5), Dir(name: "app", files: 1, subdirs: [Dir(name: "ui", files: 4)])])
+    println(countFiles(tree))
+
+    fn square(x: int) -> int => x * x
+    println([1, 2, 3].map(square))
+}
+```
+
+```text title="Output"
+12
+[1, 4, 9]
+```
+
 More: [Functions](/docs/language/functions).
 
 ## Closures
 
-A closure is a function without a name, written like a declaration. Parameter types can be left out where the expected type gives them. Closures capture variables by reference, and a `{ }` block after a call is passed as its last argument, a trailing block.
+A closure is a function without a name, written like a declaration. Parameter types can be left out where the expected type gives them, and closures capture variables by reference.
+
+A `{ }` block after a call is passed as its last argument, a trailing block. It names its parameters before `in`, as in `{ a, b in a < b }`. A block for a function of one parameter can leave it unnamed and call it `it`. When the function returns a value, the block's last expression is that value.
 
 ```vex title="closures.vx"
 fn repeat(times: int, action: fn()) {
@@ -358,9 +439,17 @@ fn makeCounter() -> fn() -> int {
 fn main() {
     let double = fn(x: int) -> int => x * 2
     let nums = [1, 2, 3, 4, 5, 6]
-    let evens = nums.filter(fn(x) => x % 2 == 0)
-    let labels = evens.map(fn(x) => "#{double(x)}")
+    let evens = nums.filter { x in x % 2 == 0 }
+    let labels = evens.map { "#{double(it)}" }
     println(evens, labels)
+
+    var words = ["kiwi", "fig", "banana"]
+    words.sort { a, b in a.len < b.len }
+    let sizes = words.map { w in
+        let n = w.len
+        "{w}={n}"
+    }
+    println(sizes)
 
     var taps = 0
     repeat(3) { taps += 1 }
@@ -374,6 +463,7 @@ fn main() {
 
 ```text title="Output"
 [2, 4, 6] ["#4", "#8", "#12"]
+["fig=3", "kiwi=4", "banana=6"]
 3
 2
 ```
@@ -410,7 +500,7 @@ fn main() {
 HI
 ```
 
-More: [Closures](/docs/language/closures).
+More: [Closures](/docs/language/closures), [Trailing blocks](/docs/language/closures#trailing-blocks).
 
 ## Lists and maps
 
@@ -450,6 +540,40 @@ cat 40
 Lists and maps are shared references: assigning one to another name doesn't copy it. Use `.copy()` for a separate collection.
 
 More: [Lists](/docs/language/lists), [Maps](/docs/language/maps).
+
+## Ranges and slicing
+
+`a..b` counts from `a` up to, not including, `b`, and `a..=b` includes `b`. Besides driving `for` loops, a range is a value of type `Range` with `len`, `contains`, `step`, `reversed` and `toList`. A range inside `[ ]` copies part of a list, or the characters of a string, and either end can be left out there.
+
+```vex title="ranges.vx"
+fn main() {
+    let hours = 0..24
+    println(hours, hours.len, hours.contains(23), hours.contains(24))
+    println((0..10).step(3).toList(), (1..=5).reversed().toList())
+    for i in (0..=10).reversed().step(5) {
+        println("countdown", i)
+    }
+
+    let xs = [10, 20, 30, 40, 50]
+    println(xs[1..3], xs[1..=3], xs[2..], xs[..2], xs[(0..5).step(2)])
+    let word = "héllo"
+    println(word[1..3], word[..1], word[4..=4])
+}
+```
+
+```text title="Output"
+0..24 24 true false
+[0, 3, 6, 9] [5, 4, 3, 2, 1]
+countdown 10
+countdown 5
+countdown 0
+[20, 30] [20, 30, 40] [30, 40, 50] [10, 20] [10, 30, 50]
+él h o
+```
+
+A slice is a new list or string, so changing it doesn't change the original. A range that reaches outside the list or string stops the program, as an index does.
+
+More: [Ranges](/docs/language/lists#ranges), [Slicing](/docs/language/lists#slicing).
 
 ## Records
 
@@ -527,6 +651,89 @@ Annie
 ```
 
 Struct values are shared references: `same` and `ann` are the same object. `let` stops the name from being reassigned, not the fields from changing.
+
+**`let` fields, `init` and `copy`.** A `let` field is set when the struct is created and never changes afterwards; a field with a default can leave out its type. An `init` block runs each time the struct is created, after its fields are set, and can set `let` fields that have no default. Every struct has `copy`, which makes a new struct with some fields changed.
+
+```vex title="letfields.vx"
+struct Account {
+    let id: int
+    owner: string
+    balance = 0
+    let tags = ["new"]
+}
+
+struct Span {
+    let low: int
+    let high: int
+    let size: int
+
+    init {
+        assert(low <= high, "low must not exceed high")
+        size = high - low
+    }
+}
+
+fn main() {
+    let a = Account(id: 1, owner: "Ann")
+    a.owner = "Ann Lee"
+    a.tags.push("vip")
+    println(a)
+
+    let b = a.copy(id: 2, balance: 50)
+    println(b.id, b.owner, b.balance, a.balance)
+
+    let s = Span(low: 2, high: 9)
+    println(s.size, s.copy(high: 20).size)
+}
+```
+
+```text title="Output"
+Account(id: 1, owner: "Ann Lee", balance: 0, tags: ["new", "vip"])
+2 Ann Lee 50 0
+7 18
+```
+
+`size` is set by `init`, so it isn't a constructor parameter, and `init` runs again on the copy. `let` stops the field from being assigned, not its list from changing, so `tags.push` works. Assigning a `let` field is a compile error:
+
+```text
+error: can't change 'id': it's a let field of Account
+ --> letfield_err.vx:8:7
+  |
+8 |     a.id = 2
+  |       ^^ set it when creating the Account, or make a changed copy with copy(id: ...)
+```
+
+**Printing.** A struct shows as its name and fields. A `fn toString() -> string` method replaces that wherever the value is shown: `println`, `str`, interpolation, and inside lists, maps, optionals and other structs.
+
+```vex title="tostring.vx"
+struct Money {
+    cents: int
+
+    fn toString() -> string {
+        let rest = cents % 100
+        return "${cents / 100}.{if rest < 10 { "0" } else { "" }}{rest}"
+    }
+}
+
+struct Line {
+    item: string
+    price: Money
+}
+
+fn main() {
+    let m = Money(cents: 1250)
+    println(m)
+    println("cost: {m}")
+    println([m, Money(cents: 305)], Line(item: "pen", price: m))
+}
+```
+
+```text title="Output"
+$12.50
+cost: $12.50
+[$12.50, $3.05] Line(item: "pen", price: $12.50)
+```
+
 
 **Properties and operators.** A getter is read like a field and a setter runs on assignment. A `didSet` block after a field runs after each change, with the previous value in `oldValue`. Structs can define arithmetic, comparison and indexing operators.
 
@@ -621,7 +828,7 @@ true false
 
 Lists compare element by element and maps entry by entry, and records of keys such as `(int, int)` work as map keys too.
 
-More: [Structs](/docs/language/structs), [Maps](/docs/language/maps).
+More: [Structs](/docs/language/structs), [`let` fields](/docs/language/structs#let-fields), [Printing](/docs/language/structs#printing-and-string-conversion), [Maps](/docs/language/maps).
 
 ## Enums and match
 
@@ -806,7 +1013,63 @@ error: can't read 'name' from a User?: it may be nil
   |               ^^^^ use ?.name, or unwrap it first with if let
 ```
 
-More: [Optionals](/docs/language/optionals).
+**Several conditions.** `if`, `while` and `guard` take conditions and bindings separated by commas. They are checked left to right, each name is visible to the conditions after it, and the block runs only when all hold. `if let user` is short for `if let user = user`. The right side of `??` can also be `return`, `throw`, `break` or `continue`, which runs when the left side is nil.
+
+```vex title="conditions.vx"
+struct User {
+    name: string
+    email: string? = nil
+}
+
+fn notify(user: User?) {
+    if let user, let email = user.email, email.contains("@") {
+        println("mail {user.name} at {email}")
+    } else {
+        println("can't mail")
+    }
+}
+
+fn port(text: string) -> int {
+    guard let n = int.parse(text), n > 0, n < 65536 else {
+        return 80
+    }
+    return n
+}
+
+fn total(lines: [string]) -> int {
+    var sum = 0
+    for line in lines {
+        let n = int.parse(line) ?? continue
+        sum += n
+    }
+    return sum
+}
+
+fn firstWord(text: string) -> string {
+    let space = text.indexOf(" ") ?? return text
+    return text.substring(0, space)
+}
+
+fn main() {
+    notify(User(name: "Ann", email: "ann@vex.dev"))
+    notify(User(name: "Bo", email: "bo"))
+    notify(nil)
+    println(port("8080"), port("x"), port("0"))
+    println(total(["4", "x", "6"]))
+    println(firstWord("hello world"), firstWord("hi"))
+}
+```
+
+```text title="Output"
+mail Ann at ann@vex.dev
+can't mail
+can't mail
+8080 80 80
+10
+hello hi
+```
+
+More: [Optionals](/docs/language/optionals), [Several conditions](/docs/language/optionals#several-conditions), [Leaving early](/docs/language/optionals#leaving-early).
 
 ## Errors
 
@@ -903,7 +1166,7 @@ fn main() {
     s.push("b")
     println(s.pop(), s.items)
 
-    let r = Result.ok(5).map(fn(x) => "#{x}")
+    let r = Result.ok(5).map { "#{it}" }
     println(r)
 }
 ```
@@ -1064,7 +1327,67 @@ rect, 2.0 by 3.0
 2.0
 ```
 
-More: [Interfaces](/docs/language/interfaces), [Types](/docs/language/types#type-tests), [Patterns](/docs/language/patterns#type-patterns).
+**Static requirements and interface extensions.** An interface can require a `static fn`, and `Self` in a requirement stands for the type that implements it. Generic code calls a static requirement through its type parameter, as in `T.parse(text: t)`. Such an interface can only be a constraint, not the type of a value. `extension Shape { ... }` adds methods to every type that implements `Shape`, usable on interface values, in generic code and on the types themselves.
+
+```vex title="static.vx"
+interface Parse {
+    static fn parse(text: string) -> Self?
+}
+
+struct Point: Parse {
+    x: int
+    y: int
+
+    static fn parse(text: string) -> Point? {
+        let parts = text.split(",")
+        guard parts.len == 2, let x = int.parse(parts[0]), let y = int.parse(parts[1]) else {
+            return nil
+        }
+        return Point(x: x, y: y)
+    }
+}
+
+fn readAll<T: Parse>(texts: [string]) -> [T] {
+    var out: [T] = []
+    for t in texts {
+        if let v = T.parse(text: t) { out.push(v) }
+    }
+    return out
+}
+
+interface Shape {
+    fn area() -> float
+}
+
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.14 * radius * radius
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+}
+
+extension Shape {
+    fn isBig() -> bool => area() > 100.0
+}
+
+fn main() {
+    let points: [Point] = readAll(texts: ["1,2", "oops", "3,4"])
+    println(points)
+
+    let shapes: [Shape] = [Circle(radius: 9), Square(side: 2)]
+    println(shapes.map { it.isBig() }, Square(side: 11).isBig())
+}
+```
+
+```text title="Output"
+[Point(x: 1, y: 2), Point(x: 3, y: 4)]
+[true, false] true
+```
+
+More: [Interfaces](/docs/language/interfaces), [Extensions](/docs/language/extensions), [Types](/docs/language/types#type-tests), [Patterns](/docs/language/patterns#type-patterns).
 
 ## Extensions
 
@@ -1152,7 +1475,7 @@ fn main() {
             Item(label: "Settings")
         }
     }
-    println(menu.items.map(fn(i) => i.label))
+    println(menu.items.map { it.label })
 }
 ```
 
@@ -1379,6 +1702,54 @@ total: 20, clamped: 15
 `printTotals` lives in `totals.vx`, in the same root folder as `main.vx`, so it needs no import. `as fmt` renames an import.
 
 More: [Modules](/docs/projects/modules), [Standard library](/docs/stdlib).
+
+## JSON
+
+`vex:json` turns a struct or enum that lists `Codable` into JSON text with `json.encode`, and reads it back with `json.decode`. The compiler writes the conversion from the fields: a missing key takes the field's default, or `nil` for an optional. For JSON of any shape, `json.parse` gives a `Json` value to look inside with `get`, `at` and `asString`.
+
+```vex title="json.vx"
+import "vex:json"
+
+enum Role: Codable { admin, guest }
+
+struct User: Codable {
+    name: string
+    age: int
+    email: string? = nil
+    role = Role.guest
+}
+
+fn main() throws {
+    let ann = User(name: "Ann", age: 30, role: Role.admin)
+    let text = json.encode(ann)
+    println(text)
+
+    let team = try json.decode<[User]>(r"""
+        [{"name": "Bo", "age": 4}, {"name": "Cy", "age": 52, "email": "cy@vex.dev"}]
+        """)
+    println(team[1])
+
+    try json.decode<[User]>(r"""
+        [{"name": "Di", "age": "ten"}]
+        """) catch e { println(e) }
+
+    let doc = try json.parse(r"""
+        {"user": {"name": "Ann", "langs": ["vex", "go"]}}
+        """)
+    println(doc.get("user")?.get("langs")?.at(0)?.asString ?? "?")
+}
+```
+
+```text title="Output"
+{"name":"Ann","age":30,"email":null,"role":"admin"}
+User(name: "Cy", age: 52, email: "cy@vex.dev", role: Role.guest)
+[0].age: expected an int, found a string
+vex
+```
+
+`decode` throws a `JsonError` that says where the JSON didn't fit, such as `[0].age`, or where the text stopped being JSON. Its type comes from where the result goes, or is written after the name, as in `decode<[User]>`.
+
+More: [vex:json](/docs/stdlib/json).
 
 ## C interop
 

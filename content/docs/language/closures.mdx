@@ -1,6 +1,6 @@
 ---
 title: Closures
-description: Closures and function values, function types, capturing variables, higher-order functions, async closures, tear-offs, trailing blocks and builder blocks.
+description: Closures and function values, function types, capturing variables, higher-order functions, async closures, tear-offs, trailing blocks with parameters and it, and builder blocks.
 ---
 
 Functions are values in Vex. You can store them in variables, pass them to other functions, return them, and keep them in lists and struct fields. A closure is a function without a name, written inline, that can use the variables around it.
@@ -29,6 +29,8 @@ Hi, Ann
 ```
 
 The body is either `=> expression` or a block. Call a function value like a function, with unnamed arguments: `double(21)`.
+
+As the last argument of a call, a closure can also be written as a [trailing block](#trailing-blocks): `nums.map { x in x * 2 }`, or `nums.map { it * 2 }`.
 
 ### Inferred parameter and result types
 
@@ -192,7 +194,7 @@ fn main() {
 
 - A captured list, map or struct is a reference like any other: the closure sees and makes changes to the same object.
 - `break` and `continue` inside a closure can't reach a loop outside it: `break can only be used inside a loop`.
-- A closure can't call itself by the name it's being assigned to, since the name doesn't exist yet: `unknown function 'f'`. Use a top-level function for recursion.
+- A closure can't call itself by the name it's being assigned to, since the name doesn't exist yet: `unknown function 'f'`. For recursion, declare a [local function](/docs/language/functions#local-functions), which captures variables the same way and can call itself.
 
 ## Higher-order functions
 
@@ -204,9 +206,9 @@ A function that takes or returns functions is a higher-order function. Lists hav
 ```vex title="filtermap.vx"
 fn main() {
     let scores = [42, 7, 19, 88, 3, 56]
-    let passed = scores.filter(fn(s) => s >= 40)
-    let labels = passed.map(fn(s) => "{s} pts")
-    let total = passed.map(fn(s) => s * 2).filter(fn(s) => s > 100).len
+    let passed = scores.filter { it >= 40 }
+    let labels = passed.map { "{it} pts" }
+    let total = passed.map { it * 2 }.filter { it > 100 }.len
     println(passed, labels, total)
 }
 ```
@@ -215,15 +217,15 @@ fn main() {
 [42, 88, 56] ["42 pts", "88 pts", "56 pts"] 2
 ```
 
-Lists have more members that take functions, such as `reduce`, `find`, `any`, `all` and `sort(by:)`:
+These calls pass their function as a [trailing block](#trailing-blocks), the usual style for short callbacks: `{ it >= 40 }` is the same as `fn(s) => s >= 40`. Lists have more members that take functions, such as `reduce`, `find`, `any`, `all` and `sorted(by:)`:
 
 ```vex title="listfns.vx"
 fn main() {
     let scores = [42, 7, 19, 88, 3, 56]
-    println(scores.reduce(0, fn(sum, s) => sum + s))
-    println(scores.any(fn(s) => s > 80), scores.all(fn(s) => s > 5))
-    println(scores.find(fn(s) => s > 50))
-    println(scores.sorted(by: fn(a, b) => a > b))
+    println(scores.reduce(0) { sum, s in sum + s })
+    println(scores.any { it > 80 }, scores.all { it > 5 })
+    println(scores.find { it > 50 })
+    println(scores.sorted { a, b in a > b })
 }
 ```
 
@@ -269,12 +271,12 @@ fn main() {
         if x < 0 { throw Error("negative: {x}") }
         return x * 2
     }
-    let ok = try applyAll([1, 2], check) catch e { [] }
+    let ok = try applyAll([1, 2], check) catch { [] }
     let bad = try applyAll([1, -2], check) catch e {
         println(e.message)
         []
     }
-    println(ok, bad, try applyAll([3], fn(x) => x + 1) catch e { [] })
+    println(ok, bad, try applyAll([3], fn(x) => x + 1) catch { [] })
 }
 ```
 
@@ -365,7 +367,7 @@ HI
 
 ## Trailing blocks
 
-When the last parameter of a function has type `fn()` or `async fn()`, you can pass a block after the call's parentheses instead of inside them:
+When the last parameter of a function is itself a function, you can pass a block after the call's parentheses instead of a closure inside them:
 
 ```vex title="trailing.vx"
 fn repeat(times: int, action: fn()) {
@@ -391,10 +393,137 @@ fn main() {
 23
 ```
 
-- The block is a closure with no parameters, so the last parameter must be `fn()` (or a list, for builder blocks below). For an `async fn()` parameter, the block is an [async closure](#async-closures) and can await. For other function types, pass a closure in the parentheses: `a trailing block needs the last parameter of each to be fn() or a list, but 'f' is fn(int)`.
-- A call with only a trailing block can leave out the `()`: `Column { ... }`.
-- Passing the last argument both in the parentheses and as a trailing block is an error: `the last argument of onTap is given twice: in the call and as a trailing block`.
-- After `if`, `for`, `while` and similar headers, a `{` always starts the body, never a trailing block.
+A call with only a trailing block can leave out the `()`: `Column { ... }`, `xs.map { ... }`.
+
+### Blocks with parameters
+
+A block names its parameters before `in`, right after the `{`. Their types come from the function the call expects, so they are never written:
+
+```vex title="block_params.vx"
+struct Person {
+    name: string
+    age: int
+}
+
+fn main() {
+    let people = [Person(name: "Ann Lee", age: 30), Person(name: "Bo Ek", age: 12), Person(name: "Cy Ro", age: 45)]
+    let adults = people.filter { it.age >= 18 }
+    let names = adults.map { p in
+        let first = p.name.split(" ")[0]
+        first.upper()
+    }
+    println(names)
+    var ages = people.map { it.age }
+    ages.sort { a, b in a > b }
+    println(ages)
+    println(ages.reduce(0) { sum, a in sum + a })
+    let labels = ages.map { age in
+        if age < 18 {
+            return "minor"
+        }
+        return "adult"
+    }
+    println(labels)
+}
+```
+
+```text title="Output"
+["ANN", "CY"]
+[45, 30, 12]
+87
+["adult", "adult", "minor"]
+```
+
+- `{ x in ... }` names one parameter and `{ a, b in ... }` several. The block must name exactly as many as the function takes: `expected a function with 2 parameters, found one with 1`.
+- When the function takes one parameter, the block can leave it unnamed and call it `it`. With two or more, it must name them: `this block takes 2 parameters, so it must name them`, with the hint `name them: { a, b in ... }`. A block for a function without parameters has no `it`: `unknown name 'it'`.
+- When the function returns a value, the block's last expression is that value, as `first.upper()` above. `return` works too, and leaves the block, not the function around it.
+- The block's value must have the type the function returns: `expected int, found string`. A block passed to `map` must end with a value: `map needs a function that returns a value`.
+- For an `async fn` parameter, the block is an [async closure](#async-closures) and can await.
+
+### `it` and variables named `it`
+
+A variable named `it` that is already in scope wins over the implicit parameter, so the block sees the variable. Name the parameter to reach the value:
+
+```vex title="it.vx"
+fn each(xs: [int], f: fn(int)) {
+    for x in xs {
+        f(x)
+    }
+}
+
+fn main() {
+    let grid = [[1, 2], [3]]
+    println(grid.map { it.map { it * 10 } })
+
+    let it = "outer"
+    each([1, 2]) { println(it) }
+    each([1, 2]) { n in println(n, it) }
+}
+```
+
+```text title="Output"
+[[10, 20], [30]]
+outer
+outer
+1 outer
+2 outer
+```
+
+In nested blocks, each `it` is the parameter of the innermost block that has one, as in `grid.map { it.map { it * 10 } }`.
+
+### Blocks after `if`, `while`, `for` and `match`
+
+In the head of `if`, `while`, `for` and `match`, a `{` always starts the body, never a trailing block:
+
+```vex title="head.vx"
+fn main() {
+    let xs = [1, 2, 3]
+    if xs.any { it > 1 } {
+        println("yes")
+    }
+}
+```
+
+```text title="Output"
+error: expected end of statement, found '{'
+ --> head.vx:3:26
+  |
+3 |     if xs.any { it > 1 } {
+  |                          ^ put each statement on its own line or separate them with ;
+```
+
+There, pass a closure inside the call's parentheses, or work out the value first:
+
+```vex title="head_ok.vx"
+fn main() {
+    let xs = [1, 2, 3]
+    if xs.any(fn(x) => x > 1) {
+        println("yes")
+    }
+    for x in xs.filter(fn(x) => x > 1) {
+        println(x)
+    }
+    let big = xs.any { it > 2 }
+    if big {
+        println("big")
+    }
+}
+```
+
+```text title="Output"
+yes
+2
+3
+big
+```
+
+A block can't go inside the parentheses: `xs.any({ it > 1 })` gives `expected an expression, found '{'`.
+
+### Trailing block rules
+
+- The last parameter must be a function, or a list for [builder blocks](#builder-blocks). Otherwise: `a trailing block needs the last parameter of show to be a function or a list, but 'label' is string`.
+- Passing the last argument both in the parentheses and as a trailing block is an error: `the last argument of count is given twice: in the call and as a trailing block`.
+- A builder block takes no parameters: `a builder block for 'children' takes no parameters`.
 
 ## Builder blocks
 
@@ -440,15 +569,17 @@ Main ["Open", "Save", "Settings", "Recent 1", "Recent 2", "Help", "About"]
 - A closure passed where a function with a different number of parameters is expected: `expected a function with 1 parameter, found one with 2`.
 - A closure result of the wrong type: `closure result: expected int, found string`.
 - `map` needs a function that returns a value: `map needs a function that returns a value`.
+- A trailing block names its parameters before `in`, or uses `it` for a single one; its last expression is its value.
+- In the head of `if`, `while`, `for` and `match`, a `{` starts the body, so a function argument there goes inside the parentheses.
 
 ## Comparison
 
 | | Vex | Swift | Kotlin | Dart | TypeScript |
 |---|---|---|---|---|---|
-| Closure | `fn(x) => x * 2` | `{ x in x * 2 }` | `{ x -> x * 2 }` | `(x) => x * 2` | `(x) => x * 2` |
+| Closure | `fn(x) => x * 2`, `{ x in x * 2 }` | `{ x in x * 2 }` | `{ x -> x * 2 }` | `(x) => x * 2` | `(x) => x * 2` |
 | Function type | `fn(int) -> int` | `(Int) -> Int` | `(Int) -> Int` | `int Function(int)` | `(x: number) => number` |
 | Capture | by reference | by reference | by reference | by reference | by reference |
-| Trailing closure | `fn()` or list only | any | last lambda | no | no |
+| Trailing closure | any function, or a list | any | last lambda | no | no |
 | Method reference | `user.greet` | `user.greet` | `user::greet` | `user.greet` | `user.greet.bind(user)` |
 
 ## See also

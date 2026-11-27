@@ -1,6 +1,6 @@
 ---
 title: Built-ins
-description: Every built-in function, type and constraint, safe number parsing, and every member of numbers, strings, lists, maps and channels, with signatures, edge cases and the runtime errors they can raise.
+description: Every built-in function, type and constraint, safe number parsing, and every member of numbers, strings, lists, maps, ranges and channels, with signatures, edge cases and the runtime errors they can raise.
 ---
 
 Built-ins are the functions, types and members that every Vex file can use without an import. This page lists all of them. The signatures use `T` for a list's element type, `K` and `V` for a map's key and value types, and `?` for an optional result.
@@ -78,6 +78,8 @@ How values print:
 - Strings print as they are at the top level, and quoted with escapes inside lists, maps, structs, enums and records.
 - Floats always show a decimal point or an exponent, so `3.0` prints as `3.0`, never `3`. They use the shortest text that reads back as the same number: `0.1 + 0.2` prints `0.30000000000000004`. Very large and very small values use an exponent (`1e+17`, `1e-06`); infinities and NaN print as `inf`, `-inf` and `nan`.
 - Structs print as `Name(field: value, ...)` and enum cases as `Enum.case` or `Enum.case(field: value)`. A struct that refers back to itself prints the repeat as `Name(...)` instead of looping forever.
+- A struct or enum with a `toString()` method prints what it returns instead, everywhere a value is shown; see [Structs](/docs/language/structs).
+- Ranges print as written, such as `0..10`, `1..=5` or `(0..10).step(2).reversed()`.
 - Optionals print their value, or `nil`.
 - Functions print their type, such as `<fn() -> int>`.
 
@@ -317,6 +319,7 @@ slept
 | `[T]` | List of `T` |
 | `[K: V]` | Map from `K` to `V` |
 | `T?` | Optional `T`: a value or `nil` |
+| `Range` | A range of ints, written `a..b` or `a..=b`; see [Range members](#range-members) |
 | `Error` | The built-in error struct, with one field, `message: string` |
 | `Future<T>`, `Future<T, E>` | A value that will be ready later, which can fail with `E` |
 | `Stream<T>` | Values of type `T` that arrive over time, read with `for await`; see [Streams](/docs/concurrency/async#streams) |
@@ -366,15 +369,16 @@ Error(message: "named")
 
 ## Constraints
 
-Three built-in constraints can bound a [generic](/docs/language/generics) type parameter, as in `fn largest<T: Comparable>(items: [T]) -> T`:
+Four built-in constraints can bound a [generic](/docs/language/generics) type parameter, as in `fn largest<T: Comparable>(items: [T]) -> T`:
 
 | Constraint | Types that meet it |
 |---|---|
-| `Equatable` | `int`, `float`, `bool`, `string`, enums whose cases carry no values, structs that define `operator ==`, structs and enums that list `Equatable` or `Hashable`, and lists, maps, optionals and records of these |
+| `Equatable` | `int`, `float`, `bool`, `string`, `Range`, enums whose cases carry no values, structs that define `operator ==`, structs and enums that list `Equatable` or `Hashable`, and lists, maps, optionals and records of these |
 | `Comparable` | `int`, `float`, `string`, enums whose cases carry no values, and structs that define `operator <` and `operator ==` |
 | `Hashable` | `int`, `string`, `bool`, enums whose cases carry no values, records of these, and structs and enums that list `Hashable` |
+| `Codable` | `int`, `float`, `bool`, `string`, lists, maps with `string` keys and optionals of these, and structs and enums that list `Codable`; see [vex:json](/docs/stdlib/json#codable) |
 
-`Equatable` is what `==` and list `contains` and `indexOf` need, `Comparable` is what `<`, `sort()`, `min()` and `max()` need, and `Hashable` is what a map key needs. A struct or enum lists `Equatable` or `Hashable` after a `:` to get an `==` that compares every field, as in `struct Point: Hashable { ... }`.
+`Equatable` is what `==` and list `contains` and `indexOf` need, `Comparable` is what `<`, `sort()`, `min()` and `max()` need, `Hashable` is what a map key needs, and `Codable` is what [`vex:json`](/docs/stdlib/json) needs to write a value as JSON and read it back. A struct or enum lists `Equatable`, `Hashable` or `Codable` after a `:` to get an `==` that compares every field, as in `struct Point: Hashable { ... }`.
 
 ## String members
 
@@ -389,7 +393,7 @@ Strings are immutable: every member that changes text returns a new string. Inde
 | `startsWith(text: string)` | `bool` | Whether the string begins with `text` |
 | `endsWith(text: string)` | `bool` | Whether the string ends with `text` |
 | `indexOf(text: string)` | `int?` | The code-point index of the first match, or `nil` |
-| `substring(from: int, to: int)` | `string` | The code points from `from` up to, not including, `to` |
+| `substring(from: int, to: int)` | `string` | The code points from `from` up to, not including, `to`; the same as `s[from..to]` |
 | `split(separator: string)` | `[string]` | The pieces between each separator, keeping empty pieces |
 | `replace(old: string, with: string)` | `string` | The text with every `old` replaced by `with` |
 | `trim()` | `string` | The text without spaces, tabs and line endings at both ends |
@@ -398,7 +402,7 @@ Strings are immutable: every member that changes text returns a new string. Inde
 | `chars()` | `[string]` | Each code point as its own string |
 | `lines()` | `[string]` | Each line, without its `\n` or `\r\n` |
 
-Strings can't be indexed with `[]`. Use `substring(i, i + 1)` for one character, or `chars()` to walk them all.
+Strings can't be indexed with an `int` (`a string can't be indexed by int`). Slice them with a range instead: `s[1..3]` gives the characters from 1 up to 3 as a new string, and `s[i..=i]` the character at `i`. Use `chars()` to walk them all. See [Slicing](/docs/language/strings#slicing).
 
 ### Length, case and searching
 
@@ -430,7 +434,7 @@ true true true true
 ```vex title="slices.vx"
 fn main() {
     let t = "Hello, World"
-    println(t.substring(0, 5), t.substring(7, 12), "héllo".substring(1, 3))
+    println(t.substring(0, 5), t[7..], "héllo"[1..3], t[..=0])
     println("a,b,,c".split(","), "abc".split("abc"), "".split(","))
     println("héy".chars())
     println("line1\nline2\r\nline3\n".lines(), "a\n\nb".lines(), "".lines())
@@ -438,13 +442,13 @@ fn main() {
 ```
 
 ```text title="Output"
-Hello World él
+Hello World él H
 ["a", "b", "", "c"] ["", ""] [""]
 ["h", "é", "y"]
 ["line1", "line2", "line3"] ["a", "", "b"] []
 ```
 
-- `substring(from, to)` needs `0 <= from <= to <= len`. Anything else stops the program: `substring(2, 10) is out of range for a string of length 5`.
+- `substring(from, to)` needs `0 <= from <= to <= len`. Anything else stops the program: `substring(2, 10) is out of range for a string of length 5`. A range slice that reaches outside the string stops it too: `range 2..10 is out of range for a string of length 5`.
 - `split` keeps empty pieces, so a separator at either end gives an empty string there, and splitting `""` gives `[""]`. An empty separator stops the program: `split separator can't be empty`.
 - `lines()` drops one final line ending, so `"a\n"` gives `["a"]`, and `""` gives `[]`.
 
@@ -498,10 +502,10 @@ Lists are shared references: `let b = a` makes `b` another name for the same lis
 | `min()`, `max()` | `T?` | The smallest and largest item, or `nil`; needs `Comparable` items |
 | `sum()` | `T` | The total of an `[int]` or `[float]` |
 | `join(separator: string = "")` | `string` | Each item as `str` shows it, with the separator between |
-| `slice(from: int, to: int)` | `[T]` | A new list of the items from `from` up to, not including, `to` |
+| `slice(from: int, to: int)` | `[T]` | A new list of the items from `from` up to, not including, `to`; the same as `xs[from..to]` |
 | `copy()` | `[T]` | A new list with the same items |
 
-Indexing with `xs[i]` reads and `xs[i] = v` writes. An index below 0 or at or past `len` stops the program, and so does one passed to `insert`, `remove` or `slice`.
+Indexing with `xs[i]` reads and `xs[i] = v` writes. An index below 0 or at or past `len` stops the program, and so does one passed to `insert`, `remove` or `slice`. Indexing with a range, `xs[1..3]`, `xs[2..]` or `xs[..2]`, gives a new list; see [Slicing](/docs/language/lists#slicing).
 
 ```vex title="lists.vx"
 fn main() {
@@ -534,7 +538,7 @@ true 2 4
 [1, 3, 4] [3, 1, 4, 99]
 ```
 
-- `copy()`, `sorted()`, `reversed()` and `slice()` are shallow: a list of structs copies the references, not the structs.
+- `copy()`, `sorted()`, `reversed()`, `slice()` and range slices are shallow: a list of structs copies the references, not the structs.
 - Sorting is stable: items the order treats as equal keep their order.
 - Changing a list from inside the function passed to `sort(by:)` or `removeWhere` stops the program: `the list changed while it was being sorted`.
 - `map`, `flatMap` and `reduce` can't be torn off as function values yet (`'map' can't be used as a value`); the other members can, as in `let add = nums.push`.
@@ -580,6 +584,50 @@ true false
 ```
 
 Maps have no `get`, `has`, `set` or `delete`. Using one of those names gives a hint toward the Vex way, such as `use .contains(key)` or `read a key with m[key], which gives nil when it is missing`. See [Maps](/docs/language/maps) for keys, iteration and the rules for optional values.
+
+## Range members
+
+`a..b` and `a..=b` are values of type `Range`: the ints from `a` up to `b`, without or with `b`. A range is immutable; `step` and `reversed` return new ranges. More on ranges, with examples, is on [Ranges](/docs/language/lists#ranges).
+
+| Member | Result | Description |
+|---|---|---|
+| `len` | `int` | The number of values the range gives; `0` when the end comes before the start. A property |
+| `isEmpty` | `bool` | Whether the range gives no values. A property |
+| `start` | `int` | The first bound as written, unchanged by `step` and `reversed`. A property |
+| `end` | `int` | The second bound as written. A property |
+| `contains(value: int)` | `bool` | Whether `value` is one of the values the range gives, following its step |
+| `toList()` | `[int]` | A new list of the values, in order |
+| `step(by: int)` | `Range` | Keeps the first value and then every `by`th one. `by` must be more than 0 |
+| `reversed()` | `Range` | The same values, last first |
+
+Indexing a list or a string with a range, `xs[a..b]`, gives a new list or string with the elements or characters at the positions the range gives. Inside `[ ]` either end can be left out: `xs[a..]`, `xs[..b]`.
+
+```vex title="rangemembers.vx"
+fn main() {
+    let r = 0..10
+    println(r, r.len, r.isEmpty, r.start, r.end, r.contains(9), r.contains(10))
+    let s = r.step(3)
+    println(s, s.len, s.toList(), s.contains(6), s.contains(7))
+    println(s.reversed(), s.reversed().toList(), (1..=4).reversed().toList())
+    println((5..2).len, (5..2).isEmpty, (5..2).toList(), 0..3 == 0..=2)
+    let xs = [10, 20, 30, 40, 50]
+    println(xs[1..3], xs[3..], xs[..=1], xs[(0..5).step(3)], "héllo"[1..3])
+}
+```
+
+```text title="Output"
+0..10 10 false 0 10 true false
+(0..10).step(3) 4 [0, 3, 6, 9] true false
+(0..10).step(3).reversed() [9, 6, 3, 0] [4, 3, 2, 1]
+0 true [] true
+[20, 30] [40, 50] [10, 20] [10, 40] él
+```
+
+- `step` with 0 or less stops the program: `a range's step must be more than 0, found 0`.
+- A range that reaches outside the list or string it slices stops the program: `range 1..5 is out of range for a list of length 3`. A slice is a copy and can't be assigned to.
+- `len` and `toList()` stop the program on a range with more than `int.max` values: `the range has more than int.max values`.
+- Two ranges are `==` when they give the same values. Ranges are `Equatable` but not `Comparable` or `Hashable`, so they can't be ordered with `<` or used as map keys.
+- `Range` can be a constant, a field, a parameter or an optional, and can be sent to other isolates.
 
 ## Number members
 

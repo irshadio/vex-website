@@ -1,6 +1,6 @@
 ---
 title: Interfaces
-description: Declaring interfaces with methods, properties and default methods, implementing them in structs and enums, using interfaces as types and as constraints, interface inheritance and generic interfaces.
+description: Declaring interfaces with methods, properties and default methods, static requirements, Self and generic methods, implementing them in structs and enums, using interfaces as types and as constraints, interface inheritance, generic interfaces and interface extensions.
 ---
 
 An interface is a list of methods and properties that a type promises to have. Code written against the interface works with every type that keeps the promise: a `[Shape]` can hold circles and rectangles, and a function taking a `Shape` accepts either.
@@ -52,8 +52,9 @@ interface Storage {
 - A method without a body is required. A method with a body is a [default](#default-methods).
 - `get name -> T` requires a readable property and `set name(value: T)` a writable one. See [Properties](#properties).
 - Interface methods can take parameters with defaults and can throw.
+- `static fn` requires a static method, `Self` stands for the implementing type, and a method can have its own type parameters. See [Static requirements and `Self`](#static-requirements-and-self).
 
-Interfaces can't have fields, static members, or methods with their own type parameters:
+Interfaces can't have fields:
 
 ```vex title="iface_limits.vx"
 interface Named {
@@ -70,24 +71,6 @@ error: interfaces can't have fields
 2 |     name: string
   |     ^^^^ require a getter instead, e.g. get name -> string
 ```
-
-```vex title="iface_static.vx"
-interface Factory {
-    static fn make() -> Factory
-}
-
-fn main() {}
-```
-
-```text title="Output"
-error: interfaces can't have static methods
- --> iface_static.vx:2:5
-  |
-2 |     static fn make() -> Factory
-  |     ^^^^^^
-```
-
-`fn f<T>(x: T) -> T` inside an interface is reported as `interface methods and accessors can't have their own type parameters yet`.
 
 ## Implementing an interface
 
@@ -145,7 +128,7 @@ error: 'area' doesn't match Shape: expected fn() -> float, found fn() -> int
   |        ^^^^
 ```
 
-A method that implements an interface can't be `static` or `async`: `'load' can't be async, since it implements Loader`.
+A method that implements an interface can't be `async`: `'load' can't be async, since it implements Loader`. It is `static` exactly when the requirement is: `'area' can't be static, since it implements Shape`, and `'make' must be static, since it implements Make`.
 
 ### Conformance is declared, not inferred
 
@@ -437,7 +420,7 @@ Declare it as `let squares: [Shape] = [...]`, or make the function generic: `fn 
 - Print it: it prints as the value inside.
 - Pass it on as any interface it extends.
 
-Members that aren't part of the interface aren't reachable, and there is no way to get the concrete type back. Vex has no `is`, no casts and no downcasting; struct patterns can't match an interface value. If code needs to know the concrete type, add a method to the interface, or use an [enum](/docs/language/enums) instead.
+Members that aren't part of the interface aren't reachable through it. To get the concrete type back, test the value with `is` or `as?` (see [Type tests](/docs/language/types#type-tests)) or match it with a type pattern (see [Patterns](/docs/language/patterns)). Often a method on the interface, or an [enum](/docs/language/enums), is the simpler design.
 
 ```vex title="no_downcast.vx"
 interface Shape {
@@ -655,21 +638,263 @@ v -
 
 A type parameter's constraint can refer to itself, as in `fn largest<T: Ordered<T>>(xs: [T])`. See [Generics](/docs/language/generics#self-referencing-constraints).
 
+## Static requirements and `Self`
+
+An interface can require a `static fn`. Generic code calls it through its type parameter, as `T.parse(...)`, and reaches the version of whichever type `T` is:
+
+```vex title="parse.vx"
+interface Parse {
+    static fn parse(text: string) -> Self?
+}
+
+struct Point: Parse {
+    x: int
+    y: int
+
+    static fn parse(text: string) -> Point? {
+        let parts = text.split(",")
+        if parts.len != 2 {
+            return nil
+        }
+        let x = int.parse(parts[0]) ?? return nil
+        let y = int.parse(parts[1]) ?? return nil
+        return Point(x: x, y: y)
+    }
+}
+
+enum Color: Parse {
+    red, blue
+
+    static fn parse(text: string) -> Color? => match text {
+        "red" => .red
+        "blue" => .blue
+        _ => nil
+    }
+}
+
+fn readAll<T: Parse>(texts: [string]) -> [T] {
+    var out: [T] = []
+    for t in texts {
+        if let v = T.parse(text: t) {
+            out.push(v)
+        }
+    }
+    return out
+}
+
+fn main() {
+    let points: [Point] = readAll(texts: ["1,2", "oops", "3,4"])
+    println(points)
+    println(readAll<Color>(texts: ["red", "green", "blue"]))
+}
+```
+
+```text title="Output"
+[Point(x: 1, y: 2), Point(x: 3, y: 4)]
+[Color.red, Color.blue]
+```
+
+`Self` in a requirement stands for the type that implements the interface. `Point` meets `-> Self?` with `-> Point?`; it could also write `-> Self?`, since `Self` works in the methods of structs and enums too. A parameter of type `Self` takes another value of the same type, which suits comparisons and arithmetic:
+
+```vex title="self_req.vx"
+interface Same {
+    fn same(other: Self) -> bool
+    fn label() -> string => "comparable"
+}
+
+interface Zero {
+    static fn zero() -> Self
+    fn plus(other: Self) -> Self
+}
+
+struct Money: Same, Zero {
+    cents: int
+
+    static fn zero() -> Self => Money(cents: 0)
+    fn plus(other: Self) -> Self => Money(cents: cents + other.cents)
+    fn same(other: Money) -> bool => cents == other.cents
+}
+
+fn allSame<T: Same>(xs: [T]) -> bool {
+    for x in xs {
+        if !x.same(other: xs[0]) {
+            return false
+        }
+    }
+    return true
+}
+
+fn sum<T: Zero>(xs: [T]) -> T {
+    var total = T.zero()
+    for x in xs {
+        total = total.plus(other: x)
+    }
+    return total
+}
+
+fn main() {
+    let prices = [Money(cents: 250), Money(cents: 100)]
+    println(sum(prices))
+    println(allSame(prices), allSame([Money(cents: 5), Money(cents: 5)]))
+    println(prices[0].label())
+}
+```
+
+```text title="Output"
+Money(cents: 350)
+false true
+comparable
+```
+
+### Generic requirements
+
+A requirement can have its own type parameters. The implementing method declares the same ones:
+
+```vex title="mapper.vx"
+interface Mapper {
+    fn apply<U>(f: fn(int) -> U) -> [U]
+}
+
+struct Nums: Mapper {
+    xs: [int]
+
+    fn apply<U>(f: fn(int) -> U) -> [U] => xs.map(f)
+}
+
+fn labels<M: Mapper>(m: M) -> [string] => m.apply { "#{it}" }
+
+fn main() {
+    let n = Nums(xs: [1, 2, 3])
+    println(labels(n))
+    println(n.apply { it * 10 })
+}
+```
+
+```text title="Output"
+["#1", "#2", "#3"]
+[10, 20, 30]
+```
+
+A method without the type parameter doesn't match: `'each' doesn't match Each: expected <U>fn(fn(int) -> U) -> [U], found fn(fn(int) -> int) -> [int]`.
+
+### Only as constraints
+
+An interface with a static requirement, a generic method, or a requirement that uses `Self` can only be a constraint, as in `<T: Parse>`. It can't be the type of a variable, parameter, field or list, since an interface value has no way to reach those members:
+
+```vex title="constraint_only.vx"
+interface Parse {
+    static fn parse(text: string) -> Self?
+}
+
+interface Same {
+    fn same(other: Self) -> bool
+}
+
+interface Each {
+    fn each<U>(f: fn(int) -> U) -> [U]
+}
+
+fn first(p: Parse, e: Each) {}
+
+fn main() {
+    let xs: [Same] = []
+}
+```
+
+```text title="Output"
+error: Parse can only be a constraint, since it has a static requirement ('parse')
+  --> constraint_only.vx:13:13
+   |
+13 | fn first(p: Parse, e: Each) {}
+   |             ^^^^^ use it as a constraint: fn f<T: Parse>(x: T)
+
+error: Each can only be a constraint, since it has a generic method ('each')
+  --> constraint_only.vx:13:23
+   |
+13 | fn first(p: Parse, e: Each) {}
+   |                       ^^^^ use it as a constraint: fn f<T: Each>(x: T)
+
+error: Same can only be a constraint, since it has a requirement that uses Self ('same')
+  --> constraint_only.vx:16:14
+   |
+16 |     let xs: [Same] = []
+   |              ^^^^ use it as a constraint: fn f<T: Same>(x: T)
+
+3 errors
+```
+
+These requirements can't have defaults, and the interface's defaults can't call them. Its other members, such as `label` in `Same` above, work as usual:
+
+```vex title="no_defaults.vx"
+interface Make {
+    static fn make() -> Self
+    static fn other() -> int => 1
+}
+
+interface Same {
+    fn same(other: Self) -> bool
+    fn differ(other: Self) -> bool => !same(other: other)
+    fn check() -> bool => same(other: self)
+}
+
+interface Each {
+    fn each<U>(f: fn(int) -> U) -> [U]
+    fn all<U>(f: fn(int) -> U) -> [U] => each(f)
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: a static requirement can't have a default
+ --> no_defaults.vx:3:15
+  |
+3 |     static fn other() -> int => 1
+  |               ^^^^^ leave out the body: each type writes its own
+
+error: a requirement that uses Self can't have a default
+ --> no_defaults.vx:8:8
+  |
+8 |     fn differ(other: Self) -> bool => !same(other: other)
+  |        ^^^^^^ leave out the body: each type writes its own
+
+error: a default method can't call 'same', which only generic code can reach
+ --> no_defaults.vx:9:27
+  |
+9 |     fn check() -> bool => same(other: self)
+  |                           ^^^^ call it from generic code, where each type's own version is used
+
+error: a generic requirement can't have a default
+  --> no_defaults.vx:14:8
+   |
+14 |     fn all<U>(f: fn(int) -> U) -> [U] => each(f)
+   |        ^^^ leave out the body: each type writes its own
+
+4 errors
+```
+
+Calling a static member the constraint doesn't require is an error: `T.missing()` gives `T has no static requirement 'missing'`.
+
+## Adding methods with extensions
+
+`extension Shape { ... }` adds methods to every type that implements `Shape`. Unlike defaults, these methods can't be replaced by the implementing types. They work on interface values, in generic code and on the types themselves. See [Extending interfaces](/docs/language/extensions#extending-interfaces).
+
 ## Interfaces across modules
 
 `pub interface` makes an interface usable from other modules. Its methods are public with it, and so is a method a struct writes for one of its interfaces, even without `pub`. See [Modules](/docs/projects/modules).
 
 ## Rules and edge cases
 
-- An interface holds methods (with or without default bodies) and `get`/`set` property requirements. No fields, no static members, no generic methods, no operators.
+- An interface holds methods (with or without default bodies), `get`/`set` property requirements, static requirements and generic methods. No fields and no operators.
+- `Self` in a requirement is the implementing type. An interface with a static requirement, a generic method or a requirement that uses `Self` can only be a constraint, and those requirements have no defaults.
 - A type implements an interface only by listing it after `:`, in the type's own declaration.
 - Every required member must exist with exactly the declared type. A field can meet a `get` or `set` requirement.
-- Methods that implement an interface can't be `static` or `async`.
+- Methods that implement an interface can't be `async`, and are `static` exactly when the requirement is.
 - Defaults call the implementing type's versions of other members. Two defaults with the same name must be resolved by the type.
-- An interface value exposes only the interface's members, prints as the value inside, and can't be compared with `==` or downcast.
+- An interface value exposes only the interface's members, prints as the value inside, and can't be compared with `==`. `is`, `as?` and type patterns get the concrete type back.
 - A list literal of mixed types needs a written interface type. An existing `[Square]` isn't a `[Shape]`.
 - Interface values can't be sent to [isolates](/docs/concurrency/isolates).
-- Interfaces can't be extended with `extension`; give the interface a default method instead.
+- `extension Shape { ... }` adds methods to every `Shape` that can't be replaced; see [Extensions](/docs/language/extensions#extending-interfaces).
 
 ## Comparison
 
@@ -678,7 +903,7 @@ A type parameter's constraint can refer to itself, as in `fn largest<T: Ordered<
 | Conformance | declared: `struct S: I` | declared | implicit | declared | structural |
 | Default methods | yes | in extensions | no | yes | no |
 | Property requirements | `get` / `set` | `{ get set }` | no | `val` / `var` | yes |
-| Downcasting | no | `as?` | type assertion | `as?` / `is` | narrowing |
+| Downcasting | `is` / `as?` | `as?` | type assertion | `as?` / `is` | narrowing |
 | Generic interfaces | yes | associated types | yes | yes | yes |
 
 ## See also

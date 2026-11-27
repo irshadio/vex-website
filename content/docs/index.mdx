@@ -73,10 +73,10 @@ What exists today, as of version 0.1:
 |---|---|
 | Platforms | macOS and Linux, on arm64 and x86-64 CPUs. Windows isn't supported yet. |
 | Compiler | Lexer, parser, type checker and C code generator, written in Go. Needs a C compiler (`clang` or `gcc`) on your machine. |
-| Language | Variables, constants, functions, closures, structs, enums, `match` and patterns, optionals, errors, generics, interfaces, extensions, records, lists, maps, operator overloading, getters, setters and `didSet`, type aliases, multi-line and raw strings. |
+| Language | Variables, constants, functions and local functions, closures and trailing blocks, structs with `let` fields, `init` and `copy`, enums, `match` and patterns, optionals, errors, generics, interfaces with static requirements, extensions of types and interfaces, records, lists, maps, ranges and slicing, `repeat`, named loops and `defer`, operator overloading, getters, setters and `didSet`, type aliases, multi-line and raw strings. |
 | Concurrency | `async`/`await` with a built-in event loop, and isolates (parallel threads with separate heaps) with channels. |
 | Projects | Folders as modules, `pub` visibility, `package.toml`, and building your own C and Objective-C code into a project. |
-| Standard library | `vex:math`, `vex:strings`, `vex:time`, `vex:os`, `vex:fs` and `vex:isolate`. |
+| Standard library | `vex:math`, `vex:strings`, `vex:time`, `vex:os`, `vex:fs`, `vex:json` and `vex:isolate`. |
 | Memory | Automatic, with a tracing garbage collector built into every program. |
 | Tools | `vex run`, `build`, `check`, `emit-c`, `ast`, `tokens`, `version` and `help`. |
 
@@ -86,7 +86,7 @@ What is planned and not built:
 |---|---|
 | More platforms | Cross-compiling the C output for iOS (`arm64-apple-ios`) and Android (the NDK). |
 | Package manager | `vex get`, `package:` imports and `package.lock`. See [Packages](/docs/projects/packages). |
-| Language features | Streams (`async*`, `for await`), sealed interfaces, extension types, JSON, a bytes type, Unicode-aware `upper` and `lower`. |
+| Language features | Sealed interfaces, extension types, a bytes type, Unicode-aware `upper` and `lower`. |
 | Tools | Formatter, language server and editor extension, `vex new`, `vex doc`, stack traces in runtime errors, debugger line information. |
 
 ## How it works
@@ -162,6 +162,7 @@ Read more in [The compiler](/docs/internals/compiler) and [Generated C](/docs/to
   <Card title="vex:time" href="/docs/stdlib/time" description="Measuring time, the date, and sleeping." />
   <Card title="vex:os" href="/docs/stdlib/os" description="Arguments, environment, exit and running commands." />
   <Card title="vex:fs" href="/docs/stdlib/fs" description="Reading, writing and listing files and folders." />
+  <Card title="vex:json" href="/docs/stdlib/json" description="Codable types to JSON and back, and JSON of any shape." />
   <Card title="vex:isolate" href="/docs/stdlib/isolate" description="Starting isolates and counting cores." />
 </Cards>
 

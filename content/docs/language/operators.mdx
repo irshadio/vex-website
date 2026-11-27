@@ -1,6 +1,6 @@
 ---
 title: Operators
-description: Arithmetic, integer overflow and division rules, wrapping operators, bitwise operators, comparison and identity, logical operators, assignment, ranges, ?? and ?., is and as?, and the full precedence table.
+description: Arithmetic, integer overflow and division rules, wrapping operators, bitwise operators, comparison and identity, logical operators, assignment, the range operators, ?? and ?., is and as?, and the full precedence table.
 ---
 
 Vex has a small set of operators, and each one works only on the types it makes sense for. Numbers don't convert silently, integer overflow stops the program instead of producing a wrong number, and comparisons can't be chained by accident. This page lists every operator, its exact behaviour and the order in which operators combine.
@@ -341,7 +341,7 @@ fn main() {
 
 ## Ranges
 
-`a..b` is the integers from `a` up to but not including `b`. `a..=b` includes `b`. Ranges appear in two places: `for` loops and [patterns](/docs/language/patterns).
+`a..b` is the integers from `a` up to but not including `b`. `a..=b` includes `b`. A range is a value of type `Range`: it drives `for` loops, slices lists and strings, can be stored and passed around, and also appears in [patterns](/docs/language/patterns). [Ranges](/docs/language/lists#ranges) covers its members, `step`, `reversed` and slicing.
 
 ```vex title="ranges.vx"
 fn main() {
@@ -351,6 +351,8 @@ fn main() {
     let n = 4
     for i in n - 2..n { print("{i} ") }
     println()
+    let r = 0..n + 1
+    println(r, r.len, r.contains(n))
     let grade = match 85 {
         90..=100 => "A"
         80..90 => "B"
@@ -362,14 +364,16 @@ fn main() {
 
 ```text title="Output"
 0 1 2 1 2 3 2 3 
+0..5 5 true
 B
 ```
 
-- Bounds must be `int` in a `for` loop: `range bounds must be int, found float`. In patterns, ranges also match floats.
+- `..` and `..=` bind looser than arithmetic and `is`, and tighter than `??` and comparisons: `0..n + 1` is `0..(n + 1)`, `r ?? 0..1` is `r ?? (0..1)`, and `0..3 == 0..=2` compares two ranges.
+- Bounds must be `int`: `range bounds must be int, found float`. In patterns, ranges also match floats.
 - A range whose end is before its start is empty: the loop body doesn't run.
-- Both bounds are evaluated once, before the loop starts.
-- There's no step: count with a `while` loop, or multiply the loop variable.
-- A range isn't a value. `let r = 0..3` gives `ranges can only be used in for loops`, and ranges can't index lists.
+- In a `for` loop, both bounds are evaluated once, before the loop starts.
+- Ranges don't chain: `0..5..9` gives `ranges can't be chained`, with the hint `use one range, e.g. a..c`.
+- Only inside `[ ]` can an end be left out: `xs[2..]`, `xs[..2]`. Elsewhere, `0..` gives `a range needs an end`.
 
 ## Optional operators
 
@@ -402,7 +406,8 @@ fallback ran
 
 - `a ?? b` runs `b` only when `a` is `nil`.
 - `??` groups to the right: `a ?? b ?? c` is `a ?? (b ?? c)`, and tries each in turn.
-- `??` binds tighter than comparisons and looser than arithmetic: `a ?? 0 > 5` is `(a ?? 0) > 5`, and `a ?? 1 + 2` is `a ?? (1 + 2)`.
+- `??` binds tighter than comparisons and looser than arithmetic and ranges: `a ?? 0 > 5` is `(a ?? 0) > 5`, and `a ?? 1 + 2` is `a ?? (1 + 2)`.
+- The right side of `??` can be `return`, `throw`, `break` or `continue`, which leaves when the left side is `nil`: `let n = int.parse(text) ?? return 0`. See [Leaving early](/docs/language/optionals#leaving-early).
 - `x?.name` is `nil` when `x` is `nil`, and otherwise the member wrapped in an optional. A call through `?.`, such as `user?.greet()`, runs only when `user` isn't `nil`.
 
 ## Type tests
@@ -428,11 +433,12 @@ From highest (binds tightest) to lowest:
 | 4 | `*` `/` `%` `&*` `&` | left to right |
 | 5 | `+` `-` `&+` `&-` `\|` `^` | left to right |
 | 6 | `is` `as?` | left to right |
-| 7 | `??` | right to left |
-| 8 | `<` `<=` `>` `>=` | don't chain |
-| 9 | `==` `!=` `===` `!==` | don't chain |
-| 10 | `&&` | left to right |
-| 11 | `\|\|` | left to right |
+| 7 | `..` `..=` | don't chain |
+| 8 | `??` | right to left |
+| 9 | `<` `<=` `>` `>=` | don't chain |
+| 10 | `==` `!=` `===` `!==` | don't chain |
+| 11 | `&&` | left to right |
+| 12 | `\|\|` | left to right |
 
 Assignment (`=`, `+=` and the rest) isn't an expression and so has no precedence: it's always the whole statement.
 

@@ -1,6 +1,6 @@
 ---
 title: Structs
-description: Declaring structs, creating them with named and default arguments, methods, static members and static variables, equality and hashing, properties, operators, and why structs are shared references.
+description: Declaring structs, let fields and fields typed by their defaults, creating them with named and default arguments, init blocks, copy, private(set), methods, static members and static variables, toString, equality and hashing, properties, operators, and why structs are shared references.
 ---
 
 A struct groups named values, called fields, into one type, and can carry methods that work on them. Structs are the main way to model data in Vex.
@@ -49,21 +49,174 @@ struct Point { x: int, y: int }
 
 A struct can have no fields at all: `struct Marker {}` is created with `Marker()`.
 
-Fields are written without `let` or `var`. Every field can be changed (see [Mutability](#mutability)), so there is no per-field keyword:
+### Fields typed by their defaults
 
-```vex title="fields.vx"
-struct Point { let x: int }
+A field with a default can leave out its type, which then comes from the default:
+
+```vex title="inferred.vx"
+struct Settings {
+    volume = 5                            // an int
+    theme = "dark"                        // a string
+    recent = ["home"]                     // a [string]
+    ratio = 1.5                           // a float
+}
+
+fn main() {
+    let s = Settings(volume: 8)
+    s.recent.push("search")
+    println(s)
+}
+```
+
+```text title="Output"
+Settings(volume: 8, theme: "dark", recent: ["home", "search"], ratio: 1.5)
+```
+
+A field needs a type whenever its default doesn't say which: `nil`, an empty `[]` or an empty `[:]`. Fields of a generic struct always need a type:
+
+```vex title="needs_type.vx"
+struct Node {
+    parent = nil
+    items = []
+    counts = [:]
+}
+
+struct Box<T> {
+    value: T
+    label = "box"
+}
 
 fn main() {}
 ```
 
 ```text title="Output"
-error: fields don't use 'let'
- --> fields.vx:1:16
+error: can't tell the type of nil
+ --> needs_type.vx:2:14
   |
-1 | struct Point { let x: int }
-  |                ^^^ write fields as name: type
+2 |     parent = nil
+  |              ^^^ write the type, e.g. let user: User? = nil
+
+error: can't tell the type of an empty list
+ --> needs_type.vx:3:13
+  |
+3 |     items = []
+  |             ^^ give the field a type, e.g. items: [int] = []
+
+error: can't tell the type of an empty map
+ --> needs_type.vx:4:14
+  |
+4 |     counts = [:]
+  |              ^^^ give the field a type, e.g. counts: [string: int] = [:]
+
+error: fields of a generic struct need a type
+ --> needs_type.vx:9:5
+  |
+9 |     label = "box"
+  |     ^^^^^ write its type: label: T = ...
+
+4 errors
 ```
+
+Write them as `parent: Node? = nil`, `items: [string] = []` and `label: string = "box"`. A field with neither a type nor a default is an error too: `field 'y' needs a type`, with the hint `write it as y: int, or give it a value: y = 0`.
+
+### `let` fields
+
+A field declared with `let` is set when the struct is created and never changes afterwards. Fields without `let` can change (see [Mutability](#mutability)):
+
+```vex title="let_fields.vx"
+struct User {
+    let id: int                           // set at creation, never changed
+    name: string
+    tags = ["new"]
+}
+
+fn main() {
+    let u = User(id: 1, name: "Ann")
+    u.name = "Ann Lee"
+    u.tags.push("admin")                  // the list itself can still change
+    println(u)
+}
+```
+
+```text title="Output"
+User(id: 1, name: "Ann Lee", tags: ["new", "admin"])
+```
+
+Assigning a `let` field is an error, from outside the struct and from its own methods alike:
+
+```vex title="let_assign.vx"
+struct User {
+    let id: int
+    name: string
+
+    fn reset() {
+        id = 0
+    }
+}
+
+fn main() {
+    let u = User(id: 1, name: "Ann")
+    u.id = 2
+}
+```
+
+```text title="Output"
+error: can't change 'id': it's a let field of User
+ --> let_assign.vx:6:9
+  |
+6 |         id = 0
+  |         ^^ set it when creating the User, or make a changed copy with copy(id: ...)
+
+error: can't change 'id': it's a let field of User
+  --> let_assign.vx:12:7
+   |
+12 |     u.id = 2
+   |       ^^ set it when creating the User, or make a changed copy with copy(id: ...)
+
+2 errors
+```
+
+- `let` stops the field from being assigned, not the value inside it from changing: a `let` list can still be pushed to.
+- A `let` field can have a default, a type or both, like any field. The one place it can be assigned is the struct's [`init` block](#init-blocks).
+- A `let` field can't have a [`didSet`](#observing-changes-with-didset) block: `a let field never changes, so it can't have didSet`.
+- A `let` field can't meet an interface's `set` requirement: `field 'name' is a let field, so it can't provide the setter Named requires`.
+- Fields don't use `var`: `fields don't use 'var'`, with the hint `fields change unless declared with let: write name: type`.
+
+### `private(set)` fields
+
+A field marked `private(set)` can be read wherever the field is visible, but only assigned inside the struct's own methods:
+
+```vex title="private_set.vx"
+struct Counter {
+    private(set) count = 0
+    step = 1
+
+    fn tap() {
+        count += step
+    }
+}
+
+fn main() {
+    let c = Counter(step: 2)
+    c.tap()
+    c.tap()
+    println(c.count)
+    c.count = 10
+}
+```
+
+```text title="Output"
+error: can't set 'count' outside Counter: it's private(set)
+  --> private_set.vx:15:7
+   |
+15 |     c.count = 10
+   |       ^^^^^ call a method of Counter that changes it
+```
+
+- Creating the struct, or a [copy](#copies) of it, can still give the field a value: `Counter(count: 5)` and `c.copy(count: 0)` both work.
+- [Extensions](/docs/language/extensions) of the struct in its own module count as inside it. Extensions in other modules don't.
+- A field that is public and only changed by the struct is written `pub private(set) count = 0`. Other modules can read it but not assign it.
+- A `let` field can't also be `private(set)`: `a let field can't be private(set)`, since it can't be set at all after creation.
 
 Type names are written in `UpperCamelCase` and fields and methods in `lowerCamelCase`.
 
@@ -97,7 +250,7 @@ User(name: "Eve", age: 50, tags: [])
 
 The rules are the same as for [function calls](/docs/language/functions): positional arguments come first, named arguments after them, and a named argument can't be followed by an unnamed one. Named arguments are the usual style, since they keep the call readable when fields change order.
 
-There is no `new` keyword and no separate `init` method. If you need validation or a computed starting state, write a [static method](#static-members) that builds the value.
+There is no `new` keyword. To check or adjust the fields each time a value is created, give the struct an [`init` block](#init-blocks). For creation that can fail, write a [static method](#static-members) that builds the value.
 
 ### Missing and unknown arguments
 
@@ -228,6 +381,106 @@ Add 2
 ```
 
 See [Closures](/docs/language/closures) for trailing blocks and builder blocks.
+
+## `init` blocks
+
+An `init` block runs each time the struct is created, after its fields are set. It can check them, adjust them, and set `let` fields that have no default:
+
+```vex title="init.vx"
+struct Span {
+    let low: int
+    let high: int
+    let size: int
+    label: string = ""
+
+    init {
+        assert(low <= high, "low must not exceed high")
+        label = label.trim()
+        size = high - low
+    }
+}
+
+fn main() {
+    let week = Span(low: 2, high: 9, label: "  week ")
+    println(week)
+    println(Span(low: 5, high: 1))
+}
+```
+
+```text title="Output"
+Span(low: 2, high: 9, size: 7, label: "week")
+error: assertion failed: low must not exceed high
+ --> init.vx:8
+```
+
+- A `let` field without a default that `init` sets in one of its own top-level statements, such as `size` above, is worked out by `init` and isn't a parameter of the constructor. Passing it is an error: `Span has no parameter 'size'`.
+- `init` can assign every field of its struct, `let` fields included, though not from a closure inside it.
+- Until `init` has set all of the `let` fields it owns, it can't read them, use `self` or call methods.
+- `init` takes no parameters: the fields are its input, already set when it runs. It can't be called, can't be `pub`, and a struct has only one.
+- `init` can't throw, and can't pass up an error with `try`. Check with `assert`, handle errors with `try?` or `try ... catch`, or create the value in a `static fn` that throws.
+- `init` also runs on every [copy](#copies).
+
+The compiler reports each of these:
+
+```vex title="init_errors.vx"
+struct Early {
+    let size: int
+    let twice: int
+
+    init {
+        println(size)
+        show()
+        size = 1
+        twice = size * 2
+    }
+
+    fn show() {}
+}
+
+struct Order {
+    total: int
+
+    init {
+        if total < 0 {
+            throw Error("negative")
+        }
+    }
+}
+
+fn main() {
+    let e = Early(size: 1)
+}
+```
+
+```text title="Output"
+error: 'size' is read before init sets it
+ --> init_errors.vx:6:17
+  |
+6 |         println(size)
+  |                 ^^^^ set it first in init
+
+error: init can't call method 'show' before it sets every let field
+ --> init_errors.vx:7:9
+  |
+7 |         show()
+  |         ^^^^ set 'size' and 'twice' first
+
+error: init can't throw
+  --> init_errors.vx:20:13
+   |
+20 |             throw Error("negative")
+   |             ^^^^^^^^^^^^^^^^^^^^^^^ check with assert, or create the struct in a static fn that throws
+
+error: Early has no parameter 'size'
+  --> init_errors.vx:26:19
+   |
+26 |     let e = Early(size: 1)
+   |                   ^^^^
+
+4 errors
+```
+
+Other mistakes are reported as `init takes no parameters` (for `init(x: int) { }`), `a struct has only one init block; the first is on line 3`, `init can't be marked pub`, and `'init' is reserved for the struct's init block` (for a method named `init`).
 
 ## Reading and changing fields
 
@@ -459,6 +712,29 @@ error: 'guest' is a static method
 
 A `const` inside a struct must be `static`.
 
+### `Self`
+
+Inside a struct's methods, `Self` is another name for the struct's own type. It saves repeating a long name, and is how [interfaces](/docs/language/interfaces#static-requirements-and-self) refer to the type that implements them:
+
+```vex title="self_type.vx"
+struct Money {
+    cents: int
+
+    static fn zero() -> Self => Money(cents: 0)
+    fn plus(other: Self) -> Self => Money(cents: cents + other.cents)
+}
+
+fn main() {
+    println(Money.zero().plus(Money(cents: 250)))
+}
+```
+
+```text title="Output"
+Money(cents: 250)
+```
+
+`Self` works in the parameters and results of methods of structs and enums, and in interface requirements. Anywhere else, such as a field type or a top-level function, it is an error: `Self can only be used in the requirements of an interface and in the methods of a struct or enum`. In a generic struct, `Self` includes the type arguments: in `Box<T>`, it is `Box<T>`.
+
 ### Static variables
 
 `static var` and `static let` declare a variable that belongs to the type, with one copy shared by the whole program. Unlike a `static const`, the starting value can be anything, function calls included:
@@ -511,7 +787,7 @@ Static methods of a generic struct, such as `Box<T>`, can be declared but not ca
 Vex has one rule for structs: **`let` and `var` control the name, not the value.**
 
 - `let p = Point(...)` means `p` always refers to the same struct. `var p` lets you point `p` at a different struct later.
-- The fields of a struct can always be changed, through any name that refers to it: a `let`, a `var`, a parameter, a list element or `self` in a method.
+- The fields of a struct can be changed through any name that refers to it: a `let`, a `var`, a parameter, a list element or `self` in a method. Only the struct itself decides otherwise, with [`let` fields](#let-fields) and [`private(set)`](#privateset-fields).
 
 ```vex title="mutability.vx"
 struct Point { x: int, y: int }
@@ -559,7 +835,7 @@ error: can't change 'p': it's declared with let
 Methods don't need a `mutating` or `mut` marker either. Any method can change fields, and it can be called on a value held by `let`.
 
 <Callout title="Why no read-only structs">
-Swift's value-type structs make every change explicit, but they also copy on every assignment and need `mutating`, `inout` and copy-on-write to stay fast. Vex structs are references, like classes in Dart, Kotlin and TypeScript, so a value passed to a function or stored in a list is the same value everywhere. If you want a value that can't change, use a [record](/docs/language/records) or an [enum](/docs/language/enums), whose fields are fixed once created.
+Swift's value-type structs make every change explicit, but they also copy on every assignment and need `mutating`, `inout` and copy-on-write to stay fast. Vex structs are references, like classes in Dart, Kotlin and TypeScript, so a value passed to a function or stored in a list is the same value everywhere. Fields that must not change are declared [`let`](#let-fields). If you want a value that can't change at all, use a [record](/docs/language/records) or an [enum](/docs/language/enums), whose fields are fixed once created.
 </Callout>
 
 ## Structs are shared references
@@ -590,33 +866,80 @@ fn main() {
 Point(x: 100) [Point(x: 100), Point(x: 100)]
 ```
 
-There is no built-in copy for structs. When you need an independent value, write a method that creates one:
+### Copies
+
+Every struct has a `copy` method that makes a new struct. Named arguments change some fields, and the others are copied as they are:
 
 ```vex title="copy.vx"
-struct Point {
-    x: int
-    y: int
-
-    fn copy() -> Point => Point(x: x, y: y)
+struct User {
+    let id: int
+    name: string
+    tags: [string] = []
 }
 
 fn main() {
-    let a = Point(x: 1, y: 2)
-    let b = a.copy()
-    b.x = 99
-    println(a, b)
+    let ann = User(id: 1, name: "Ann", tags: ["admin"])
+    let bo = ann.copy(id: 2, name: "Bo")
+    println(ann)
+    println(bo)
+    bo.tags.push("new")                   // the list is shared
+    println(ann.tags)
+    println(ann.copy() === ann)
 }
 ```
 
 ```text title="Output"
-Point(x: 1, y: 2) Point(x: 99, y: 2)
+User(id: 1, name: "Ann", tags: ["admin"])
+User(id: 2, name: "Bo", tags: ["admin"])
+["admin", "new"]
+false
 ```
 
-A copy method like this is shallow: list and struct fields still refer to the same lists and structs. See [Memory](/docs/language/memory) for how references, values and the garbage collector fit together.
+- `copy` takes one optional argument per field, checked like a constructor call: `User.copy has no parameter 'nam'`. `let` and `private(set)` fields can be given new values this way.
+- The copy is shallow: list, map and struct fields still refer to the same objects in both.
+- The struct's [`init` block](#init-blocks) runs on the copy, and the `let` fields that `init` sets are worked out again rather than copied, so they can't be passed to `copy`.
+- A struct that declares its own `copy` method uses that one instead, for example to make a deep copy.
+- From another module, `copy` can only change `pub` fields: `field 'note' of bank.Account is private to bank`.
+
+```vex title="copy_init.vx"
+struct Span {
+    let low: int
+    let high: int
+    let size: int
+
+    init {
+        size = high - low
+    }
+}
+
+struct Deck {
+    cards: [string] = []
+
+    fn copy() -> Deck => Deck(cards: cards.copy())
+}
+
+fn main() {
+    let s = Span(low: 2, high: 9)
+    let wider = s.copy(high: 20)
+    println(s.size, wider.size)
+
+    let a = Deck(cards: ["A"])
+    let b = a.copy()
+    b.cards.push("K")
+    println(a.cards, b.cards)
+}
+```
+
+```text title="Output"
+7 18
+["A"] ["A", "K"]
+```
+
+See [Memory](/docs/language/memory) for how references, values and the garbage collector fit together.
 
 ## Printing and string conversion
 
-`println`, `str(...)` and string interpolation all show a struct as its type name followed by every field in declaration order, with strings quoted:
+`println`, `str(...)` and string interpolation all show a struct as its type name followed by every field in declaration order, with strings quoted, unless the struct has a [`toString`](#tostring) method:
 
 ```vex title="print.vx"
 struct Inner {
@@ -666,7 +989,107 @@ fn main() {
 Node(value: 1, next: Node(...))
 ```
 
-To control how a struct reads, write a method such as `fn describe() -> string` and call it. Printing always uses the built-in format.
+### `toString`
+
+A struct or enum with a `toString()` method shows as what it returns instead, wherever the value is shown: `println`, `str(...)`, interpolation, and inside lists, maps, optionals, other structs and interface values:
+
+```vex title="to_string.vx"
+struct Money {
+    cents: int
+
+    fn toString() -> string => "${cents / 100}.{cents % 100}"
+}
+
+struct Order {
+    item: string
+    price: Money
+}
+
+fn main() {
+    let m = Money(cents: 1250)
+    println(m)
+    println("cost: {m}")
+    println(str(m).len)
+    println([m, m], ["lunch": m])
+    let maybe: Money? = m
+    println(maybe)
+    println(Order(item: "tea", price: m))
+}
+```
+
+```text title="Output"
+$12.50
+cost: $12.50
+6
+[$12.50, $12.50] ["lunch": $12.50]
+$12.50
+Order(item: "tea", price: $12.50)
+```
+
+`toString` must be written exactly `fn toString() -> string`. Anything else is an error, since printing calls it with no arguments:
+
+```vex title="to_string_errors.vx"
+struct A {
+    static fn toString() -> string => "a"
+}
+
+struct B {
+    fn toString(full: bool) -> string => "b"
+}
+
+struct C {
+    fn toString() -> int => 1
+}
+
+struct D {
+    async fn toString() -> string => "d"
+}
+
+struct E {
+    fn toString() throws -> string => "e"
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: toString can't be static
+ --> to_string_errors.vx:2:15
+  |
+2 |     static fn toString() -> string => "a"
+  |               ^^^^^^^^ printing calls it: write fn toString() -> string
+
+error: toString takes no parameters
+ --> to_string_errors.vx:6:17
+  |
+6 |     fn toString(full: bool) -> string => "b"
+  |                 ^^^^^^^^^^ printing calls it: write fn toString() -> string
+
+error: toString must return string, found int
+  --> to_string_errors.vx:10:8
+   |
+10 |     fn toString() -> int => 1
+   |        ^^^^^^^^ printing calls it: write fn toString() -> string
+
+error: toString can't be async
+  --> to_string_errors.vx:14:14
+   |
+14 |     async fn toString() -> string => "d"
+   |              ^^^^^^^^ printing calls it: write fn toString() -> string
+
+error: toString can't throw
+  --> to_string_errors.vx:18:19
+   |
+18 |     fn toString() throws -> string => "e"
+   |                   ^^^^^^ printing calls it: write fn toString() -> string
+
+5 errors
+```
+
+- A generic `toString<T>()` is an error too: `toString can't have type parameters`.
+- An [extension](/docs/language/extensions) of a struct or enum can add `toString`, with the same effect. Built-in types always print the built-in way; a `toString` that an extension adds to `int` or `string` is an ordinary method.
+- `toString` is also an ordinary method, so `m.toString()` calls it directly.
+- Showing `self` inside `toString`, as in `"Money {self}"`, calls `toString` again without end and stops the program with a stack overflow. Show the fields instead.
 
 ## Equality
 
@@ -991,14 +1414,17 @@ The parent and child refer to each other. That cycle is fine: the [garbage colle
 
 ## Rules and edge cases
 
-- Every field has a type. `x = 1` without a type is an error: `field 'x' needs a type`.
+- Every field has a type, written or taken from its default. A default of `nil`, `[]` or `[:]`, and every field of a generic struct, needs the type written.
+- A `let` field is set at creation and, after that, only by `init`. `private(set)` fields are assigned only inside the struct and its extensions in the same module.
+- `init` runs after the fields are set, at every creation and every copy. It takes no parameters and can't throw.
+- Every struct has `copy(field: value, ...)`, a shallow copy with some fields changed, unless it declares its own `copy`.
+- A `fn toString() -> string` method replaces the built-in format wherever the value is shown.
 - A field and a method can't have the same name: `'x' is already a field of Point`.
-- Fields are always changeable; `let` and `var` apply to names, not fields.
+- `let` and `var` on a variable apply to the name, not the struct's fields.
 - A `const` inside a struct must be written `static const`.
 - Parameters, loop variables and `self` can't be reassigned, but the fields of a struct they refer to can be changed.
 - `==` works only on structs that list `Equatable` or `Hashable` or define `operator ==`. `===` works on every struct.
 - A struct can be a map key when it lists `Hashable`.
-- Structs have no built-in copy.
 - Default values are evaluated at each creation, can't use other fields, and can't recreate the struct endlessly.
 - `didSet` doesn't run during creation, and getters and setters can't throw.
 - Structs can't inherit from other structs. Share behavior with [interfaces](/docs/language/interfaces) and their default methods, or by holding another struct in a field.

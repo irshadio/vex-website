@@ -1,6 +1,6 @@
 ---
 title: Strings
-description: String literals, escape sequences, interpolation, multi-line and raw strings, characters and Unicode, comparison, an overview of the string methods, and formatting and parsing numbers.
+description: String literals, escape sequences, interpolation, multi-line and raw strings, characters and Unicode, slicing with ranges, comparison, an overview of the string methods, and formatting and parsing numbers.
 ---
 
 A `string` holds text encoded as UTF-8. Strings are values: they can't be changed in place, and every method that seems to change one returns a new string. Text and values combine through interpolation, `"Hi {name}"`, rather than with `+`.
@@ -272,9 +272,72 @@ fn main() {
 ```
 
 - `len` counts Unicode code points, not bytes and not user-perceived characters. `"👍🏽"` is a thumbs-up followed by a skin-tone modifier, so its length is 2.
-- Indexes in `substring` and `indexOf` count code points the same way.
-- Strings can't be indexed with `s[i]` (`can't index a value of type string`) or looped over directly (`can't loop over a value of type string`). Use `.chars()` for both, or `substring(i, i + 1)`.
+- Indexes in slices, `substring` and `indexOf` count code points the same way.
+- Strings can't be indexed with `s[i]` (`a string can't be indexed by int`) or looped over directly (`can't loop over a value of type string`). Loop over `.chars()`, and take one character with `s[i..=i]` (see [Slicing](#slicing)).
 - Names in code are ASCII only; strings and comments can hold any Unicode text.
+
+## Slicing
+
+A [range](/docs/language/lists#ranges) inside `[ ]` gives part of a string as a new string. Indexes count characters (code points), as `len` does, so `"héllo"[1..3]` is `"él"`. Either end can be left out, and a stepped or reversed range picks the characters at the positions it gives:
+
+```vex title="strslice.vx"
+fn main() {
+    let s = "héllo 🙂"
+    println(s[1..3], s[..2], s[6..], s[0..=0], s[(0..7).reversed()])
+    let i = 1
+    println(s[i..=i], s[1..3] == s.substring(1, 3), "[{s[2..2]}]")
+    println([for k in (0..s.len).step(2) s[k..=k]])
+}
+```
+
+```text title="Output"
+él hé 🙂 h 🙂 olléh
+é true []
+["h", "l", "o", "🙂"]
+```
+
+| Slice | Characters |
+|---|---|
+| `s[a..b]` | From index `a` up to, not including, `b`; the same as `s.substring(a, b)` |
+| `s[a..=b]` | From `a` to `b`, including `b` |
+| `s[a..]`, `s[..b]`, `s[..]` | To the end, from the start, or all of them |
+| `s[i..=i]` | The character at `i`, as a string |
+| `s[r]` | The characters at the positions a `Range` value gives, such as `s[(0..5).step(2)]` |
+
+A string can't be indexed by an `int`, since there is no character type for the result. Use `s[i..=i]` for one character, or `s.chars()[i]`:
+
+```vex title="strindex.vx"
+fn main() {
+    let word = "vex"
+    println(word[0])
+}
+```
+
+```text title="Output"
+error: a string can't be indexed by int
+ --> strindex.vx:3:18
+  |
+3 |     println(word[0])
+  |                  ^ slice it with a range, e.g. s[i..=i], or use s.chars()[i]
+```
+
+A slice that reaches outside the string stops the program:
+
+```vex title="strrange.vx"
+fn main() {
+    let word = "vex"
+    println(word[1..])
+    println(word[1..9])
+}
+```
+
+```text title="Output"
+ex
+error: range 1..9 is out of range for a string of length 3
+ --> strrange.vx:4
+```
+
+Strings can't be changed in place, so a slice can't be assigned to either: `s[0..1] = "V"` gives `a slice is a copy, so it can't be assigned to`.
 
 ## Comparing strings
 
@@ -307,7 +370,7 @@ Strings have one property, `len`, and these methods. Every method returns a new 
 | `s.startsWith(text)` | `bool` | Whether `s` begins with `text` |
 | `s.endsWith(text)` | `bool` | Whether `s` ends with `text` |
 | `s.indexOf(text)` | `int?` | Code point index of the first match, or `nil` |
-| `s.substring(from, to)` | `string` | Code points from `from` up to, not including, `to` |
+| `s.substring(from, to)` | `string` | Code points from `from` up to, not including, `to`; the same as `s[from..to]` |
 | `s.split(separator)` | `[string]` | The parts between each separator |
 | `s.replace(old, with)` | `string` | Every `old` replaced with `with` |
 | `s.trim()` | `string` | Spaces, tabs and line endings removed from both ends |
@@ -347,6 +410,8 @@ true nil 1
 | `"abc".substring(2, 2)` | `""` |
 | `"abc".substring(2, 5)` | stops the program: `substring(2, 5) is out of range for a string of length 3` |
 | `"abc".substring(2, 1)` | stops the program, since `from` is after `to` |
+| `"abc"[1..]`, `"abc"[3..]` | `"bc"`, `""` |
+| `"abc"[1..9]` | stops the program: `range 1..9 is out of range for a string of length 3` |
 | `"abc".indexOf("")` | `0` |
 | `"".contains("")`, `"x".endsWith("")` | `true` |
 | `"".lines()` | `[]` |
@@ -370,8 +435,9 @@ The [`vex:strings`](/docs/stdlib/strings) module adds `repeat`, `join`, `padLeft
 | list | `[1, 2, 3]` |
 | map | `["a": 1, "b": 2]`, and `[:]` when empty |
 | record | `(1, "x")`, `(x: 1, y: 2)` with named fields in alphabetical order |
-| struct | `Point(x: 1, y: 2)` |
+| struct | `Point(x: 1, y: 2)`, or what its `toString()` method returns (see [Structs](/docs/language/structs)) |
 | enum | `Shape.circle(radius: 2.0)`, `Light.red` |
+| range | as written: `0..24`, `1..=5`, `(0..10).step(2).reversed()` |
 | function | its type: `<fn(int) -> int>` |
 
 `println(a, b, c)` separates its arguments with one space and ends with a line break. `print` does the same without the line break. `println()` prints an empty line.
