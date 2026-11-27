@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Check, ChevronDown, Link2, LoaderCircle, Play, RotateCcw } from 'lucide-react';
+import { Check, ChevronDown, Link2, LoaderCircle, Play, RotateCcw, Square } from 'lucide-react';
 import { InlineCode } from '@/components/pages/page-header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
@@ -8,8 +8,9 @@ import {
   decodeSource,
   encodeSource,
   loadCompiler,
-  runRemote,
+  runLive,
   runUrl,
+  sendInput,
   type CheckResult,
   type PlaygroundExample,
   type SessionEvent,
@@ -18,11 +19,10 @@ import { Editor } from './editor';
 
 type Panel = 'output' | 'problems';
 
-/// What the terminal shows: a finished session, or a program waiting for the input it reads.
+/// What the terminal shows: nothing yet, or a session, which is live while the program runs on the service.
 type Terminal =
   | { kind: 'idle' }
-  | { kind: 'session'; events: SessionEvent[]; error: boolean; note: string | null }
-  | { kind: 'input'; lines: string[] };
+  | { kind: 'session'; events: SessionEvent[]; error: boolean; note: string | null; live?: boolean };
 
 // A call to input() in the source, so the program reads from the keyboard.
 const readsInput = (src: string) => /\binput\s*\(/.test(src);
@@ -51,6 +51,13 @@ export function Playground({ examples }: { examples: PlaygroundExample[] }) {
   const [running, setRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const started = useRef(false);
+  const live = useRef<{ abort: AbortController; session: string | null } | null>(null);
+
+  const stop = useCallback(() => {
+    live.current?.abort.abort();
+    live.current = null;
+  }, []);
+  useEffect(() => stop, [stop]);
 
   useEffect(() => {
     if (started.current) return;
@@ -78,39 +85,60 @@ export function Playground({ examples }: { examples: PlaygroundExample[] }) {
     if (!e) return;
     setExampleId(id);
     setSource(e.code);
+    stop();
     setTerminal({ kind: 'idle' });
     setPanel('output');
     history.replaceState(null, '', `?example=${id}`);
   }
 
-  // Sends the program to the run service with the lines typed for it.
-  const runOnService = useCallback(
-    async (lines: string[]) => {
-      setRunning(true);
-      try {
-        const res = await runRemote(source, lines);
-        setTerminal({ kind: 'session', events: res.session, error: false, note: res.exitCode ? `Exited with status ${res.exitCode}` : null });
-      } catch (err) {
-        setTerminal({ kind: 'session', events: [{ out: err instanceof Error ? err.message : String(err) }], error: true, note: null });
-      } finally {
-        setRunning(false);
-      }
-    },
-    [source],
-  );
+  // Runs the program on the service, showing its output as it prints and passing on what is typed at its prompts.
+  const runOnService = useCallback(async () => {
+    stop();
+    const run = { abort: new AbortController(), session: null as string | null };
+    live.current = run;
+    const events: SessionEvent[] = [];
+    const show = (patch: Partial<Extract<Terminal, { kind: 'session' }>> = {}) =>
+      setTerminal({ kind: 'session', events: [...events], error: false, note: null, live: true, ...patch });
+    show();
+    setRunning(true);
+    try {
+      const code = await runLive(
+        source,
+        run.abort.signal,
+        (id) => (run.session = id),
+        (e) => {
+          const last = events.at(-1);
+          if (last && 'out' in e && 'out' in last) events[events.length - 1] = { out: last.out + e.out };
+          else if (last && 'err' in e && 'err' in last) events[events.length - 1] = { err: last.err + e.err };
+          else events.push(e);
+          show();
+        },
+      );
+      show({ live: false, note: code ? `Exited with status ${code}` : null });
+    } catch (err) {
+      if (run.abort.signal.aborted) show({ live: false, note: 'Stopped.' });
+      else show({ live: false, error: true, events: [...events, { err: (err instanceof Error ? err.message : String(err)) + '\n' }] });
+    } finally {
+      if (live.current === run) live.current = null;
+      setRunning(false);
+    }
+  }, [source, stop]);
+
+  const type = useCallback((line: string | null) => {
+    const session = live.current?.session;
+    if (session) void sendInput(session, line);
+  }, []);
 
   const run = useCallback(async () => {
     setPanel('output');
-    if (terminal.kind === 'input') return runOnService(terminal.lines);
+    if (live.current) return stop();
     const v = await loadCompiler();
     const r = v.check(source);
     setCheck(r);
     if (!r.ok) {
       setTerminal({ kind: 'session', events: [{ out: r.messages }], error: true, note: null });
-    } else if (runUrl && readsInput(source)) {
-      setTerminal({ kind: 'input', lines: [] });
     } else if (runUrl) {
-      await runOnService([]);
+      await runOnService();
     } else if (example && source === example.code) {
       setTerminal({ kind: 'session', events: example.session, error: false, note: 'Recorded when this example was verified.' });
     } else {
@@ -121,9 +149,10 @@ export function Playground({ examples }: { examples: PlaygroundExample[] }) {
         note: 'No errors. Running edited programs in the browser is coming; until then, save the code as main.vx and run vex run main.vx.',
       });
     }
-  }, [source, example, terminal, runOnService]);
+  }, [source, example, runOnService, stop]);
 
   function reset() {
+    stop();
     if (example) setSource(example.code);
     setTerminal({ kind: 'idle' });
   }
@@ -175,9 +204,15 @@ export function Playground({ examples }: { examples: PlaygroundExample[] }) {
           <Button variant="outline" size="sm" onClick={share} title="Copy a link to this program">
             {copied ? <Check /> : <Link2 />} <span className="hidden sm:inline">{copied ? 'Copied' : 'Share'}</span>
           </Button>
-          <Button size="sm" onClick={run} disabled={running || compiler !== 'ready'} title="Run (Ctrl or Cmd + Enter)">
-            {running ? <LoaderCircle className="animate-spin" /> : <Play />} Run
-          </Button>
+          {running ? (
+            <Button size="sm" variant="outline" onClick={stop} title="Stop the program">
+              <Square /> Stop
+            </Button>
+          ) : (
+            <Button size="sm" onClick={run} disabled={compiler !== 'ready'} title="Run (Ctrl or Cmd + Enter)">
+              {compiler === 'loading' ? <LoaderCircle className="animate-spin" /> : <Play />} Run
+            </Button>
+          )}
         </div>
       </div>
 
@@ -209,7 +244,7 @@ export function Playground({ examples }: { examples: PlaygroundExample[] }) {
 
           <div className="min-h-0 flex-1 overflow-auto px-6 py-5 font-mono text-[13px] leading-[23px] [font-variant-ligatures:none]">
             {panel === 'output' ? (
-              <TerminalView terminal={terminal} onInput={(lines) => setTerminal({ kind: 'input', lines })} onRun={run} />
+              <TerminalView terminal={terminal} readsInput={readsInput(source)} onType={type} />
             ) : check && !check.ok ? (
               <pre className="whitespace-pre-wrap text-rose-600 dark:text-rose-300">{check.messages}</pre>
             ) : (
@@ -223,77 +258,61 @@ export function Playground({ examples }: { examples: PlaygroundExample[] }) {
 }
 
 /// The output panel, drawn as a terminal: the command, what the program printed, and the lines typed at its prompts.
-function TerminalView({ terminal, onInput, onRun }: { terminal: Terminal; onInput: (lines: string[]) => void; onRun: () => void }) {
+/// While the program runs, a line to type into sits right after its output.
+function TerminalView({ terminal, readsInput, onType }: { terminal: Terminal; readsInput: boolean; onType: (line: string | null) => void }) {
   if (terminal.kind === 'idle') {
     return <p className="font-sans text-sm text-slate-500">Press Run, or Ctrl + Enter, to see what the program prints.</p>;
   }
   return (
     <>
       <p className="text-slate-500">$ vex run main.vx</p>
-      {terminal.kind === 'session' ? (
-        <>
-          <pre className={cn('whitespace-pre-wrap', terminal.error ? 'text-rose-600 dark:text-rose-300' : 'text-slate-800 dark:text-slate-300')}>
-            {terminal.events.map((e, i) =>
-              'in' in e ? (
-                <span key={i} className="text-ocean dark:text-sky">
-                  {e.in + '\n'}
-                </span>
-              ) : 'err' in e ? (
-                <span key={i} className="text-rose-600 dark:text-rose-300">
-                  {e.err}
-                </span>
-              ) : (
-                <span key={i}>{e.out}</span>
-              ),
-            )}
-          </pre>
-          {terminal.note && <p className="mt-3 font-sans text-xs text-slate-500">{terminal.note}</p>}
-        </>
-      ) : (
-        <InputLines lines={terminal.lines} onChange={onInput} onRun={onRun} />
+      <pre className={cn('whitespace-pre-wrap', terminal.error ? 'text-rose-600 dark:text-rose-300' : 'text-slate-800 dark:text-slate-300')}>
+        {terminal.events.map((e, i) =>
+          'in' in e ? (
+            <span key={i} className="text-ocean dark:text-sky">
+              {e.in + '\n'}
+            </span>
+          ) : 'err' in e ? (
+            <span key={i} className="text-rose-600 dark:text-rose-300">
+              {e.err}
+            </span>
+          ) : (
+            <span key={i}>{e.out}</span>
+          ),
+        )}
+        {terminal.live && <InputLine onType={onType} />}
+      </pre>
+      {terminal.live && readsInput && (
+        <p className="mt-3 font-sans text-xs text-slate-500">Type at the prompt and press Enter. Ctrl + D ends the input.</p>
       )}
+      {terminal.note && <p className="mt-3 font-sans text-xs text-slate-500">{terminal.note}</p>}
     </>
   );
 }
 
-/// Collects the lines a program reads with input(), typed in the terminal, before it runs.
-function InputLines({ lines, onChange, onRun }: { lines: string[]; onChange: (lines: string[]) => void; onRun: () => void }) {
+/// The line being typed into the running program, sent when Enter is pressed.
+function InputLine({ onType }: { onType: (line: string | null) => void }) {
   const [line, setLine] = useState('');
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key === 'Enter') {
       e.preventDefault();
-      onChange(line ? [...lines, line] : lines);
+      onType(line);
       setLine('');
-      onRun();
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'd' && e.ctrlKey) {
       e.preventDefault();
-      onChange([...lines, line]);
-      setLine('');
-    } else if (e.key === 'Backspace' && !line && lines.length) {
-      e.preventDefault();
-      setLine(lines.at(-1)!);
-      onChange(lines.slice(0, -1));
+      onType(null);
     }
   }
   return (
-    <>
-      <p className="mb-2 font-sans text-xs text-slate-500">
-        This program reads from the keyboard. Type each line it asks for and press Enter, then press Ctrl + Enter to run it.
-      </p>
-      {lines.map((l, i) => (
-        <p key={i} className="whitespace-pre text-ocean dark:text-sky">
-          {l || ' '}
-        </p>
-      ))}
-      <input
-        autoFocus
-        value={line}
-        onChange={(e) => setLine(e.target.value)}
-        onKeyDown={onKeyDown}
-        aria-label="Input line"
-        spellCheck={false}
-        className="w-full bg-transparent text-ocean caret-ocean outline-none dark:text-sky dark:caret-sky"
-      />
-    </>
+    <input
+      autoFocus
+      value={line}
+      onChange={(e) => setLine(e.target.value)}
+      onKeyDown={onKeyDown}
+      aria-label="Type a line for the program"
+      spellCheck={false}
+      autoComplete="off"
+      className="inline-block w-[min(100%,40ch)] bg-transparent align-baseline text-ocean caret-ocean outline-none dark:text-sky dark:caret-sky"
+    />
   );
 }

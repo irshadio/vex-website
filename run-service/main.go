@@ -1,10 +1,14 @@
-// Command run-service compiles and runs playground programs in a sandbox,
-// answering with the terminal session: what the program printed, and the
-// input lines typed at its prompts.
+// Command run-service compiles and runs playground programs in a sandbox.
+// POST /run answers with the whole terminal session: what the program printed,
+// and the input lines typed at its prompts. With "interactive": true it streams
+// the session instead, one JSON event per line, and POST /input types the lines
+// the person enters while the program runs.
 package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +42,10 @@ const (
 	openFiles           = 64
 	quietBeforeTyping   = 150 * time.Millisecond
 	waitForSilentPrompt = 1500 * time.Millisecond
+	// An interactive program waits for a person, so it gets longer, but it
+	// still can't use more than cpuSeconds of CPU.
+	interactiveTimeout = 3 * time.Minute
+	idleTimeout        = time.Minute
 )
 
 // Imports the playground refuses, because they reach the machine running it.
@@ -45,8 +53,16 @@ var blockedImports = map[string]bool{"vex:os": true, "vex:fs": true}
 
 // The request body: the program, and the lines to type at its prompts.
 type runRequest struct {
-	Source string   `json:"source"`
-	Input  []string `json:"input"`
+	Source      string   `json:"source"`
+	Input       []string `json:"input"`
+	Interactive bool     `json:"interactive"`
+}
+
+// A line typed into a running interactive program, or the end of its input.
+type inputRequest struct {
+	Session string `json:"session"`
+	Line    string `json:"line"`
+	EOF     bool   `json:"eof"`
 }
 
 // One step of the session: printed output, error output, or a typed line.
@@ -69,6 +85,7 @@ type config struct {
 	origins   map[string]bool
 	anyOrigin bool
 	slots     chan struct{}
+	sessions  sync.Map // session id -> chan inputRequest
 }
 
 func main() {
@@ -96,12 +113,14 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "ok\n") })
 	mux.HandleFunc("/run", func(w http.ResponseWriter, r *http.Request) { cfg.serveRun(w, r, limiter) })
+	mux.HandleFunc("/input", cfg.serveInput)
 	addr := ":" + env("PORT", "8080")
 	log.Printf("listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
-func (cfg *config) serveRun(w http.ResponseWriter, r *http.Request, limiter *limiter) {
+// Sets the CORS headers and reports whether the request is a POST to handle.
+func (cfg *config) preflight(w http.ResponseWriter, r *http.Request) bool {
 	if origin := r.Header.Get("Origin"); origin != "" && (cfg.anyOrigin || cfg.origins[origin]) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -109,10 +128,16 @@ func (cfg *config) serveRun(w http.ResponseWriter, r *http.Request, limiter *lim
 	}
 	switch r.Method {
 	case http.MethodOptions:
-		return
+		return false
 	case http.MethodPost:
-	default:
-		http.Error(w, "use POST", http.StatusMethodNotAllowed)
+		return true
+	}
+	http.Error(w, "use POST", http.StatusMethodNotAllowed)
+	return false
+}
+
+func (cfg *config) serveRun(w http.ResponseWriter, r *http.Request, limiter *limiter) {
+	if !cfg.preflight(w, r) {
 		return
 	}
 	if !limiter.allow(clientIP(r)) {
@@ -135,9 +160,83 @@ func (cfg *config) serveRun(w http.ResponseWriter, r *http.Request, limiter *lim
 		http.Error(w, "the playground is busy; try again", http.StatusServiceUnavailable)
 		return
 	}
-	res := cfg.run(r.Context(), req)
+	if req.Interactive {
+		cfg.stream(w, r, req)
+		return
+	}
+	res := cfg.run(r.Context(), req.Source, lines(req.Input), nil)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(res)
+}
+
+// Runs [req] and streams its session as JSON lines: first {"session": id},
+// then each event as it happens, then {"exit": code}. Closing the request
+// stops the program.
+func (cfg *config) stream(w http.ResponseWriter, r *http.Request, req runRequest) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming isn't supported here", http.StatusInternalServerError)
+		return
+	}
+	id := newID()
+	in := make(chan inputRequest, 16)
+	cfg.sessions.Store(id, in)
+	defer cfg.sessions.Delete(id)
+
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
+	enc := json.NewEncoder(w)
+	send := func(v any) {
+		enc.Encode(v)
+		flusher.Flush()
+	}
+	send(map[string]string{"session": id})
+	res := cfg.run(r.Context(), req.Source, in, func(kind, data string) { send(event{kind: data}) })
+	send(map[string]int{"exit": res.ExitCode})
+}
+
+// Types a line into a running interactive program, or ends its input.
+func (cfg *config) serveInput(w http.ResponseWriter, r *http.Request) {
+	if !cfg.preflight(w, r) {
+		return
+	}
+	var req inputRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4*maxLineBytes)).Decode(&req); err != nil {
+		http.Error(w, "the body must be JSON with session and line", http.StatusBadRequest)
+		return
+	}
+	if len(req.Line) > maxLineBytes || strings.ContainsAny(req.Line, "\n\r") {
+		http.Error(w, "the line is too long or contains a line break", http.StatusBadRequest)
+		return
+	}
+	v, ok := cfg.sessions.Load(req.Session)
+	if !ok {
+		http.Error(w, "the program isn't running", http.StatusNotFound)
+		return
+	}
+	select {
+	case v.(chan inputRequest) <- req:
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "the program isn't reading its input", http.StatusTooManyRequests)
+	}
+}
+
+// A channel that yields [input] one line at a time, then ends.
+func lines(input []string) chan inputRequest {
+	c := make(chan inputRequest, len(input)+1)
+	for _, l := range input {
+		c <- inputRequest{Line: l}
+	}
+	c <- inputRequest{EOF: true}
+	return c
+}
+
+func newID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // Returns why [req] can't be accepted, or an empty string.
@@ -174,18 +273,26 @@ func refused(src string) string {
 	return ""
 }
 
-// Compiles and runs [req], returning its session.
-func (cfg *config) run(ctx context.Context, req runRequest) runResponse {
-	if msg := refused(req.Source); msg != "" {
-		return runResponse{Session: []event{{"err": msg}}, ExitCode: 1}
+// Compiles and runs [source], typing the lines from [in], and returns its
+// session. [onEvent], when set, also gets each piece of the session as it
+// happens.
+func (cfg *config) run(ctx context.Context, source string, in chan inputRequest, onEvent func(kind, data string)) runResponse {
+	fail := func(res runResponse) runResponse {
+		if onEvent != nil {
+			onEvent("err", res.Session[0]["err"])
+		}
+		return res
+	}
+	if msg := refused(source); msg != "" {
+		return fail(runResponse{Session: []event{{"err": msg}}, ExitCode: 1})
 	}
 	dir, err := os.MkdirTemp("", "run-")
 	if err != nil {
-		return failure("couldn't prepare the program: " + err.Error())
+		return fail(failure("couldn't prepare the program: " + err.Error()))
 	}
 	defer os.RemoveAll(dir)
-	if err := os.WriteFile(filepath.Join(dir, "main.vx"), []byte(req.Source), 0o644); err != nil {
-		return failure("couldn't prepare the program: " + err.Error())
+	if err := os.WriteFile(filepath.Join(dir, "main.vx"), []byte(source), 0o644); err != nil {
+		return fail(failure("couldn't prepare the program: " + err.Error()))
 	}
 
 	cctx, cancel := context.WithTimeout(ctx, compileTimeout)
@@ -195,11 +302,11 @@ func (cfg *config) run(ctx context.Context, req runRequest) runResponse {
 	build.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "NO_COLOR=1"}
 	if out, err := build.CombinedOutput(); err != nil {
 		if cctx.Err() != nil {
-			return failure("compiling took too long")
+			return fail(failure("compiling took too long"))
 		}
-		return runResponse{Session: []event{{"err": string(out)}}, ExitCode: 1}
+		return fail(runResponse{Session: []event{{"err": string(out)}}, ExitCode: 1})
 	}
-	return cfg.session(ctx, dir, req.Input)
+	return cfg.session(ctx, dir, in, onEvent)
 }
 
 func failure(msg string) runResponse {
@@ -212,9 +319,12 @@ type chunk struct {
 	data string
 }
 
-// Runs the built program in [dir] under limits, typing each of [lines] once
-// it has printed its prompt and gone quiet, and records the session.
-func (cfg *config) session(ctx context.Context, dir string, lines []string) runResponse {
+// Runs the built program in [dir] under limits and records the session.
+// Without [onEvent] the lines from [in] are all known up front, and each is
+// typed once the program has printed its prompt and gone quiet. With it, a
+// person types them while watching, so each is typed as soon as it arrives.
+func (cfg *config) session(ctx context.Context, dir string, in chan inputRequest, onEvent func(kind, data string)) runResponse {
+	live := onEvent != nil
 	self, err := os.Executable()
 	if err != nil {
 		return failure(err.Error())
@@ -268,19 +378,47 @@ func (cfg *config) session(ctx context.Context, dir string, lines []string) runR
 	kill := func() { syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	var events []event
 	add := func(kind, data string) {
+		if live {
+			onEvent(kind, data)
+		}
 		if n := len(events); n > 0 && events[n-1][kind] != "" && len(events[n-1]) == 1 {
 			events[n-1][kind] += data
 		} else {
 			events = append(events, event{kind: data})
 		}
 	}
-	pending := lines
 	stdinOpen := true
 	typing := time.NewTimer(cfg.startWait)
-	deadline := time.NewTimer(runTimeout)
+	timeout := runTimeout
+	var typed chan inputRequest
+	idle := time.NewTimer(idleTimeout)
+	if live {
+		typing.Stop()
+		typed, timeout = in, interactiveTimeout
+	} else {
+		idle.Stop()
+	}
+	deadline := time.NewTimer(timeout)
 	defer typing.Stop()
+	defer idle.Stop()
 	defer deadline.Stop()
-	total, stopped := 0, ""
+	total, stopped, count := 0, "", 0
+	write := func(l inputRequest) {
+		if !stdinOpen {
+			return
+		}
+		if l.EOF || count >= maxInputLines {
+			stdin.Close()
+			stdinOpen = false
+			return
+		}
+		count++
+		events = append(events, event{"in": l.Line})
+		if live {
+			onEvent("in", l.Line)
+		}
+		io.WriteString(stdin, l.Line+"\n")
+	}
 
 loop:
 	for {
@@ -300,20 +438,27 @@ loop:
 			}
 			total += len(c.data)
 			add(c.kind, c.data)
-			typing.Reset(quietBeforeTyping)
-		case <-typing.C:
-			if len(pending) > 0 {
-				events = append(events, event{"in": pending[0]})
-				io.WriteString(stdin, pending[0]+"\n")
-				pending = pending[1:]
-				typing.Reset(waitForSilentPrompt)
+			if live {
+				idle.Reset(idleTimeout)
 			} else if stdinOpen {
-				stdin.Close()
-				stdinOpen = false
+				typing.Reset(quietBeforeTyping)
 			}
+		case <-typing.C:
+			if stdinOpen {
+				write(<-in)
+				typing.Reset(waitForSilentPrompt)
+			}
+		case l := <-typed:
+			write(l)
+			idle.Reset(idleTimeout)
+		case <-idle.C:
+			if stopped == "" {
+				stopped = fmt.Sprintf("stopped: nothing happened for %d seconds", int(idleTimeout.Seconds()))
+			}
+			kill()
 		case <-deadline.C:
 			if stopped == "" {
-				stopped = fmt.Sprintf("stopped: the program ran for more than %d seconds", int(runTimeout.Seconds()))
+				stopped = fmt.Sprintf("stopped: the program ran for more than %d seconds", int(timeout.Seconds()))
 			}
 			kill()
 		case <-ctx.Done():
@@ -384,6 +529,8 @@ func execLimited(args []string) {
 			os.Exit(1)
 		}
 	}
+	// When memory runs short, the program is killed before the service.
+	os.WriteFile("/proc/self/oom_score_adj", []byte("1000"), 0)
 	err := syscall.Exec(args[5], []string{args[5]}, os.Environ())
 	fmt.Fprintf(os.Stderr, "couldn't start the program: %v\n", err)
 	os.Exit(1)
