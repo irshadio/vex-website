@@ -1,1 +1,1 @@
-{ "title": "Tools", "pages": ["cli", "compile-errors", "runtime-errors", "generated-c"] }
+{ "title": "Tools", "pages": ["cli", "testing", "compile-errors", "runtime-errors", "generated-c"] }

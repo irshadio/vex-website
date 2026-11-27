@@ -1,6 +1,6 @@
 ---
 title: Generated C
-description: What vex emit-c produces, and how functions, structs, enums, optionals, closures, errors, generics and collections map to C, shown with trimmed real output.
+description: What vex emit-c produces, how functions, structs, enums, optionals, closures, errors, generics and collections map to C, shown with trimmed real output, and how to debug the C with vex build --debug.
 ---
 
 Vex compiles to C, and the system C compiler turns that C into a native executable. `vex emit-c` prints the C so you can read it. You never need to, but it helps when you want to know what a construct costs, when you debug a crash in a debugger, or when you are curious how the language works.
@@ -15,14 +15,16 @@ The output in this page is real, from `vex emit-c` at version `0.1.0-dev`, trimm
 
 The output is a single self-contained C file in two parts:
 
-1. **The runtime.** About 2,600 lines that start with `// Runtime library compiled into every Vex program.`: the garbage collector, strings, lists, maps, printing, the event loop for async code, isolates and channels, and the error-reporting functions. It is the same for every program.
+1. **The runtime.** About 3,400 lines that start with `// Runtime library compiled into every Vex program.`: the garbage collector, strings, lists, maps, printing, the event loop for async code, isolates and channels, and the error-reporting functions. It is the same for every program.
 2. **Your program**, after a `// --- Program ---` line: type declarations, function prototypes, then the functions.
 
-Every name the runtime uses starts with `vx_`, which is why Vex reserves that prefix. `vex build` compiles the file with `-std=gnu11 -fwrapv -O3 -w -pthread` and links `-lm`. You can do the same by hand:
+Every name the runtime uses starts with `vx_`, which is why Vex reserves that prefix. `vex build` compiles the file with `-std=gnu11 -fwrapv -w -pthread -O3` and links `-lm`; `--debug` replaces `-O3` with `-O0 -g` (see [Build modes](/docs/tools/cli#build-modes)). You can do the same by hand:
 
 ```sh
-cc -std=gnu11 -fwrapv -O3 -w -pthread hello.c -o hello -lm
+cc -std=gnu11 -fwrapv -w -pthread -O3 hello.c -o hello -lm
 ```
+
+`emit-c` leaves `test` blocks out, as `vex build` does.
 
 The code uses GNU C extensions that both clang and GCC support: statement expressions (`({ ... })`), `__label__`, `__builtin_expect` and the overflow builtins.
 
@@ -424,6 +426,28 @@ for (int64_t _t9 = 0; _t9 < _t8 && _t9 < _t7->len; _t9++) {
 - A `for` loop reads the length once, which is why items pushed during the loop aren't visited, and also re-checks the current length, which is why removing items ends the loop early instead of reading past the end.
 - A map is a `vx_map *`, a hash table that keeps insertion order. Reading `m[key]` calls `vx_map_find`, which returns a pointer or `NULL`, turned into an optional.
 - Strings are `vx_str` values passed by value. Literals point at constant data with no allocation (`VX_LIT`); new strings are allocated on the collected heap. Strings aren't NUL-terminated; the runtime makes a C string when it calls a C function that needs one.
+
+## Debugging
+
+`vex build --debug` compiles without optimizations, with debug information, and keeps the generated C next to the program, so a debugger such as lldb or gdb can show the C source as it steps:
+
+```sh
+vex build --debug add.vx
+```
+
+```text title="Output"
+Built add
+Kept the C code in add.c
+```
+
+The debug information points into `add.c`, the same C that `vex emit-c` prints. Your code is at the end, after `// --- Program ---`, and each function keeps its name with a prefix, as shown in [Functions and main](#functions-and-main): `add` is `fn_add`, and an underscore in a name is escaped, so `sum_first` is `fn_sum_ufirst`. A breakpoint goes on that name:
+
+```text title="lldb ./add"
+(lldb) breakpoint set --name fn_add
+Breakpoint 1: where = add`fn_add + 20 at add.c:3456:19, address = 0x00000001000022bc
+```
+
+Local variables keep their names with a `v_` prefix, so `total` is `v_total`. Without `--debug` the C file is written to a temporary folder and deleted after the build.
 
 ## See also
 

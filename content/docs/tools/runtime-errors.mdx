@@ -1,6 +1,6 @@
 ---
 title: Runtime errors
-description: Every error the Vex runtime can stop a program with, what each message looks like, which line it points to, and the exit status.
+description: Every error the Vex runtime can stop a program with, what each message looks like, which line it points to, the exit status, and how runtime errors show up in tests and sanitizer builds.
 ---
 
 Some mistakes can only be found while the program runs: an index past the end of a list, a division by zero, text that isn't a number. Vex checks for these and stops the program with a clear message instead of carrying on with a wrong value or crashing. This page lists every runtime error the runtime can raise.
@@ -339,7 +339,9 @@ error: assertion failed: n must be above 5
  --> assert.vx:3
 ```
 
-Without a message, it prints `error: assertion failed`. Assertions always run; there is no build mode that removes them.
+Without a message, it prints `error: assertion failed`. Assertions always run; no build mode removes them, not even `--debug` or `--sanitize`.
+
+In tests, [`expect`](/docs/tools/testing#expect) reports a failed condition without stopping the test.
 
 ## Errors that escape main
 
@@ -476,7 +478,7 @@ The same situation in an `async fn main` doesn't print an error: when no task ca
 ```vex title="anyempty.vx"
 async fn main() {
     let none: [Future<int>] = []
-    let first = await any(none)
+    let _ = await any(none)
 }
 ```
 
@@ -508,6 +510,61 @@ Close a channel only from the side that sends, after the last `send`.
 
 A runtime error inside an isolate started with `isolate.run` or `isolate.spawn` stops the whole program, with the same message and line it would have on the main isolate.
 
+## Runtime errors in tests
+
+`vex test` runs each test in its own process. A runtime error stops only that test: the test is marked `✗`, the usual message goes to standard error, and the next test runs.
+
+```vex title="isolation.vx"
+import "vex:os"
+
+extern fn abort()
+
+var counter = 0
+
+test "counts to one" {
+    counter += 1
+    expect(counter == 1)
+}
+
+test "starts from zero again" {
+    counter += 1
+    expect(counter == 1)
+}
+
+test "divides by zero" {
+    let zero = counter
+    println(10 / zero)
+}
+
+test "exits" {
+    os.exit(3)
+}
+
+test "aborts in C" {
+    abort()
+}
+```
+
+```text title="Output of vex test isolation.vx"
+✓ counts to one
+✓ starts from zero again
+✗ divides by zero
+error: division by zero
+ --> isolation.vx:19
+✗ exits
+  stopped with exit status 3
+✗ aborts in C
+  crashed with signal 6
+
+5 tests: 2 passed, 3 failed
+```
+
+An error escaping a `throws` test isn't a runtime error: it prints `  error: <message>` under the test's name on standard output. See [Testing](/docs/tools/testing#the-output).
+
+## Sanitizer builds
+
+The runtime checks Vex code, but not C code called through `extern fn`. A build with `--sanitize=address,undefined` (see [Build modes](/docs/tools/cli#build-modes)) adds the C compiler's checks, which stop the program with their own report instead of an `error:` line. On macOS they end it with an abort signal, so `vex run` exits with status 134 and adds `vex: the program crashed (abort trap); this is a bug in vex` after the report, even when the report shows the bug is in your C code.
+
 ## Rare system errors
 
 These come from the system running out of a resource rather than from a mistake in the program. They exit with status 1:
@@ -527,6 +584,7 @@ These come from the system running out of a resource rather than from a mistake 
 | Any runtime error on this page | 1 |
 | An error escaping `fn main() throws` | 1 |
 | Killed by a signal | 128 plus the signal number, as reported by the shell or by `vex run` |
+| Stopped by a sanitizer report, on macOS | 134, from the abort signal the sanitizer ends it with |
 
 ## See also
 
