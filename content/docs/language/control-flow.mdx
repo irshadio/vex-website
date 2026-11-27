@@ -1,9 +1,9 @@
 ---
 title: Control flow
-description: if and else, if as a value, if let and if case, for-in loops over ranges, lists and maps, while and while let, break and continue, guard let, and a first look at match.
+description: if and else, if as a value, if let and if case, several conditions separated by commas, for-in loops over ranges, lists and maps, while and while let, repeat-while, break and continue with named loops, guard, defer, and a first look at match.
 ---
 
-Vex has a short list of control-flow statements: `if`, `for`, `while`, `guard` and `match`, with `break`, `continue` and `return` to leave early. Conditions don't take parentheses, bodies always take braces, and conditions must be `bool`.
+Vex has a short list of control-flow statements: `if`, `for`, `while`, `repeat`, `guard` and `match`, with `break`, `continue` and `return` to leave early and `defer` to run cleanup when a block ends. Conditions don't take parentheses, bodies always take braces, and conditions must be `bool`.
 
 ## if and else
 
@@ -148,7 +148,9 @@ fn main() {
 found at 1
 ```
 
-The bound name exists only inside the first block. The value must be optional (`if let needs an optional value, but this is int`), and the binding can't be `var` (`'if var' isn't supported`; copy it into a `var` inside the block). See [Optionals](/docs/language/optionals).
+The bound name exists only inside the first block. The value must be optional (`if let needs an optional value, but this is int`), and the binding can't be `var` (`'if var' isn't supported`; copy it into a `var` inside the block).
+
+`if let name` with no `=` is short for `if let name = name`: it unwraps a variable under the same name. `if` can also take several conditions and bindings separated by commas; see [Several conditions](#several-conditions) and [Optionals](/docs/language/optionals).
 
 ### if case
 
@@ -175,6 +177,31 @@ fn main() {
 ```text title="Output"
 big circle, radius 2.5
 on the y axis at 7
+```
+
+`if case` can't be followed by more conditions after a comma. Put the extra condition in the `when` clause, or nest another `if` inside:
+
+```vex title="ifcasecomma.vx"
+enum Shape {
+    circle(radius: float)
+    square(side: float)
+}
+
+fn main() {
+    let s = Shape.circle(radius: 2.0)
+    let big = true
+    if s case circle(r), big {
+        println(r)
+    }
+}
+```
+
+```text title="Output"
+error: if case can't be combined with other conditions
+ --> ifcasecomma.vx:9:24
+  |
+9 |     if s case circle(r), big {
+  |                        ^ nest another if inside, or add the condition after when
 ```
 
 ## for loops
@@ -205,7 +232,8 @@ hi hi
 
 - Bounds must be `int`, and can be any expression: `for i in lo..lo + 3`.
 - Both bounds are evaluated once, before the first iteration. Changing a variable used in a bound doesn't change the number of iterations.
-- A range whose end comes before its start runs zero times. There is no step or reverse range; count down with `while`, or compute `n - 1 - i`.
+- A range whose end comes before its start runs zero times.
+- To skip values or count down, loop over `(0..10).step(2)` or `(1..=5).reversed()`. A range is also a value of type `Range`; see [Ranges](/docs/language/lists#ranges).
 - `_` is a normal name, so `for _ in 0..2` works when you don't need the number.
 
 ### Over a list
@@ -346,7 +374,7 @@ fn main() {
 111
 ```
 
-There is no `loop`, `do ... while` or `repeat ... until`. For a loop that runs until something inside it says stop, write `while true` with a `break`.
+To check the condition after the body instead, use [`repeat { } while`](#repeat-while). There is no `loop`; for a loop that runs until something inside it says stop, write `while true` with a `break`.
 
 ### while let
 
@@ -371,7 +399,67 @@ fn main() {
 a b c 
 ```
 
-`while var` isn't supported (`'while var' isn't supported`); copy the value into a `var` inside the body.
+`while var` isn't supported (`'while var' isn't supported`); copy the value into a `var` inside the body. `while` can take several conditions and bindings separated by commas; see [Several conditions](#several-conditions).
+
+## repeat-while
+
+`repeat { ... } while condition` runs its body first and checks the condition after each pass, so the body always runs at least once:
+
+```vex title="repeat.vx"
+fn main() {
+    var n = 10
+    repeat {
+        print("{n} ")
+        n += 1
+    } while n < 3
+    println()
+
+    var tries = 0
+    var roll = 0
+    repeat {
+        tries += 1
+        roll = (tries * 7) % 6
+    } while roll != 0
+    println("got 0 after {tries} tries")
+}
+```
+
+```text title="Output"
+10 
+got 0 after 6 tries
+```
+
+- The condition must be a `bool`, and the names declared in the body aren't visible in it. Declare a variable before the loop, as `roll` is above, to use a value from the body.
+- `break` and `continue` work as in other loops. `continue` goes to the condition check.
+- `while` must be on the same line as the closing `}`, as `else` must:
+
+```vex title="repeatline.vx"
+fn main() {
+    var n = 0
+    repeat {
+        n += 1
+    }
+    while n < 3
+}
+```
+
+```text title="Output"
+error: while must follow the repeat block on the same line
+ --> repeatline.vx:6:5
+  |
+6 |     while n < 3
+  |     ^^^^^ write } while cond on one line
+
+error: expected '{' after the while condition, found end of line
+ --> repeatline.vx:6:16
+  |
+6 |     while n < 3
+  |                ^ put { on the same line as while
+
+2 errors
+```
+
+`repeat` isn't a reserved word. Without a `while` after its block, `repeat { ... }` is a call of a function named `repeat` with a [trailing block](/docs/language/closures).
 
 ## break and continue
 
@@ -394,32 +482,90 @@ fn main() {
 1 3 5 7 
 ```
 
-- Both work in `for` and `while` loops, including from inside a `match` arm or an `if` in the loop.
+- Both work in `for`, `while` and `repeat` loops, including from inside a `match` arm or an `if` in the loop.
 - Outside a loop, they are errors: `break can only be used inside a loop`. That includes a closure inside a loop, since the closure may run later, outside it.
-- There are no loop labels. To leave several loops at once, put them in a function and `return`, or use a flag:
 
-```vex title="nested.vx"
-fn firstPair(target: int) -> (int, int)? {
-    for a in 1..10 {
-        for b in 1..10 {
-            if a * b == target { return (a, b) }
+### Named loops
+
+A name and a `:` before a loop let `break` and `continue` reach that loop from inside an inner one. `break name` stops the named loop, and `continue name` goes on with its next pass:
+
+```vex title="named.vx"
+fn main() {
+    let grid = [[1, 2, 3], [4, -1, 6], [7, 8, 9]]
+    outer: for row in grid {
+        for cell in row {
+            if cell < 0 { continue outer }
+            print("{cell} ")
+        }
+        println("(row done)")
+    }
+    println()
+
+    var found = (-1, -1)
+    search: for r, row in grid {
+        for c, cell in row {
+            if cell == 8 {
+                found = (r, c)
+                break search
+            }
         }
     }
-    return nil
-}
-
-fn main() {
-    println(firstPair(12), firstPair(97))
+    println(found)
 }
 ```
 
 ```text title="Output"
-(2, 6) nil
+1 2 3 (row done)
+4 7 8 9 (row done)
+
+(2, 1)
 ```
 
-## guard let
+- Any `for`, `for await`, `while` or `repeat` loop can have a name. Plain `break` and `continue` still apply to the innermost loop.
+- The name must belong to a loop around the `break` or `continue`:
 
-`guard let` unwraps an optional and keeps the name for the rest of the function. Its `else` block runs when the value is `nil`, and must leave: with `return`, `break`, `continue`, `throw` or `panic(...)`.
+```vex title="nolabel.vx"
+fn main() {
+    for i in 0..3 {
+        if i == 1 { break outer }
+    }
+}
+```
+
+```text title="Output"
+error: no loop around this is named 'outer'
+ --> nolabel.vx:3:27
+  |
+3 |         if i == 1 { break outer }
+  |                           ^^^^^ name the loop: outer: for ...
+```
+
+- A loop can't repeat the name of a loop around it. Loops one after another can share a name.
+
+```vex title="samelabel.vx"
+fn main() {
+    rows: for r in 0..3 {
+        rows: for c in 0..3 {
+            if c == r { continue rows }
+        }
+    }
+}
+```
+
+```text title="Output"
+error: a loop around this one is already named 'rows'
+ --> samelabel.vx:3:9
+  |
+3 |         rows: for c in 0..3 {
+  |         ^^^^ give the inner loop another name
+```
+
+- A closure starts without any loop names, as it starts outside any loop: `break outer` inside a closure gives `break can only be used inside a loop`. Loops inside the closure can use any name, including one the code around it uses.
+- Only loops take a name. `outer: if ...` is read as a variable missing its `let`: `missing 'let' or 'var' before 'outer'`.
+
+## guard
+
+`guard let` unwraps an optional and keeps the name for the rest of the block it is in. Its `else` block runs when the value is `nil`, and must leave: with `return`, `break`, `continue`, `throw` or `panic(...)`.
 
 ```vex title="guard.vx"
 fn find(xs: [string], target: string) -> int? {
@@ -467,7 +613,251 @@ error: the else block of guard must leave, so 'x' always has a value after it
   |                          ^ end it with return, break, continue or panic(...)
 ```
 
-Only `guard let` exists. A plain `guard condition else { ... }` gives `expected 'let' after 'guard'`; write `if !condition { return }`.
+`guard` also takes a plain condition. The `else` block runs when the condition is `false`, and must leave in the same way:
+
+```vex title="guardplain.vx"
+fn divide(a: int, b: int) -> int? {
+    guard b != 0 else { return nil }
+    return a / b
+}
+
+fn main() {
+    println(divide(10, 2), divide(1, 0))
+}
+```
+
+```text title="Output"
+5 nil
+```
+
+With a plain condition, an `else` block that falls through gives `the else block of guard must leave, so the condition holds after it`.
+
+The names a `guard` binds exist after it, not in its `else` block, which runs exactly when they have no value:
+
+```vex title="guardelse.vx"
+fn main() {
+    let text: string? = "42"
+    guard let t = text, t.len > 0 else {
+        println("bad {t}")
+        return
+    }
+}
+```
+
+```text title="Output"
+error: unknown name 't'
+ --> guardelse.vx:4:23
+  |
+4 |         println("bad {t}")
+  |                       ^
+```
+
+## Several conditions
+
+`if`, `while` and `guard` take several conditions and `let` bindings separated by commas. They are checked left to right, each binding is visible to the conditions after it, and the block runs only when every one holds. The first one that fails stops the check, so the ones after it don't run:
+
+```vex title="conds.vx"
+struct User {
+    name: string
+    email: string? = nil
+}
+
+fn contact(user: User?) -> string {
+    if let user, let email = user.email, email.contains("@") {
+        return "mail {user.name} at {email}"
+    }
+    return "no address"
+}
+
+fn parsePort(text: string) -> int {
+    guard let n = int.parse(text), n > 0, n < 65536 else {
+        return 80
+    }
+    return n
+}
+
+fn main() {
+    println(contact(User(name: "Ann", email: "ann@example.com")))
+    println(contact(User(name: "Bob", email: "bob")))
+    println(contact(nil))
+    println(parsePort("8080"), parsePort("0"), parsePort("web"))
+
+    let words = ["4", "7", "end", "9"]
+    var i = 0
+    var total = 0
+    while i < words.len, let n = int.parse(words[i]) {
+        total += n
+        i += 1
+    }
+    println(total)
+}
+```
+
+```text title="Output"
+mail Ann at ann@example.com
+no address
+no address
+8080 80 80
+11
+```
+
+- `let name` without `= value` is short for `let name = name`, here and in the first position: `if let user` unwraps `user` under the same name.
+- Every plain condition must be a `bool`: `if let a = x, a` gives `if condition must be bool, found int` when `a` is an `int`.
+- In `if`, the bound names exist only inside the first block, not in `else`. In `guard`, they exist after the `guard`, not in its `else`. In `while`, they are bound again before each pass.
+- An `is` test narrows the type for the conditions after it as it does for the block: `if s is Circle, s.radius > 1.0 { ... }`.
+- A line break may follow a comma, so a long header can be spread over lines. The `{` goes after the last condition:
+
+```vex title="condlines.vx"
+fn main() {
+    let name: string? = "Ann"
+    let age: int? = 31
+    if let name,
+       let age,
+       age >= 18 {
+        println("{name} is an adult")
+    } else {
+        println("unknown")
+    }
+}
+```
+
+```text title="Output"
+Ann is an adult
+```
+
+- `if value case pattern` can't be followed by more conditions; see [if case](#if-case).
+
+## defer
+
+A `defer` block runs when the block it is in ends, however it ends: at its last line, or through `return`, `throw`, `break`, `continue` or an error passed up by `try`. It keeps cleanup next to the code that needs it:
+
+```vex title="defer.vx"
+fn load(name: string) throws -> string {
+    println("open {name}")
+    defer { println("close {name}") }
+    if !name.endsWith(".txt") {
+        throw Error("not a text file")
+    }
+    return "contents of {name}"
+}
+
+fn main() {
+    println(try? load("notes.txt"))
+    println(try? load("photo.png"))
+}
+```
+
+```text title="Output"
+open notes.txt
+close notes.txt
+contents of notes.txt
+open photo.png
+close photo.png
+nil
+```
+
+Several deferred blocks run last first, and a `defer` that wasn't reached doesn't run:
+
+```vex title="deferorder.vx"
+fn steps(stop: bool) {
+    defer { println("first deferred, runs last") }
+    defer { println("second deferred, runs first") }
+    if stop { return }
+    defer { println("only when not stopped") }
+    println("end of body")
+}
+
+fn main() {
+    steps(false)
+    println("--")
+    steps(true)
+}
+```
+
+```text title="Output"
+end of body
+only when not stopped
+second deferred, runs first
+first deferred, runs last
+--
+second deferred, runs first
+first deferred, runs last
+```
+
+A deferred block sees the variables declared before it, with the values they have when it runs, not when the `defer` line was reached. In a loop, the block it is in is the loop body, so it runs after every pass, including one cut short by `continue`:
+
+```vex title="defervalues.vx"
+fn main() {
+    var count = 0
+    defer { println("count at the end: {count}") }
+    count = 5
+
+    for job in ["build", "skip", "test"] {
+        defer { println("{job} done") }
+        if job == "skip" { continue }
+        println("run {job}")
+    }
+    count += 1
+}
+```
+
+```text title="Output"
+run build
+build done
+skip done
+run test
+test done
+count at the end: 6
+```
+
+- `defer` takes a block: `defer println("bye")` gives `defer takes a block`, with the hint `write defer { cleanup() }`. The `{` must be on the same line as `defer`.
+- A `defer` inside an `if` block, a `match` arm or a closure runs when that block, arm or closure ends.
+- A `return` value is worked out before the deferred blocks run, so a `defer` that changes a variable doesn't change what `return n` gives.
+- The block can't leave the code around it. It can't `return` or `throw`, pass up an error with `try`, or `break` or `continue` a loop outside it; loops inside the block work as usual. Errors inside it are handled with `try?` or `try ... catch`:
+
+```vex title="deferleave.vx"
+fn close(name: string) throws {
+    throw Error("can't close {name}")
+}
+
+fn find(xs: [int]) -> int {
+    defer {
+        return 0
+    }
+    return xs.len
+}
+
+fn main() {
+    defer {
+        try close("log") catch e {
+            println("ignored: {e.message}")
+        }
+    }
+    for i in 0..3 {
+        defer {
+            if i == 1 { continue }
+        }
+    }
+}
+```
+
+```text title="Output"
+error: return can't be used in a defer block
+ --> deferleave.vx:7:9
+  |
+7 |         return 0
+  |         ^^^^^^^^ a defer block runs as its block ends, so it can't return
+
+error: continue can only be used inside a loop
+  --> deferleave.vx:20:25
+   |
+20 |             if i == 1 { continue }
+   |                         ^^^^^^^^ a defer block runs as its block ends, so it can't leave a loop around it
+
+2 errors
+```
+
+`throw` inside a deferred block gives `throw can't be used in a defer block`, and `try` without `?` or `catch` gives `the error can't pass up: a defer block doesn't throw`. [Compile errors](/docs/tools/compile-errors#defer-blocks) lists them all.
 
 ## match
 
@@ -505,9 +895,13 @@ Since a line break ends a statement, the returned value must start on the same l
 
 ## Rules and edge cases
 
-- Bodies of `if`, `else`, `for`, `while` and `guard` always need braces, with `{` on the same line.
+- Bodies of `if`, `else`, `for`, `while`, `repeat`, `guard` and `defer` always need braces, with `{` on the same line.
 - Conditions must be `bool`, including in `while`: `while condition must be bool, found int`.
-- There's no `switch`, `loop`, `do ... while`, labeled loop or C-style `for (i = 0; i < n; i++)`.
+- `else` and the `while` of `repeat { } while` go on the same line as the closing `}`.
+- `if`, `while` and `guard` take several conditions separated by commas; `if case` takes only its `when` clause.
+- `break name` and `continue name` reach a named loop around them. Names can't repeat the name of a loop around them, and closures start without any.
+- A `defer` block runs when its block ends, last first, and can't leave the code around it.
+- There's no `switch`, `loop`, `do ... while` or C-style `for (i = 0; i < n; i++)`.
 - After `if x is T`, `x` has type `T` inside the block. See [Type tests](/docs/language/types#type-tests).
 - An `if` used as a value needs an `else`, and its branches are single expressions of one type. There is no `? :`.
 - `if` and `for` can also appear inside list and map literals, where they produce elements: `[for x in xs if x > 0 x]`. See [Lists](/docs/language/lists#collection-if-for-and-spread).
@@ -521,8 +915,10 @@ Since a line break ends a statement, the returned value must start on the same l
 | `if` as an expression | yes | yes | yes | no |
 | Counting loop | `for i in 0..n` | `for i in 0..<n` | `for (i in 0 until n)` | `for i := 0; i < n; i++` |
 | Inclusive range | `1..=5` | `1...5` | `1..5` | none |
-| Loop labels | no | yes | yes | yes |
-| Unwrap or leave | `guard let` | `guard let` | `?: return` | none |
+| Body runs at least once | `repeat { } while c` | `repeat { } while c` | `do { } while (c)` | none |
+| Loop labels | `outer: for`, `break outer` | `outer: for`, `break outer` | `outer@ for`, `break@outer` | `outer: for`, `break outer` |
+| Unwrap or leave | `guard let`, `?? return` | `guard let` | `?: return` | none |
+| Cleanup at block end | `defer { }` | `defer { }` | none | `defer f()`, at function end |
 
 ## See also
 

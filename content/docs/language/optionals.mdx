@@ -1,6 +1,6 @@
 ---
 title: Optionals
-description: "Optional types T?, nil, and every way to get a value out safely: if let, guard let, while let, ?. chaining and the ?? default."
+description: "Optional types T?, nil, and every way to get a value out safely: if let, guard let and while let with several conditions, ?. chaining, the ?? default, and ?? return, throw, break or continue to leave early."
 ---
 
 A type ending in `?` holds either a value of that type or `nil`. Every other type always has a value. The compiler makes you check an optional before you use the value inside, so a missing value can't crash the program.
@@ -179,9 +179,8 @@ no age for zoe
 bob is 25
 ```
 
-- The name is a new constant, only visible inside the block. It may reuse the optional's name: `if let user = user { ... }`.
-- `if let` takes one binding. Nest two `if let`s to unwrap two values.
-- The shorthand `if let name { }` doesn't exist; write `if let name = name { }`.
+- The name is a new constant, only visible inside the block. It may reuse the optional's name: `if let user = user { ... }`, or in short, `if let user { ... }`.
+- Several bindings and conditions can follow, separated by commas; see [Several conditions](#several-conditions).
 - The value must be optional:
 
 ```vex title="if_let_plain.vx"
@@ -238,7 +237,7 @@ fn main() {
 '4 2' isn't an age
 ```
 
-`guard let` keeps the main path of a function unindented: check the inputs at the top, then work with plain values.
+`guard let` keeps the main path of a function unindented: check the inputs at the top, then work with plain values. `guard` also works with a plain condition, as in `guard b != 0 else { return nil }`; see [Control flow](/docs/language/control-flow#guard).
 
 An `else` block that can fall through is an error, since the name would have no value after it:
 
@@ -286,6 +285,95 @@ fn main() {
 ```
 
 `break` and `continue` work inside as in any loop.
+
+## Several conditions
+
+`if let`, `guard let` and `while let` can unwrap several values and check conditions in one header, separated by commas. They are checked left to right, and each name is visible to the conditions after it, so a later binding can use an earlier one. The block runs only when every value is there and every condition holds; the first that fails stops the check:
+
+```vex title="if_let_many.vx"
+struct User {
+    name: string
+    email: string? = nil
+}
+
+fn notify(user: User?, enabled: bool) {
+    if let user, let email = user.email, enabled {
+        println("sending to {user.name} <{email}>")
+    } else {
+        println("nothing sent")
+    }
+}
+
+fn main() {
+    let ann = User(name: "Ann", email: "ann@example.com")
+    notify(ann, true)
+    notify(ann, false)
+    notify(User(name: "Bob"), true)
+    notify(nil, true)
+}
+```
+
+```text title="Output"
+sending to Ann <ann@example.com>
+nothing sent
+nothing sent
+nothing sent
+```
+
+`if let user` is short for `if let user = user`: it unwraps a variable under the same name. The shorthand works in every position, and in `guard` and `while` too. The variable must be optional, as with the long form: `if let name` on a `string` gives `if let needs an optional value, but this is string`.
+
+With `guard`, every name it binds is a plain value after it, for the rest of the block:
+
+```vex title="guard_many.vx"
+fn area(width: string, height: string) -> string {
+    guard let w = int.parse(width), let h = int.parse(height), w > 0, h > 0 else {
+        return "bad size"
+    }
+    return "area {w * h}"
+}
+
+fn main() {
+    println(area("3", "4"))
+    println(area("3", "x"))
+    println(area("0", "4"))
+}
+```
+
+```text title="Output"
+area 12
+bad size
+bad size
+```
+
+- A `guard` adds its names to the block it is in, so it can't reuse the name of a variable already declared there. A function's parameters count as declared in its body, which rules out `guard let name` for a parameter `name`:
+
+```vex title="guard_same.vx"
+fn greet(name: string?) -> string {
+    guard let name else {
+        return "hello, stranger"
+    }
+    return "hello, {name}"
+}
+
+fn main() {
+    println(greet("Ann"))
+}
+```
+
+```text title="Output"
+error: 'name' is already declared on line 1
+ --> guard_same.vx:2:15
+  |
+2 |     guard let name else {
+  |               ^^^^
+```
+
+Pick a new name, `guard let n = name`, or use `if let name`, whose name lives only in its block.
+
+- A line break may follow a comma, so `if let a = x,` can have its next condition on the next line.
+- The names exist only where every condition has held: inside the first block of `if` and `while`, and after a `guard`. The `else` block of an `if` or a `guard` can't use them; in a `guard`'s `else`, a bound name gives `unknown name`.
+- A plain condition must be a `bool`. An optional `bool` needs unwrapping too: `if let done = flag, done`.
+- `if value case pattern` can't take more conditions after a comma; add them with `when` (see [Control flow](/docs/language/control-flow#if-case)).
 
 ## Optional chaining with ?.
 
@@ -421,6 +509,58 @@ error: the default after ?? must be string, found int
 
 `?.` and `??` are often used together: `user?.manager?.name ?? "nobody"`.
 
+### Leaving early
+
+The right side of `??` can be `return`, `throw`, `break` or `continue` instead of a default. It runs when the left side is `nil`, and otherwise the result is the plain value, so one line unwraps a value or leaves:
+
+```vex title="leave.vx"
+fn port(text: string) -> int {
+    let n = int.parse(text) ?? return 80
+    return n
+}
+
+fn load(settings: [string: string], key: string) throws -> string {
+    let value = settings[key] ?? throw Error("missing {key}")
+    return value.upper()
+}
+
+fn main() {
+    println(port("8080"), port("web"))
+
+    var total = 0
+    for word in ["4", "x", "7", "stop", "9"] {
+        if word == "stop" { break }
+        let n = int.parse(word) ?? continue
+        total += n
+    }
+    println(total)
+
+    let settings = ["mode": "dark"]
+    println(try? load(settings, "mode"))
+    println(try? load(settings, "font"))
+
+    let codes: [string: int] = ["a": 1]
+    for key in ["a", "b", "a"] {
+        let code = codes[key] ?? break
+        print("{code} ")
+    }
+    println()
+}
+```
+
+```text title="Output"
+8080 80
+11
+DARK
+nil
+1 
+```
+
+- The statement follows the usual rules: `return` gives what the function returns, `throw` needs a function that throws, and `break` and `continue` need a loop, and can name one, as in `?? continue outer`.
+- It takes the rest of the expression: in `a ?? return n + 1`, the function returns `n + 1`. Wrap it in parentheses to use the value in a larger expression: `(a ?? return 0) * 2`.
+- It ends a chain: `a ?? b ?? return` tries `a`, then `b`, then leaves.
+- It works only after `??`. Anywhere else, such as `let y = return`, it gives `return can only be used as a statement or after ??`. In a constant outside a function it gives `return after ?? only works inside a function`.
+
 ## Comparing with nil
 
 An optional can be compared with `nil`, with a plain value or with another optional, using `==` and `!=`. Two optionals are equal when both are `nil` or both hold equal values, and an optional equals a plain value only when it isn't `nil` and holds that value:
@@ -537,11 +677,11 @@ fn main() {
 - Only `T?` can hold `nil`. A plain `T` always has a value, and `nil` needs a known optional type.
 - A `T` is accepted wherever `T?` is expected.
 - No force unwrap. Use `if let`, `guard let`, `while let`, `?.` or `??`.
-- `if let` and `while let` take a single binding, and the value must be optional.
-- The `else` of `guard let` must leave the enclosing block.
+- `if let`, `guard let` and `while let` take several bindings and conditions separated by commas; every bound value must be optional. `if let x` is short for `if let x = x`.
+- The `else` of `guard` must leave the enclosing block, and can't use the names the `guard` binds.
 - Each step after an optional in a chain needs `?.`; the result of `?.` is always optional.
 - No assignment through `?.`, no optional indexing and no optional calls.
-- `??` evaluates its right side only for `nil`, and groups to the right.
+- `??` evaluates its right side only for `nil`, and groups to the right. The right side can be `return`, `throw`, `break` or `continue`.
 - Optionals compare with `nil` only; `x != nil` doesn't unwrap `x`.
 - `T??` doesn't exist, and map values can't be optional.
 - `nil` isn't a `match` pattern.
@@ -556,6 +696,7 @@ fn main() {
 | Force unwrap | none | `y!` | `y!!` | `y!` | `y!` |
 | Chaining | `?.` on every step | `?.` once | `?.` on every step | `?.` once | `?.` once |
 | Default | `??` | `??` | `?:` | `??` | `??` |
+| Unwrap or leave | `?? return`, `guard let` | `guard let` | `?: return` | none | none |
 
 ## See also
 

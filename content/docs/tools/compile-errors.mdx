@@ -375,14 +375,10 @@ Some code from other languages reads as something else in Vex. Instead of a conf
 |---|---|---|
 | `x!` | `Vex has no ! to force an optional open` | `x ?? fallback`, `if let` or `guard let` |
 | `x++`, `x--` | `Vex has no ++ operator`, `Vex has no -- operator` | `x += 1`, `x -= 1` |
-| `do { } while c` | `Vex has no do-while loop` | `while true { ...; if !cond { break } }` |
+| `do { } while c` | `Vex has no do-while loop` | `repeat { ... } while c` |
 | `switch x { }` | `Vex uses match, not switch` | `match x { 1 => a  _ => b }` |
 | `class Name { }` | `Vex has no classes` | `struct Name { ... }` |
 | `c ? a : b` | `Vex has no ? : operator` | `if c { a } else { b }` |
-| `defer` | `defer isn't supported yet` | Run the cleanup before each return |
-| `outer: for`, `break outer` | `loop labels aren't supported yet` | A function that returns, or a flag |
-
-`defer` and loop labels are planned, so their messages say "not supported yet".
 
 ### force-opening an optional
 
@@ -439,8 +435,10 @@ error: Vex has no do-while loop
  --> dowhile.vx:3:5
   |
 3 |     do {
-  |     ^^ write while true { ...; if !cond { break } }
+  |     ^^ write repeat { ... } while cond
 ```
+
+See [repeat-while](/docs/language/control-flow#repeat-while).
 
 ### switch
 
@@ -504,9 +502,135 @@ error: Vex has no ? : operator
 
 `if` is an expression: `let b = if a > 0 { 1 } else { 2 }`.
 
-### defer
+## Control flow
 
-```vex title="defer.vx"
+### while on its own line after repeat
+
+```vex title="repeatline.vx"
+fn main() {
+    var n = 0
+    repeat {
+        n += 1
+    }
+    while n < 3
+}
+```
+
+```text title="Output"
+error: while must follow the repeat block on the same line
+ --> repeatline.vx:6:5
+  |
+6 |     while n < 3
+  |     ^^^^^ write } while cond on one line
+
+error: expected '{' after the while condition, found end of line
+ --> repeatline.vx:6:16
+  |
+6 |     while n < 3
+  |                ^ put { on the same line as while
+
+2 errors
+```
+
+Write `} while n < 3`. If the `while` on the next line has a `{`, it is read as a separate `while` loop, and the `repeat { ... }` before it as a call of a function named `repeat`: `unknown function 'repeat'`. See [repeat-while](/docs/language/control-flow#repeat-while).
+
+### no loop with that name
+
+```vex title="nolabel.vx"
+fn main() {
+    for i in 0..3 {
+        if i == 1 { break outer }
+    }
+}
+```
+
+```text title="Output"
+error: no loop around this is named 'outer'
+ --> nolabel.vx:3:27
+  |
+3 |         if i == 1 { break outer }
+  |                           ^^^^^ name the loop: outer: for ...
+```
+
+`continue outer` gives the same message. A closure starts without any loop names, so `break outer` inside a closure gives `break can only be used inside a loop` even when a loop around the closure is named `outer`. See [Named loops](/docs/language/control-flow#named-loops).
+
+### loop name already used
+
+```vex title="samelabel.vx"
+fn main() {
+    rows: for r in 0..3 {
+        rows: for c in 0..3 {
+            if c == r { continue rows }
+        }
+    }
+}
+```
+
+```text title="Output"
+error: a loop around this one is already named 'rows'
+ --> samelabel.vx:3:9
+  |
+3 |         rows: for c in 0..3 {
+  |         ^^^^ give the inner loop another name
+```
+
+Loops one after another can share a name; only a loop inside another can't reuse its name.
+
+### if case with more conditions
+
+```vex title="ifcasecomma.vx"
+enum Shape {
+    circle(radius: float)
+    square(side: float)
+}
+
+fn main() {
+    let s = Shape.circle(radius: 2.0)
+    let big = true
+    if s case circle(r), big {
+        println(r)
+    }
+}
+```
+
+```text title="Output"
+error: if case can't be combined with other conditions
+ --> ifcasecomma.vx:9:24
+  |
+9 |     if s case circle(r), big {
+  |                        ^ nest another if inside, or add the condition after when
+```
+
+Write `if s case circle(r) when big { ... }`. Other `if` headers take several conditions separated by commas; see [Several conditions](/docs/language/control-flow#several-conditions).
+
+### guard else that doesn't leave
+
+```vex title="guardleave.vx"
+fn check(ready: bool) {
+    guard ready else {
+        println("not ready")
+    }
+    println("go")
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: the else block of guard must leave, so the condition holds after it
+ --> guardleave.vx:2:22
+  |
+2 |     guard ready else {
+  |                      ^ end it with return, break, continue or panic(...)
+```
+
+With `guard let`, the message names the value instead: `so 'x' always has a value after it`, or `so its names always have values after it` for several. The names a `guard` binds can't be used inside its `else` block either; there they give `unknown name`.
+
+### defer blocks
+
+`defer` takes a block:
+
+```vex title="deferblock.vx"
 fn main() {
     defer println("bye")
     println("hi")
@@ -514,36 +638,77 @@ fn main() {
 ```
 
 ```text title="Output"
-error: defer isn't supported yet
- --> defer.vx:2:5
+error: defer takes a block
+ --> deferblock.vx:2:11
   |
 2 |     defer println("bye")
-  |     ^^^^^ run the cleanup before each return, or pass a closure to a helper that runs it last
+  |           ^^^^^^^ write defer { cleanup() }
 ```
 
-### loop labels
+A deferred block runs as the block around it ends, so it can't leave the code around it:
 
-```vex title="label.vx"
-fn main() {
-    outer: for i in 0..3 {
-        for j in 0..3 {
-            if i == j {
-                break outer
-            }
+```vex title="deferleave.vx"
+fn save(xs: [int]) throws -> int {
+    defer {
+        return 0
+    }
+    defer {
+        throw Error("late")
+    }
+    for x in xs {
+        defer {
+            if x == 0 { break }
         }
     }
+    return xs.len
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: return can't be used in a defer block
+ --> deferleave.vx:3:9
+  |
+3 |         return 0
+  |         ^^^^^^^^ a defer block runs as its block ends, so it can't return
+
+error: throw can't be used in a defer block
+ --> deferleave.vx:6:9
+  |
+6 |         throw Error("late")
+  |         ^^^^^^^^^^^^^^^^^^^ a defer block runs as its block ends, so it can't throw
+
+error: break can only be used inside a loop
+  --> deferleave.vx:10:25
+   |
+10 |             if x == 0 { break }
+   |                         ^^^^^ a defer block runs as its block ends, so it can't leave a loop around it
+
+3 errors
+```
+
+A `try` that would pass an error up gives `the error can't pass up: a defer block doesn't throw`. Handle errors inside the block with `try?` or `try ... catch`, and use loops inside it freely: `break` and `continue` work on a loop within the block. See [defer](/docs/language/control-flow#defer).
+
+### return outside a statement
+
+`return`, `throw`, `break` and `continue` are statements, and can stand as a value only on the right of `??`:
+
+```vex title="jump.vx"
+fn main() {
+    let y = return
 }
 ```
 
 ```text title="Output"
-error: loop labels aren't supported yet
- --> label.vx:2:5
+error: return can only be used as a statement or after ??
+ --> jump.vx:2:13
   |
-2 |     outer: for i in 0..3 {
-  |     ^^^^^ move the inner loop into a function and return from it, or stop the outer loop with a flag
+2 |     let y = return
+  |             ^^^^^^ write it as a statement, or after ?? as in x ?? return
 ```
 
-A label after `break` or `continue` alone gives `loop labels aren't supported yet; break applies to the innermost loop` (or `continue applies ...`), pointing at the label.
+After `??` in a constant outside a function, there is nothing to leave: `return after ?? only works inside a function`, with the hint `use a default value instead: x ?? 0`. See [Leaving early](/docs/language/optionals#leaving-early).
 
 ## Names
 
