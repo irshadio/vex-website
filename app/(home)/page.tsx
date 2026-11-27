@@ -1,3 +1,5 @@
+import type { Metadata } from 'next';
+import { pageMetadata, siteDescription } from '@/lib/metadata';
 import { Hero } from '@/components/home/hero';
 import { Pillars } from '@/components/home/pillars';
 import { Glance } from '@/components/home/glance';
@@ -7,6 +9,8 @@ import { Pipeline } from '@/components/home/pipeline';
 import { RoadmapSummary } from '@/components/home/roadmap-summary';
 import { Closing } from '@/components/home/closing';
 import { Footer } from '@/components/home/footer';
+
+export const metadata: Metadata = pageMetadata({ description: siteDescription, path: '/' });
 
 export default function HomePage() {
   return (

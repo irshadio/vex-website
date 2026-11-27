@@ -1,13 +1,15 @@
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/metadata';
 import { Check, Circle, CircleDot } from 'lucide-react';
 import { getRoadmap, progress } from '@/lib/data';
 import { InlineCode, PageHeader } from '@/components/pages/page-header';
 import { Footer } from '@/components/home/footer';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Roadmap',
   description: 'The phases of the Vex language, from the core language to the tools around it.',
-};
+  path: '/roadmap',
+});
 
 export default function RoadmapPage() {
   const phases = getRoadmap();

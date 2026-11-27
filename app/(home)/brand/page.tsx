@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/metadata';
 import type { ReactNode } from 'react';
 import { Download, X } from 'lucide-react';
 import { PageHeader } from '@/components/pages/page-header';
@@ -6,10 +7,11 @@ import { Footer } from '@/components/home/footer';
 import { Mark } from '@/components/logo';
 import { cn } from '@/lib/cn';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Brand',
   description: 'The Vex logo, colors, typefaces and name, with files to download and rules for using them.',
-};
+  path: '/brand',
+});
 
 const logos = [
   { name: 'Primary lockup', use: 'Docs, websites and READMEs', file: 'vex-lockup-light', bg: 'bg-white border border-fd-border' },
