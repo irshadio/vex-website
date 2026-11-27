@@ -1,9 +1,9 @@
 ---
 title: vex:os
-description: API reference for vex:os, which reads command-line arguments and environment variables, finds the working folder, exits, and runs shell commands.
+description: API reference for vex:os, which reads command-line arguments and environment variables, finds the working folder, exits, runs shell commands, and names the system the program is built for.
 ---
 
-`vex:os` gives a program access to its surroundings: the arguments it was started with, environment variables, the folder it runs in, its exit status, and other programs it can start through the shell.
+`vex:os` gives a program access to its surroundings: the arguments it was started with, environment variables, the folder it runs in, its exit status, other programs it can start through the shell, and the system it is built for.
 
 ```vex title="greet.vx"
 import "vex:os"
@@ -40,6 +40,8 @@ Hi, Ann
 | | [`exit(code)`](#exit) | Ends the program with an exit status |
 | Commands | [`run(command)`](#run) | Runs a shell command; returns its exit status; throws |
 | | [`output(command)`](#output) | Runs a shell command; returns what it printed; throws |
+| System | [`target`](#target) | The operating system the program is built for, an `os.Target` |
+| | [`arch`](#arch) | The processor architecture the program is built for, an `os.Arch` |
 
 Functions marked "throws" need `try`, `try?` or `try ... catch`. They throw a plain `Error` whose message names what failed and the reason the system gave.
 
@@ -263,6 +265,118 @@ nil
 ```
 
 Use `lines()` or `trim()` on the result of `output` to drop the final line ending, as in `try os.output("git rev-parse HEAD").trim()`.
+
+## System
+
+`target` and `arch` are constants, not functions: write `os.target` without `()`. Their values are known when the program is compiled, so an `if` or `match` that tests them compiles only the branch for that system. See [Platform conditionals](#platform-conditionals).
+
+### target
+
+```vex
+pub enum Target {
+    macos, linux, windows
+}
+
+pub const target: Target
+```
+
+The operating system the program is built for.
+
+- **Value:** `.macos`, `.linux` or `.windows`.
+- **Errors:** None. Assigning to it is a compile error: `can't change constant 'target'`.
+
+### arch
+
+```vex
+pub enum Arch {
+    arm64, x64
+}
+
+pub const arch: Arch
+```
+
+The processor architecture the program is built for.
+
+- **Value:** `.arm64` or `.x64`.
+- **Errors:** None.
+
+The program is built for the system the compiler runs on, so these name the machine that ran `vex run` or `vex build`. There is no option to build for another system yet.
+
+```vex title="platform.vx"
+import "vex:os"
+
+fn main() {
+    println(os.target, os.arch)
+    let name = match os.target {
+        macos => "a Mac"
+        linux => "Linux"
+        windows => "Windows"
+    }
+    let bits = if os.arch == .arm64 { "ARM" } else { "x86" }
+    println("built for {name} on {bits}")
+}
+```
+
+On a Mac with Apple silicon it prints:
+
+```text title="Output"
+Target.macos Arch.arm64
+built for a Mac on ARM
+```
+
+On Linux on an Intel or AMD processor, it prints `Target.linux Arch.x64` and `built for Linux on x86`.
+
+`os.Target` and `os.Arch` are ordinary enums whose cases carry no values. They compare with `==`, work in `match`, and can be stored: `let t: os.Target = os.target`. Comparing them with anything else is a compile error, such as `can't compare os.Target with string` for `os.target == "macos"`.
+
+### Platform conditionals
+
+An `if` whose condition is made only of constants, such as `os.target == .windows`, is decided when the program is compiled. Only the branch taken generates C code. The same goes for a `match` on `os.target` or `os.arch`, and for `&&`, `||` and `!` of such tests:
+
+```vex title="fold.vx"
+import "vex:os"
+
+extern fn GetTickCount64() -> uint64
+
+const verbose = false
+
+fn main() {
+    if os.target == .windows {
+        println(GetTickCount64())
+    } else {
+        println("not Windows")
+    }
+    if verbose {
+        println("details")
+    }
+    let sep = match os.target {
+        windows => "\\"
+        _ => "/"
+    }
+    println(sep)
+}
+```
+
+On macOS and Linux it prints:
+
+```text title="Output"
+not Windows
+/
+```
+
+`GetTickCount64` exists only in the Windows C library. The program still builds on macOS and Linux, because the branch that calls it generates no code there and nothing refers to the missing function. `if verbose { ... }` generates nothing at all.
+
+- Every branch is still type-checked, so a mistake in code for another system shows up on yours:
+
+  ```text
+  error: expected int, found string
+   --> err.vx:5:22
+    |
+  5 |         let n: int = "not checked away"
+    |                      ^^^^^^^^^^^^^^^^^^ parse it with int(...)
+  ```
+
+- A `match` on `os.target` must handle every system, or have a `_` arm: `match doesn't handle 'windows'`.
+- C code that only one system has goes in the [`[c.macos]`, `[c.linux]` or `[c.windows]`](/docs/projects/c-interop#c-code-for-one-system) section of `package.toml`.
 
 ## See also
 

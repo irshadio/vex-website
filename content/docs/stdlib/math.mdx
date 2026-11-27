@@ -180,7 +180,7 @@ Strings compare by their bytes, so `"Zoo" < "apple"` because uppercase letters c
 
 ## Powers, roots and logarithms
 
-These functions take and return `float`. They follow the C library and IEEE 754 for values outside their domain: they return `nan` or an infinity instead of stopping the program. Check the result with a comparison when that matters; `nan` is not equal to anything, itself included.
+These functions take and return `float`. They follow the C library and IEEE 754 for values outside their domain: they return `nan` or an infinity instead of stopping the program. Check the result with the built-in `x.isNaN` and `x.isFinite` when that matters; `nan` is not equal to anything, itself included. `float.nan` and `float.infinity` give these values directly (see [Number members](/docs/stdlib/built-ins#number-members)).
 
 ### sqrt
 
@@ -406,6 +406,8 @@ fn main() {
 2.0 -2.0 3.5
 19.99 20
 ```
+
+To round for display, `price.toFixed(2)` gives the text `"19.99"` directly; see [Number members](/docs/stdlib/built-ins#number-members).
 
 ## Constants
 

@@ -1,11 +1,11 @@
 ---
 title: Built-ins
-description: Every built-in function, type and constraint, and every member of strings, lists, maps and channels, with signatures, edge cases and the runtime errors they can raise.
+description: Every built-in function, type and constraint, safe number parsing, and every member of numbers, strings, lists, maps and channels, with signatures, edge cases and the runtime errors they can raise.
 ---
 
 Built-ins are the functions, types and members that every Vex file can use without an import. This page lists all of them. The signatures use `T` for a list's element type, `K` and `V` for a map's key and value types, and `?` for an optional result.
 
-Built-in names are reserved. You can't name a variable, function, parameter or type `print`, `println`, `input`, `panic`, `assert`, `str`, `int`, `float`, `bool`, `string`, `void` or `Error`:
+Built-in names are reserved. You can't name a variable, function, parameter or type `print`, `println`, `input`, `panic`, `assert`, `expect`, `str`, `int`, `float`, `bool`, `string`, `void` or `Error`:
 
 ```text
 error: 'str' is a built-in function and can't be used as a variable name
@@ -15,7 +15,7 @@ error: 'str' is a built-in function and can't be used as a variable name
   |         ^^^ choose another name
 ```
 
-The async helpers `run`, `all` and `any` are the exception: a function of your program with the same name replaces them.
+The async helpers `run`, `all` and `any`, and `hash`, are the exception: a function of your program with the same name replaces them.
 
 ## Functions
 
@@ -25,10 +25,15 @@ The async helpers `run`, `all` and `any` are the exception: a function of your p
 | `println(values...)` | `void` | Writes the values separated by spaces, then a line ending |
 | `input(prompt: string = "")` | `string` | Writes the prompt and reads one line from standard input |
 | `str(value)` | `string` | Converts any value to text, the way `println` shows it |
-| `int(value)` | `int` | Converts an `int`, `float` or `string` to `int` |
-| `float(value)` | `float` | Converts an `int`, `float` or `string` to `float` |
+| `str(value: int, radix: int)` | `string` | Writes an `int` in a base from 2 to 36 |
+| `int(value)` | `int` | Converts an `int`, `float` or `string` to `int`; stops the program if the text isn't a number |
+| `float(value)` | `float` | Converts an `int`, `float` or `string` to `float`; stops the program if the text isn't a number |
+| `int.parse(text: string, radix: int = 10)` | `int?` | Parses text that may not be a whole number |
+| `float.parse(text: string)` | `float?` | Parses text that may not be a number |
 | `panic(message: string)` | never returns | Stops the program with the message |
 | `assert(condition: bool, message: string = "")` | `void` | Stops the program when the condition is false |
+| `expect(condition: bool, message: string = "")` | `void` | In tests, reports the condition as failed without stopping the test |
+| `hash(values...)` | `int` | Combines the hashes of its arguments |
 | `run(future)` | the future's value | Waits for a future from code that isn't async |
 | `all(futures)` | a future | Waits for every future in a list |
 | `any(futures)` | a future | Waits for the first future in a list to finish |
@@ -158,7 +163,52 @@ error: can't convert "12abc" to int
  --> toint.vx:2
 ```
 
-See [Runtime errors](/docs/tools/runtime-errors) for every message.
+See [Runtime errors](/docs/tools/runtime-errors) for every message. Text that comes from a user or a file may not be a number, so read it with `int.parse` or `float.parse` instead.
+
+### int.parse and float.parse
+
+`int.parse(text)` and `float.parse(text)` read text the way `int(...)` and `float(...)` do, but return an optional instead of stopping the program: `nil` when the text isn't a number or doesn't fit.
+
+```vex title="parse.vx"
+fn main() {
+    println(int.parse("42"), int.parse(" -7 "), int.parse("4.5"), int.parse(""), int.parse("1_000"))
+    println(int.parse("ff", radix: 16), int.parse("FF", radix: 16), int.parse("102", radix: 2), int.parse("-zz", radix: 36))
+    println(int.parse("9223372036854775807"), int.parse("9223372036854775808"))
+    println(float.parse("2.5"), float.parse(" -1e3 "), float.parse(".5"), float.parse("nan"), float.parse("1e400"))
+    let fields = ["3", "x", "4", ""]
+    println(fields.map(int.parse), int.parse(fields[1]) ?? 0)
+}
+```
+
+```text title="Output"
+42 -7 nil nil nil
+255 255 nil -1295
+9223372036854775807 nil
+2.5 -1000.0 0.5 nil nil
+[3, nil, 4, nil] 0
+```
+
+- Spaces, tabs and line endings around the number are ignored, and a leading `+` or `-` is allowed. Anything else, including `_` and a `0x` prefix, gives `nil`.
+- `radix:` reads other bases, from 2 to 36. Letters stand for the digits past 9, in either case. A radix outside 2 to 36 stops the program: `radix 40 is outside 2 to 36`.
+- `float.parse` takes decimal numbers with an optional fraction and exponent, and gives `nil` for `inf`, `nan`, hex and values too big for a `float`. It has no `radix:`.
+- The result is an [optional](/docs/language/optionals): give a default with `??`, or unwrap it with `if let` or `guard let`. `let n: int = int.parse(s)` is a compile error: `expected int, found int?`.
+- `int.parse` can be passed as a function, as in `fields.map(int.parse)`.
+
+`str(n, radix: r)` goes the other way, writing an `int` in base `r` with lowercase letters:
+
+```vex title="radix.vx"
+fn main() {
+    println(str(255, radix: 16), str(-10, radix: 2), str(8, radix: 8), str(int.max, radix: 36))
+    println(int.parse(str(-123456, radix: 7), radix: 7))
+}
+```
+
+```text title="Output"
+ff -1010 10 1y2p0ij32e8e7
+-123456
+```
+
+`radix:` works only with an `int`: `str(1.5, radix: 2)` is a compile error.
 
 ### panic and assert
 
@@ -189,6 +239,38 @@ error: assertion failed: average needs at least one number
 ```
 
 The error goes to standard error and the program exits with status 1. Because `panic` never returns, it can end a function that must return a value, or a `catch` block that must give one.
+
+### expect
+
+`expect(condition, message)` checks a condition in a test. When it is false, it reports the file, the line and the condition as written, the message if you gave one, and for a comparison such as `a == b` the values of both sides, then lets the test go on. It only works in programs built by `vex test`; anywhere else it is a compile error, `expect only works in tests`. See [Testing](/docs/tools/testing#expect).
+
+### hash
+
+`hash(a, b, ...)` takes one or more values and combines their hashes into an `int`. Equal values always give the same hash. Its use is writing `fn hash() -> int` for a struct that lists `Hashable` and defines its own `operator ==`, so that values `==` treats as equal hash the same (see [Equality](/docs/language/structs#equality)):
+
+```vex title="hash.vx"
+struct Email: Hashable {
+    address: string
+
+    operator ==(other: Email) -> bool => address.lower() == other.address.lower()
+    fn hash() -> int => hash(address.lower())
+}
+
+fn main() {
+    println(hash(1, "a") == hash(1, "a"), hash("a") == hash("b"), hash(2.5, true, (1, "x")) == hash(2.5, true, (1, "x")))
+    let seen = [Email(address: "Ann@x.com"): 1]
+    println(seen[Email(address: "ann@X.com")] ?? 0)
+}
+```
+
+```text title="Output"
+true false true
+1
+```
+
+- Each argument must be hashable: `int`, `float`, `bool`, `string`, enums whose cases carry no values, records of these, and structs and enums that list `Hashable`. Anything else is a compile error, such as `[int] can't be hashed` or `fn() can't be hashed`.
+- It takes no named arguments and no trailing block.
+- Inside a type whose own `hash` method takes parameters, `hash(x)` calls that method instead.
 
 ### run, all and any
 
@@ -237,6 +319,8 @@ slept
 | `T?` | Optional `T`: a value or `nil` |
 | `Error` | The built-in error struct, with one field, `message: string` |
 | `Future<T>`, `Future<T, E>` | A value that will be ready later, which can fail with `E` |
+| `Stream<T>` | Values of type `T` that arrive over time, read with `for await`; see [Streams](/docs/concurrency/async#streams) |
+| `StreamController<T>` | Makes a `Stream<T>` that other code fills with `add(value)` and ends with `close()`; see [StreamController](/docs/concurrency/async#streamcontroller) |
 | `Channel<T>` | A queue of `T` values shared between isolates |
 
 The [Built-in types](/docs/language/types) page covers the language rules for each one.
@@ -286,11 +370,11 @@ Three built-in constraints can bound a [generic](/docs/language/generics) type p
 
 | Constraint | Types that meet it |
 |---|---|
-| `Equatable` | `int`, `float`, `bool`, `string`, enums whose cases carry no values, and structs that define `operator ==` |
+| `Equatable` | `int`, `float`, `bool`, `string`, enums whose cases carry no values, structs that define `operator ==`, structs and enums that list `Equatable` or `Hashable`, and lists, maps, optionals and records of these |
 | `Comparable` | `int`, `float`, `string`, enums whose cases carry no values, and structs that define `operator <` and `operator ==` |
-| `Hashable` | `int`, `string`, `bool`, and enums whose cases carry no values |
+| `Hashable` | `int`, `string`, `bool`, enums whose cases carry no values, records of these, and structs and enums that list `Hashable` |
 
-`Equatable` is what `==` and list `contains` need, `Comparable` is what `<` needs, and `Hashable` is what a map key needs.
+`Equatable` is what `==` and list `contains` and `indexOf` need, `Comparable` is what `<`, `sort()`, `min()` and `max()` need, and `Hashable` is what a map key needs. A struct or enum lists `Equatable` or `Hashable` after a `:` to get an `==` that compares every field, as in `struct Point: Hashable { ... }`.
 
 ## String members
 
@@ -391,48 +475,72 @@ Lists are shared references: `let b = a` makes `b` another name for the same lis
 | Member | Result | Description |
 |---|---|---|
 | `len` | `int` | The number of items. A property, written without `()` |
+| `isEmpty` | `bool` | Whether the list has no items. A property |
+| `first`, `last` | `T?` | The first and last item, or `nil` for an empty list. Properties |
 | `push(item: T)` | `void` | Adds the item at the end |
 | `pop()` | `T` | Removes and returns the last item; stops the program if the list is empty |
+| `insert(item: T, at: int)` | `void` | Puts the item at index `at`, which may be `len` |
+| `remove(at: int)` | `T` | Removes and returns the item at index `at` |
+| `removeWhere(test: fn(T) -> bool)` | `void` | Removes every item `test` returns true for |
+| `clear()` | `void` | Removes every item |
+| `sort(by: fn(T, T) -> bool)` | `void` | Sorts in place; `by` says whether `a` goes before `b`, and may be left out for `Comparable` items |
+| `sorted(by: fn(T, T) -> bool)` | `[T]` | A sorted copy; `by` as for `sort` |
+| `reversed()` | `[T]` | A copy in reverse order |
 | `contains(item: T)` | `bool` | Whether an item is `==` to `item`; needs an `Equatable` element type |
+| `indexOf(item: T)` | `int?` | The index of the first item `==` to `item`, or `nil` |
+| `find(test: fn(T) -> bool)` | `T?` | The first item `test` returns true for, or `nil` |
+| `any(test: fn(T) -> bool)` | `bool` | Whether `test` returns true for any item |
+| `all(test: fn(T) -> bool)` | `bool` | Whether `test` returns true for every item; true for an empty list |
 | `filter(keep: fn(T) -> bool)` | `[T]` | A new list of the items `keep` returns true for |
 | `map(f: fn(T) -> R)` | `[R]` | A new list of what `f` returns for each item |
+| `flatMap(f: fn(T) -> [R])` | `[R]` | The lists `f` returns, joined |
+| `reduce(initial: R, f: fn(R, T) -> R)` | `R` | Combines the items, starting from `initial` |
+| `min()`, `max()` | `T?` | The smallest and largest item, or `nil`; needs `Comparable` items |
+| `sum()` | `T` | The total of an `[int]` or `[float]` |
+| `join(separator: string = "")` | `string` | Each item as `str` shows it, with the separator between |
+| `slice(from: int, to: int)` | `[T]` | A new list of the items from `from` up to, not including, `to` |
 | `copy()` | `[T]` | A new list with the same items |
 
-Indexing with `xs[i]` reads and `xs[i] = v` writes. An index below 0 or at or past `len` stops the program.
+Indexing with `xs[i]` reads and `xs[i] = v` writes. An index below 0 or at or past `len` stops the program, and so does one passed to `insert`, `remove` or `slice`.
 
 ```vex title="lists.vx"
 fn main() {
     var nums = [3, 1, 4]
     nums.push(1)
-    println(nums, nums.len)
+    nums.insert(9, at: 0)
+    println(nums, nums.len, nums.first, nums.last)
     let last = nums.pop()
-    println(last, nums)
-    println(nums.contains(4), nums.contains(9))
-    println([1, 2, 3, 4, 5, 6].filter(fn(n) => n % 2 == 0))
-    println(nums.map(fn(n) => "#{n}"))
+    println(last, nums.remove(at: 0), nums)
+    println(nums.contains(4), nums.indexOf(4), nums.find(fn(n) => n > 3))
+    println(nums.sorted(), nums.sorted(by: fn(a, b) => a > b), nums.reversed())
+    println(nums.filter(fn(n) => n > 1), nums.map(fn(n) => "#{n}"))
+    println(nums.sum(), nums.max(), nums.reduce(1, fn(p, n) => p * n), nums.join("-"))
 
     let copy = nums.copy()
     copy.push(99)
     let alias = nums
-    alias.push(7)
+    alias.sort()
     println(nums, copy)
 }
 ```
 
 ```text title="Output"
-[3, 1, 4, 1] 4
-1 [3, 1, 4]
-true false
-[2, 4, 6]
-["#3", "#1", "#4"]
-[3, 1, 4, 7] [3, 1, 4, 99]
+[9, 3, 1, 4, 1] 5 9 1
+1 9 [3, 1, 4]
+true 2 4
+[1, 3, 4] [4, 3, 1] [4, 1, 3]
+[3, 4] ["#3", "#1", "#4"]
+8 4 12 3-1-4
+[1, 3, 4] [3, 1, 4, 99]
 ```
 
-- `copy()` is shallow: a list of structs copies the references, not the structs.
-- `map` needs a function that returns a value. It can't be torn off as a function value yet (`'map' can't be used as a value`); the other members can, as in `let add = nums.push`.
+- `copy()`, `sorted()`, `reversed()` and `slice()` are shallow: a list of structs copies the references, not the structs.
+- Sorting is stable: items the order treats as equal keep their order.
+- Changing a list from inside the function passed to `sort(by:)` or `removeWhere` stops the program: `the list changed while it was being sorted`.
+- `map`, `flatMap` and `reduce` can't be torn off as function values yet (`'map' can't be used as a value`); the other members can, as in `let add = nums.push`.
 - A list from a `const` can't be changed. Changing it through another name stops the program: `can't change a constant list; change a copy made with .copy()`.
 
-More on lists, including collection `if`, `for` and spread, is on [Lists](/docs/language/lists).
+More on lists, with an example of each group of members, is on [Lists](/docs/language/lists#list-members).
 
 ## Map members
 
@@ -473,9 +581,49 @@ true false
 
 Maps have no `get`, `has`, `set` or `delete`. Using one of those names gives a hint toward the Vex way, such as `use .contains(key)` or `read a key with m[key], which gives nil when it is missing`. See [Maps](/docs/language/maps) for keys, iteration and the rules for optional values.
 
-## int and float
+## Number members
 
-`int` and `float` have no built-in members. Math functions live in [vex:math](/docs/stdlib/math), conversion is `int(...)`, `float(...)` and `str(...)`, and you can add members yourself:
+`int` and `float` have a few members of their own: constants read on the type, and checks and formatting on a `float` value. Math functions live in [vex:math](/docs/stdlib/math), and parsing is [`int.parse` and `float.parse`](#intparse-and-floatparse).
+
+| Member | Result | Description |
+|---|---|---|
+| `int.max`, `int.min` | `int` | The largest and smallest `int`: 9223372036854775807 and -9223372036854775808 |
+| `float.infinity` | `float` | Positive infinity; `-float.infinity` is negative infinity |
+| `float.nan` | `float` | Not a number |
+| `x.isNaN` | `bool` | Whether the float is NaN. A property |
+| `x.isFinite` | `bool` | Whether the float is neither infinite nor NaN. A property |
+| `x.toFixed(digits: int)` | `string` | The float as text with exactly `digits` digits after the point |
+
+```vex title="numbers.vx"
+const HALF = int.max / 2
+
+fn main() {
+    println(int.max, int.min, HALF)
+    println(float.infinity, -float.infinity, float.nan)
+    let ratio = 0.0 / 0.0
+    println(ratio.isNaN, ratio.isFinite, (1.0 / 0.0).isFinite, 2.5.isFinite)
+    println(3.14159.toFixed(2), 2.5.toFixed(0), (-2.5).toFixed(0), 1.0.toFixed(3))
+    println(0.125.toFixed(2), 9.995.toFixed(2), float.nan.toFixed(1))
+    let price = 19.5
+    println("total: {(price * 3).toFixed(2)}")
+}
+```
+
+```text title="Output"
+9223372036854775807 -9223372036854775808 4611686018427387903
+inf -inf nan
+true false false true
+3.14 3 -3 1.000
+0.13 9.99 nan
+total: 58.50
+```
+
+- `int.max`, `int.min`, `float.infinity` and `float.nan` are constants, so a [`const`](/docs/language/constants) can use them. They can't be changed (`int.max can't be changed`) and are read without `()`.
+- `isNaN` is the way to test for NaN, since `x == x` is false for it.
+- `toFixed` takes 0 to 20 digits; anything else stops the program: `toFixed(21): the digits must be 0 to 20`. A value exactly halfway rounds away from zero, so `2.5.toFixed(0)` is `"3"` and `0.125.toFixed(2)` is `"0.13"`. Most decimal fractions aren't exact in binary: `9.995` is stored as slightly less, so it gives `"9.99"`. Infinities and NaN give `"inf"`, `"-inf"` and `"nan"`.
+- `toFixed` is a `float` member only: `2.toFixed(1)` is a compile error, `int has no method 'toFixed'`. Write `float(n).toFixed(1)`.
+
+You can add members of your own with an [extension](/docs/language/extensions):
 
 ```vex title="extend.vx"
 extension int {

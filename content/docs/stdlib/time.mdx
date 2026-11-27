@@ -1,9 +1,9 @@
 ---
 title: vex:time
-description: API reference for vex:time, which reads the monotonic and wall clocks and gives futures that complete after a delay.
+description: API reference for vex:time, which reads the monotonic and wall clocks, gives futures that complete after a delay, and puts a time limit on a future.
 ---
 
-`vex:time` reads the clock. It has three functions: `nanos` for measuring how long code takes, `unix` for the current date and time as a number, and `sleep` for waiting inside async code.
+`vex:time` reads the clock. It has four functions: `nanos` for measuring how long code takes, `unix` for the current date and time as a number, `sleep` for waiting inside async code, and `timeout` for giving up on a future that takes too long.
 
 ```vex title="timing.vx"
 import "vex:time"
@@ -35,6 +35,7 @@ fn main() {
 | [`nanos()`](#nanos) | Nanoseconds from a fixed point, for measuring intervals |
 | [`unix()`](#unix) | Seconds since 1970-01-01 UTC |
 | [`sleep(ms)`](#sleep) | A `Future<void>` that completes after `ms` milliseconds |
+| [`timeout(future, ms)`](#timeout) | The future's value as an optional, `nil` if `ms` milliseconds pass first |
 
 There are no date, calendar, time zone or formatting functions yet.
 
@@ -137,7 +138,7 @@ slow done
 true
 ```
 
-Calling `time.sleep` starts the timer at once, even before you await it. A pending timer keeps the program alive: the program ends only when `main` is done and no tasks or timers are left.
+Calling `time.sleep` starts the timer at once, even before you await it. A task waiting for a timer keeps the program alive: the program ends only when `main` is done and no tasks are left running. A timer that nothing awaits doesn't keep it alive.
 
 To wait in code that isn't async, pass the future to `run`, which runs the event loop until it completes:
 
@@ -164,6 +165,60 @@ error: await is only allowed in async functions
 4 |     await time.sleep(10)
   |     ^^^^^^^^^^^^^^^^^^^^ make main async: async fn main()
 ```
+
+## timeout
+
+```vex
+timeout(future: Future<T>, ms: int) -> Future<T?>
+```
+
+Waits at most `ms` milliseconds for `future`. It is built into the compiler rather than written in `time.vx`, since it works for a future of any type.
+
+- **Parameters:** `future`, the future to wait for, such as the result of an async call without `await`; `ms`, the time limit in milliseconds.
+- **Returns:** A future of the value as an optional: the value when `future` finishes in time, otherwise `nil`. For a `Future<void>` it gives a `Future<bool>`, which tells whether the future finished.
+- **Errors:** The errors of `future`, if it can fail. A `Future<T, E>` gives a `Future<T?, E>`, so the `await` needs `try`, `try?` or `try ... catch`.
+
+When the time runs out, the late task is cancelled: it stops at its next `await`, and the code after it never runs.
+
+```vex title="timeout.vx"
+import "vex:time"
+
+async fn fetch(name: string, ms: int) -> string {
+    await time.sleep(ms)
+    println("{name} finished")
+    return name
+}
+
+async fn main() {
+    let quick = await time.timeout(fetch("quick", 10), 200)
+    println(quick)
+    let slow = await time.timeout(fetch("slow", 500), 50) ?? "offline"
+    println(slow)
+    let done = await time.timeout(time.sleep(10), 100)
+    println(done)
+}
+```
+
+```text title="Output"
+quick finished
+quick
+offline
+true
+```
+
+`slow finished` is never printed: the timeout cancelled `fetch("slow", 500)` while it slept.
+
+A future whose value is already optional can't be timed out, since `nil` would mean both a timeout and a missing value:
+
+```text
+error: time.timeout gives nil when the time runs out, so the future's value can't be optional itself
+ --> timeout.vx:4:32
+  |
+4 |     let x = await time.timeout(maybe(), 10)
+  |                                ^^^^^^^ wrap the value, e.g. in a record, to tell nil from a timeout
+```
+
+See [Timeouts](/docs/concurrency/async#timeouts) for more examples, and [Cancellation](/docs/concurrency/async#cancellation) for cancelling futures yourself with `cancel()`.
 
 ## See also
 
