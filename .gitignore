@@ -28,3 +28,6 @@ next-env.d.ts
 benchmarks/*/build/
 # run service builds
 run-service/dist/
+
+# firebase
+.firebase/
