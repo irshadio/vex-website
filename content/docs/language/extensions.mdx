@@ -1,9 +1,9 @@
 ---
 title: Extensions
-description: Adding methods, getters, setters, static members and operators to existing types, including int, float, bool, string, lists and maps, and how extensions are scoped across modules.
+description: Adding methods, getters, setters, static members and operators to existing types, including int, float, bool, string, lists, maps and interfaces, and how extensions are scoped across modules.
 ---
 
-An extension adds members to a type that already exists. You can extend your own structs and enums, types from other modules, and the built-in types `int`, `float`, `bool`, `string`, lists and maps. Calls to the new members look exactly like calls to the type's own.
+An extension adds members to a type that already exists. You can extend your own structs, enums and interfaces, types from other modules, and the built-in types `int`, `float`, `bool`, `string`, lists and maps. Calls to the new members look exactly like calls to the type's own.
 
 ```vex title="shout.vx"
 extension string {
@@ -39,6 +39,7 @@ What an extension can add depends on the type:
 | Enums | yes | yes | no | yes | no |
 | `int`, `float`, `bool`, `string` | yes | yes | no | no | no |
 | Lists and maps | yes | yes | no | no | no |
+| Interfaces | yes | no | no | no | no |
 
 Methods can have default parameters, throw, be `async` and be generic, like any method.
 
@@ -88,6 +89,8 @@ fn main() {
 Counter(count: 5)
 Counter(count: 0) Direction.down
 ```
+
+An extension can also add a [`toString`](/docs/language/structs#tostring) method to a struct or enum, which printing and interpolation then use.
 
 ### Extensions can't add fields
 
@@ -351,19 +354,191 @@ ann, bo ann/bo
 x, y
 ```
 
-## What can't be extended
+## Extending interfaces
 
-Interfaces, optionals, records and function types can't be extended:
+An extension of an interface adds methods to every type that implements it. The methods can use the interface's members, and they work on interface values, in generic code constrained by the interface, and on the implementing types themselves. An extension of an interface also reaches the interfaces that extend it:
 
-```vex title="cant_extend.vx"
+```vex title="iface_ext.vx"
+interface Shape {
+    fn area() -> float
+    fn name() -> string => "shape"
+}
+
+interface Solid: Shape {
+    fn depth() -> float
+}
+
+extension Shape {
+    fn isBig() -> bool => area() > 100.0
+    fn report() -> string => "{name()}: {area()}, big: {isBig()}"
+}
+
+extension Solid {
+    fn volume() -> float => area() * depth()
+}
+
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.0 * radius * radius
+    fn name() -> string => "circle"
+}
+
+struct Cube: Solid {
+    side: float
+    fn area() -> float => side * side
+    fn depth() -> float => side
+}
+
+enum Tile: Shape {
+    small, large
+
+    fn area() -> float => match self {
+        small => 1.0
+        large => 400.0
+    }
+}
+
+fn bigOnes<T: Shape>(xs: [T]) -> [T] => xs.filter { it.isBig() }
+
+fn main() {
+    let shapes: [Shape] = [Circle(radius: 1), Cube(side: 20), Tile.large]
+    for s in shapes {
+        println(s.report())
+    }
+    println(Circle(radius: 9).isBig(), Cube(side: 3).volume())
+    println(bigOnes([Circle(radius: 1), Circle(radius: 9)]))
+}
+```
+
+```text title="Output"
+circle: 3.0, big: false
+shape: 400.0, big: true
+shape: 400.0, big: true
+true 27.0
+[Circle(radius: 9.0)]
+```
+
+### Added methods can't be replaced
+
+An interface's [default methods](/docs/language/interfaces#default-methods) are a starting point that each type may replace. A method added by an extension is the same for every type: a type that implements the interface can't declare a method with that name, and the extension can't reuse the name of a requirement. An extension of an interface adds methods only: no getters, setters, static members, constants or operators.
+
+```vex title="iface_ext_errors.vx"
 interface Shape {
     fn area() -> float
 }
 
 extension Shape {
-    fn twice() -> float => 2.0
+    fn area() -> float => 1.0
+    fn big() -> bool => area() > 9.0
+    get size -> int => 1
+    static fn unit() -> int => 1
+    static const k = 1
 }
 
+extension Shape {
+    fn big() -> bool => false
+}
+
+struct Square: Shape {
+    fn area() -> float => 4.0
+    fn big() -> bool => true
+}
+
+fn main() {}
+```
+
+```text title="Output"
+error: 'area' is already required by Shape
+ --> iface_ext_errors.vx:6:8
+  |
+6 |     fn area() -> float => 1.0
+  |        ^^^^ give it another name
+
+error: an extension of an interface can only add methods
+ --> iface_ext_errors.vx:8:9
+  |
+8 |     get size -> int => 1
+  |         ^^^^ write a method instead: fn size() -> ...
+
+error: an extension of an interface can't add static methods
+ --> iface_ext_errors.vx:9:15
+  |
+9 |     static fn unit() -> int => 1
+  |               ^^^^ move it to the top level
+
+error: an extension of an interface can't add constants
+  --> iface_ext_errors.vx:10:18
+   |
+10 |     static const k = 1
+   |                  ^ move it to the top level
+
+error: 'big' is already added to Shape on line 7
+  --> iface_ext_errors.vx:14:8
+   |
+14 |     fn big() -> bool => false
+   |        ^^^ give it another name
+
+error: 'big' is already added to every Shape by an extension
+  --> iface_ext_errors.vx:19:8
+   |
+19 |     fn big() -> bool => true
+   |        ^^^ give it another name
+
+6 errors
+```
+
+<Callout type="warn" title="Not yet">
+Extensions of generic interfaces aren't supported: `extension Store<int> { ... }` gives `extensions of generic interfaces aren't supported yet`, and `extension Store { ... }` gives `Store is generic, so it needs type arguments`. Give the interface a default method instead. Methods added to an interface can't be torn off as function values yet; call them in a closure.
+</Callout>
+
+### Interface extensions across modules
+
+The [module rules](#extensions-and-modules) apply as for other extensions: in other modules, an added method needs `pub` (or the whole extension `pub extension`), and the file using it must import the extension's module. The interface itself needs `pub` to be implemented elsewhere:
+
+<Files>
+  <File name="package.toml" />
+  <File name="main.vx" />
+  <Folder name="shapes" defaultOpen>
+    <File name="shapes.vx" />
+  </Folder>
+</Files>
+
+```vex title="shapes/shapes.vx"
+pub interface Shape {
+    fn area() -> float
+}
+
+extension Shape {
+    pub fn isBig() -> bool => area() > 100.0
+    fn half() -> float => area() / 2.0       // private to shapes
+}
+```
+
+```vex
+import "shapes"
+
+struct Square: shapes.Shape {
+    side: float
+    fn area() -> float => side * side
+}
+
+fn main() {
+    let s: shapes.Shape = Square(side: 20)
+    println(s.isBig(), Square(side: 2).isBig())
+}
+```
+
+```text title="Output"
+true false
+```
+
+Calling `s.half()` from `main.vx` gives `method 'half' of the extension is private to shapes`, with the hint `mark it pub in shapes to use it from other modules`.
+
+## What can't be extended
+
+Optionals, records and function types can't be extended:
+
+```vex title="cant_extend.vx"
 extension int? {
     fn f() {}
 }
@@ -376,25 +551,19 @@ fn main() {}
 ```
 
 ```text title="Output"
-error: Shape can't be extended
- --> cant_extend.vx:5:11
-  |
-5 | extension Shape {
-  |           ^^^^^ give the interface a default method instead
-
 error: int? can't be extended
- --> cant_extend.vx:9:11
+ --> cant_extend.vx:1:11
   |
-9 | extension int? {
-  |           ^^^^ extend a struct, an enum, int, float, bool, string, a list or a map
+1 | extension int? {
+  |           ^^^^ extend a struct, an enum, an interface, int, float, bool, string, a list or a map
 
 error: fn() can't be extended
-  --> cant_extend.vx:13:11
-   |
-13 | extension fn() {
-   |           ^^^^ extend a struct, an enum, int, float, bool, string, a list or a map
+ --> cant_extend.vx:5:11
+  |
+5 | extension fn() {
+  |           ^^^^ extend a struct, an enum, an interface, int, float, bool, string, a list or a map
 
-3 errors
+2 errors
 ```
 
 To add behavior to an optional, unwrap it first; extension members of the inner type work through `?.`, as in `maybe?.shout()`.
@@ -504,8 +673,9 @@ Extension methods can be torn off like built-in ones: with `let xs = [1, 2, 3]`,
 
 ## Rules and edge cases
 
-- Extensions add methods and getters to every extendable type, and setters, static members and operators to structs (enums get static members but not setters or operators).
-- Extendable: structs, enums, `int`, `float`, `bool`, `string`, lists, maps, and type aliases of those. Not extendable: interfaces, optionals, records, function types.
+- Extensions add methods and getters to structs, enums and built-in types, and setters, static members and operators to structs (enums get static members but not setters or operators). Extensions of interfaces add methods only.
+- Extendable: structs, enums, interfaces (not generic ones yet), `int`, `float`, `bool`, `string`, lists, maps, and type aliases of those. Not extendable: optionals, records, function types.
+- A method added to an interface reaches every type that implements it, and every interface that extends it. It can't share a name with a requirement, and implementing types can't replace it.
 - No fields. No replacing or shadowing existing members.
 - A generic struct or enum is extended by its bare name; its type parameters are in scope.
 - List and map extensions are for one element type or for all, with `extension<T: C> [T]`. The specific one wins over the generic one; two matching generic ones are ambiguous.

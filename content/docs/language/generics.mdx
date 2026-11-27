@@ -1,6 +1,6 @@
 ---
 title: Generics
-description: Generic functions, structs, enums, methods and interfaces, type inference and explicit type arguments, constraints (Equatable, Comparable, Hashable, interfaces), and how generic code is specialized.
+description: Generic functions, structs, enums, methods and interfaces, type inference and explicit type arguments, constraints (Equatable, Comparable, Hashable, interfaces), static requirements called through type parameters, and how generic code is specialized.
 ---
 
 Generic code works with many types while staying fully type checked. You write a function or type once with type parameters in `< >`, and the compiler fills them in at each use. Each combination of types is compiled to its own specialized copy, so generic code runs as fast as code written for one type.
@@ -190,6 +190,7 @@ Pair<string, int>(first: "ann", second: 31) Pair<int, string>(first: 31, second:
 - `Stack()` with nothing to infer from is reported as `can't tell the type of T in this call to Stack`, with the hint `write it: Stack<int>(...)`.
 - A generic struct prints with its type arguments: `Pair<string, int>(...)`.
 - A generic struct can't have `static const` members: `a generic struct can't have constants`.
+- Every field of a generic struct needs a written type, even one with a default: `label = "box"` gives `fields of a generic struct need a type`. Write `label: string = "box"`.
 
 <Callout type="warn" title="Not yet">
 Static methods of generic structs can be declared but not called: `Box<int>.make()` and `Box.make()` both fail with `'Box' is a type, not a value`. Write a top-level generic function instead, such as `fn makeBox<T>(v: T) -> Box<T>`. Static methods of generic enums, and static generic methods of ordinary structs, work.
@@ -299,7 +300,7 @@ Box<string>(item: "#2") (1, "one")
 ["ab", "ab", "ab"]
 ```
 
-Generic enums can have generic methods too: `fn map<U>(f: fn(T) -> U) -> Result<U>`.
+Generic enums can have generic methods too: `fn map<U>(f: fn(T) -> U) -> Result<U>`. So can interface requirements, as in `fn apply<U>(f: fn(int) -> U) -> [U]`; see [Generic requirements](/docs/language/interfaces#generic-requirements).
 
 ## Generic functions as values
 
@@ -485,6 +486,54 @@ Circle(radius: 2.0)
 
 An interface constraint is met by the structs and enums that declare the interface, and by the interface type itself. A type that has the right methods but doesn't list the interface doesn't count; the error suggests the declaration to add.
 
+### Static requirements through a type parameter
+
+When the constraint's interface has a [static requirement](/docs/language/interfaces#static-requirements-and-self), generic code calls it on the type parameter itself, and each specialized copy calls its own type's version:
+
+```vex title="zero.vx"
+interface Zero {
+    static fn zero() -> Self
+    fn plus(other: Self) -> Self
+}
+
+struct Money: Zero {
+    cents: int
+
+    static fn zero() -> Self => Money(cents: 0)
+    fn plus(other: Self) -> Self => Money(cents: cents + other.cents)
+}
+
+struct Meters: Zero {
+    value: float
+
+    static fn zero() -> Self => Meters(value: 0)
+    fn plus(other: Self) -> Self => Meters(value: value + other.value)
+}
+
+fn sum<T: Zero>(xs: [T]) -> T {
+    var total = T.zero()
+    for x in xs {
+        total = total.plus(other: x)
+    }
+    return total
+}
+
+fn main() {
+    println(sum([Money(cents: 250), Money(cents: 100)]))
+    println(sum([Meters(value: 1.5), Meters(value: 2)]))
+    let none: [Money] = []
+    println(sum(none))
+}
+```
+
+```text title="Output"
+Money(cents: 350)
+Meters(value: 3.5)
+Money(cents: 0)
+```
+
+Interfaces with static requirements, generic methods or `Self` in a requirement can only be used this way, as constraints. A static member the constraint doesn't require is an error: `T has no static requirement 'missing'`.
+
 ### Several constraints
 
 Join constraints with `&`. Constraints work on struct, enum and interface type parameters too:
@@ -608,7 +657,8 @@ Types nested without end, such as a `Node<T>` field holding `Node<[T]>`, would n
 - Constraints: `Equatable`, `Comparable`, `Hashable`, any interface, or several joined with `&`.
 - A constraint is checked at each use: `biggest needs T to be Comparable, but P isn't`.
 - Generic structs and enums can't have constants. Static methods of generic structs can't be called yet.
-- Interface methods can't have their own type parameters yet.
+- Interface methods can have their own type parameters, and interfaces can require static methods, which generic code calls as `T.name(...)`.
+- Fields of generic structs always need a written type.
 - Async and generic methods can't be torn off as values yet; wrap them in a closure.
 - `extern fn` and `export fn` can't be generic.
 - Each set of type arguments compiles to its own copy.
