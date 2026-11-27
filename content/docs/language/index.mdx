@@ -41,10 +41,10 @@ These 33 words are reserved and can't be used as names:
 | `as` | Rename an import; give an `extern` declaration its C name; `as?` casts an interface value | [Modules](/docs/projects/modules), [C interop](/docs/projects/c-interop), [Types](/docs/language/types#type-tests) |
 | `async` | Declare a function that can `await` | [Async](/docs/concurrency/async) |
 | `await` | Wait for a future without blocking | [Async](/docs/concurrency/async) |
-| `break` | Leave the innermost loop | [Control flow](/docs/language/control-flow) |
+| `break` | Leave the innermost loop, or a named one | [Control flow](/docs/language/control-flow#break-and-continue) |
 | `catch` | Handle an error from `try` | [Errors](/docs/language/errors) |
 | `const` | Declare a compile-time constant | [Constants](/docs/language/constants) |
-| `continue` | Skip to the next loop iteration | [Control flow](/docs/language/control-flow) |
+| `continue` | Skip to the next iteration of the innermost loop, or of a named one | [Control flow](/docs/language/control-flow#break-and-continue) |
 | `else` | Alternative branch of `if` and `guard` | [Control flow](/docs/language/control-flow) |
 | `enum` | Declare an enum | [Enums](/docs/language/enums) |
 | `extern` | Declare a C function or C pointer type | [C interop](/docs/projects/c-interop) |
@@ -54,15 +54,15 @@ These 33 words are reserved and can't be used as names:
 | `guard` | Unwrap an optional or leave: `guard let` | [Control flow](/docs/language/control-flow) |
 | `if` | Conditional, also as a value; `if let`, `if case`; collection elements | [Control flow](/docs/language/control-flow) |
 | `import` | Use another module | [Modules](/docs/projects/modules) |
-| `in` | Separate loop variables from the sequence in `for` | [Control flow](/docs/language/control-flow) |
+| `in` | Separate loop variables from the sequence in `for`; end the parameters of a trailing block: `{ a, b in ... }` | [Control flow](/docs/language/control-flow), [Closures](/docs/language/closures#blocks-with-parameters) |
 | `interface` | Declare an interface | [Interfaces](/docs/language/interfaces) |
 | `is` | Test which type an interface value holds | [Types](/docs/language/types#type-tests) |
-| `let` | Declare a name that can't be reassigned, in a function or at the top level | [Basics](/docs/language/basics) |
+| `let` | Declare a name that can't be reassigned, in a function or at the top level; a struct field that never changes after creation | [Basics](/docs/language/basics), [Structs](/docs/language/structs#let-fields) |
 | `match` | Choose by pattern | [Patterns](/docs/language/patterns) |
 | `nil` | The absent value of an optional | [Optionals](/docs/language/optionals) |
 | `pub` | Make a declaration visible to other modules | [Modules](/docs/projects/modules) |
 | `return` | Leave a function, with or without a value | [Functions](/docs/language/functions) |
-| `static` | A member that belongs to the type: `static fn`, `static const`, `static var` | [Structs](/docs/language/structs) |
+| `static` | A member that belongs to the type: `static fn`, `static const`, `static var`; a static requirement of an interface | [Structs](/docs/language/structs), [Interfaces](/docs/language/interfaces#static-requirements-and-self) |
 | `struct` | Declare a struct | [Structs](/docs/language/structs) |
 | `throw` | Raise an error | [Errors](/docs/language/errors) |
 | `throws` | Mark a function that can fail | [Errors](/docs/language/errors) |
@@ -70,7 +70,7 @@ These 33 words are reserved and can't be used as names:
 | `try` | Call a function that can fail; `try?` | [Errors](/docs/language/errors) |
 | `typedef` | Declare a type alias | [Types](/docs/language/types#type-aliases) |
 | `var` | Declare a name that can be reassigned, in a function or at the top level | [Basics](/docs/language/basics) |
-| `while` | Loop while a condition holds; `while let` | [Control flow](/docs/language/control-flow) |
+| `while` | Loop while a condition holds; `while let`; the end of `repeat { } while` | [Control flow](/docs/language/control-flow) |
 
 ### Contextual words
 
@@ -84,11 +84,17 @@ These words have a special meaning only in certain places, and are ordinary name
 | `didSet` | A block after a field that runs after each assignment | [Structs](/docs/language/structs) |
 | `oldValue` | The previous value inside `didSet` | [Structs](/docs/language/structs) |
 | `operator` | Define an operator in a struct | [Structs](/docs/language/structs) |
-| `extension` | Add members to an existing type, at the top level | [Extensions](/docs/language/extensions) |
+| `extension` | Add members to an existing type or interface, at the top level | [Extensions](/docs/language/extensions) |
 | `export` | `export fn`: a function callable from C | [C interop](/docs/projects/c-interop) |
 | `type` | `extern type`: a C pointer type | [C interop](/docs/projects/c-interop) |
 | `new` | `Type.new`: a constructor as a function value | [Closures](/docs/language/closures#tear-offs) |
 | `self` | The current value inside a method; can't be declared as a name | [Structs](/docs/language/structs) |
+| `Self` | The type that implements an interface, in its requirements; a struct's or enum's own type, in its methods | [Interfaces](/docs/language/interfaces#static-requirements-and-self) |
+| `init` | `init { ... }`: a block in a struct that runs at each creation | [Structs](/docs/language/structs#init-blocks) |
+| `private` | `private(set)`: a field only the struct can assign | [Structs](/docs/language/structs#privateset-fields) |
+| `it` | The unnamed parameter of a trailing block that takes one | [Closures](/docs/language/closures#blocks-with-parameters) |
+| `repeat` | `repeat { ... } while condition`: a loop that runs at least once | [Control flow](/docs/language/control-flow#repeat-while) |
+| `defer` | `defer { ... }`: a block that runs when the block around it ends | [Control flow](/docs/language/control-flow#defer) |
 | `_` | Skips a value in patterns and loops | [Patterns](/docs/language/patterns) |
 
 The built-in type names (`int`, `float`, `bool`, `string`), the built-in functions (`print`, `println`, `input`, `panic`, `assert`, `str`, `int`, `float`) and `Error` aren't keywords, but they can't be used as names of your own either. See [Basics](/docs/language/basics#reserved-names).
@@ -102,14 +108,14 @@ The built-in type names (`int`, `float`, `bool`, `string`), the built-in functio
   <Card title="Types" href="/docs/language/types" description="int, float, bool, string, collections, optionals, function types, conversions, type aliases and type tests." />
   <Card title="Strings" href="/docs/language/strings" description="Literals, escapes, interpolation, multi-line and raw strings, Unicode and string methods." />
   <Card title="Operators" href="/docs/language/operators" description="Arithmetic, overflow, comparison and identity, logic, assignment, ranges, ?? and the precedence table." />
-  <Card title="Control flow" href="/docs/language/control-flow" description="if, if as a value, for, while, break and continue, guard let, and a first look at match." />
+  <Card title="Control flow" href="/docs/language/control-flow" description="if, if as a value, for, while, repeat-while, break and continue with named loops, guard, defer, and a first look at match." />
 </Cards>
 
 ### Functions
 
 <Cards>
-  <Card title="Functions" href="/docs/language/functions" description="Parameters, results, => bodies, named and default arguments, recursion and static functions." />
-  <Card title="Closures" href="/docs/language/closures" description="Function values, capture, higher-order functions, tear-offs, trailing and builder blocks." />
+  <Card title="Functions" href="/docs/language/functions" description="Parameters, results, => bodies, named and default arguments, recursion, local functions and static functions." />
+  <Card title="Closures" href="/docs/language/closures" description="Function values, capture, higher-order functions, tear-offs, trailing blocks with parameters and builder blocks." />
   <Card title="Constants" href="/docs/language/constants" description="const, compile-time evaluation, frozen lists and maps, static constants." />
 </Cards>
 
@@ -124,8 +130,8 @@ The built-in type names (`int`, `float`, `bool`, `string`), the built-in functio
 ### Types you define
 
 <Cards>
-  <Card title="Structs" href="/docs/language/structs" description="Fields, defaults, methods, static variables, equality and hashing, properties, operators and reference semantics." />
-  <Card title="Enums" href="/docs/language/enums" description="Cases with values, methods, the .case shorthand and match." />
+  <Card title="Structs" href="/docs/language/structs" description="Fields, let fields, defaults, init blocks, copy, private(set), methods, toString, equality and hashing, properties, operators and reference semantics." />
+  <Card title="Enums" href="/docs/language/enums" description="Cases with values, methods, toString, the .case shorthand and match." />
   <Card title="Patterns" href="/docs/language/patterns" description="Matching and taking apart values in match, if case, let and for, type patterns included." />
   <Card title="Optionals" href="/docs/language/optionals" description="T?, nil, if let, guard let, while let, ?. and ??." />
   <Card title="Errors" href="/docs/language/errors" description="throws, throw, try, catch, try?, typed errors and panics." />
@@ -135,8 +141,8 @@ The built-in type names (`int`, `float`, `bool`, `string`), the built-in functio
 
 <Cards>
   <Card title="Generics" href="/docs/language/generics" description="Generic functions, structs, enums and methods, constraints and specialization." />
-  <Card title="Interfaces" href="/docs/language/interfaces" description="Required methods and properties, defaults, conformance and interfaces as types." />
-  <Card title="Extensions" href="/docs/language/extensions" description="Adding methods, getters and static members to existing types, built-in ones included." />
+  <Card title="Interfaces" href="/docs/language/interfaces" description="Required methods and properties, static requirements and Self, defaults, conformance and interfaces as types." />
+  <Card title="Extensions" href="/docs/language/extensions" description="Adding methods, getters and static members to existing types and interfaces, built-in ones included." />
   <Card title="Memory" href="/docs/language/memory" description="Values and references, the garbage collector, and cycles." />
 </Cards>
 
