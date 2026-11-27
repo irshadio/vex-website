@@ -17,12 +17,6 @@ export interface CheckResult {
   messages: string;
 }
 
-/// The result of running a program on the run service: its terminal session and exit status.
-export interface RunResult {
-  session: SessionEvent[];
-  exitCode: number;
-}
-
 interface Compiler {
   version: string;
   check(src: string): CheckResult;
@@ -65,15 +59,47 @@ export function loadCompiler(): Promise<Compiler> {
   return loading;
 }
 
-/// Runs [source] on the run service, which types each of [input]'s lines once the program waits for it.
-export async function runRemote(source: string, input: string[]): Promise<RunResult> {
+/// Runs [source] on the run service and streams its session: [onEvent] gets each piece of output and each typed
+/// line as it happens. Lines typed with [sendInput] go to the program while it runs. Aborting [signal] stops it.
+/// Resolves to the exit status.
+export async function runLive(
+  source: string,
+  signal: AbortSignal,
+  onStart: (session: string) => void,
+  onEvent: (event: SessionEvent) => void,
+): Promise<number> {
   const res = await fetch(runUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source, input }),
+    body: JSON.stringify({ source, interactive: true }),
+    signal,
   });
-  if (!res.ok) throw new Error(`the run service answered ${res.status}`);
-  return (await res.json()) as RunResult;
+  if (!res.ok || !res.body) throw new Error((await res.text()).trim() || `the run service answered ${res.status}`);
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error('the run service closed the connection');
+    buf += value;
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const msg = JSON.parse(buf.slice(0, i)) as SessionEvent | { session: string } | { exit: number };
+      buf = buf.slice(i + 1);
+      if ('exit' in msg) return msg.exit;
+      if ('session' in msg) onStart(msg.session);
+      else onEvent(msg);
+    }
+  }
+}
+
+/// Types [line] into the running program [session], or ends its input when [line] is null.
+export async function sendInput(session: string, line: string | null) {
+  const inputUrl = runUrl.replace(/\/run$/, '/input');
+  await fetch(inputUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(line === null ? { session, eof: true } : { session, line }),
+  });
 }
 
 /// Encodes [source] for a share link.
