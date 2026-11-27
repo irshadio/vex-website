@@ -11,7 +11,7 @@ const topics = [
   ['Generics', 'language/generics', 'Type parameters for functions, structs, enums and methods.'],
   ['Interfaces', 'language/interfaces', 'Methods and properties a type promises to provide.'],
   ['Closures', 'language/closures', 'Functions as values, with trailing blocks.'],
-  ['Async', 'concurrency/async', 'async and await on an event loop, without blocking.'],
+  ['Async', 'concurrency/async', 'async and await on an event loop, with cancellation and timeouts.'],
   ['Isolates', 'concurrency/isolates', 'Parallel code on other cores, with channels.'],
   ['Extensions', 'language/extensions', 'New methods on existing types, built-in ones included.'],
   ['Modules', 'projects/modules', 'Folders as modules, packages from git repositories.'],
