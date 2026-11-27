@@ -9,9 +9,9 @@ import (
 	"syscall/js"
 	"testing/fstest"
 
-	"github.com/irshadio/vex-lang/compiler/diag"
-	"github.com/irshadio/vex-lang/compiler/modules"
-	"github.com/irshadio/vex-lang/compiler/types"
+	"github.com/vex-language/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/modules"
+	"github.com/vex-language/vex-lang/compiler/types"
 )
 
 // The compiler version, set at build time with -ldflags "-X main.version=...".

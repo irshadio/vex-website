@@ -90,7 +90,7 @@ Compare the result with the line for your file in `SHA256SUMS`.
 Clone the language repository and run its build script:
 
 ```sh
-git clone https://github.com/irshadio/vex-lang.git
+git clone https://github.com/vex-language/vex-lang.git
 cd vex-lang
 ./build.sh
 ```
@@ -228,7 +228,7 @@ The `CC` environment variable is set to a command that doesn't exist. Fix it, or
 vex: the C compiler (/usr/bin/clang) failed on generated code; this is a bug in vex
 ```
 
-Vex checks your program before it writes any C, so C that doesn't compile is a bug in the compiler, not in your code. This can also happen with a C compiler that isn't `clang` or `gcc`, since the generated C needs their extensions. Please report it with the program that triggers it at [github.com/irshadio/vex-lang](https://github.com/irshadio/vex-lang).
+Vex checks your program before it writes any C, so C that doesn't compile is a bug in the compiler, not in your code. This can also happen with a C compiler that isn't `clang` or `gcc`, since the generated C needs their extensions. Please report it with the program that triggers it at [github.com/vex-language/vex-lang](https://github.com/vex-language/vex-lang).
 
 ### `no package.toml`
 

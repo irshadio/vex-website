@@ -3,7 +3,7 @@ title: The compiler
 description: How the Vex compiler turns source files into a native binary, how its source code is organized, and how to build and test it.
 ---
 
-The Vex compiler is a Go program, the `vex` command. It reads `.vx` files, checks them, writes one C file that holds the program and the Vex runtime, and runs the system C compiler on it. This page follows a program through each stage and maps the stages to the compiler's source code in the [language repository](https://github.com/irshadio/vex-lang).
+The Vex compiler is a Go program, the `vex` command. It reads `.vx` files, checks them, writes one C file that holds the program and the Vex runtime, and runs the system C compiler on it. This page follows a program through each stage and maps the stages to the compiler's source code in the [language repository](https://github.com/vex-language/vex-lang).
 
 ## The pipeline
 
@@ -209,7 +209,7 @@ pub extern fn sleep(ms: int) -> Future<void> as "vx_sleep"
 You need Go 1.23 or newer and a C compiler. The compiler has no Go dependencies outside the standard library.
 
 ```sh
-git clone https://github.com/irshadio/vex-lang.git
+git clone https://github.com/vex-language/vex-lang.git
 cd vex-lang
 ./build.sh
 ```

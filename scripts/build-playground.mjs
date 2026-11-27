@@ -20,7 +20,7 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'vex-playground-'));
 fs.copyFileSync(path.join(root, 'playground', 'main.go'), path.join(work, 'main.go'));
 fs.writeFileSync(
   path.join(work, 'go.mod'),
-  `module playground\n\ngo 1.23\n\nrequire github.com/irshadio/vex-lang v0.0.0\n\nreplace github.com/irshadio/vex-lang => ${lang}\n`,
+  `module playground\n\ngo 1.23\n\nrequire github.com/vex-language/vex-lang v0.0.0\n\nreplace github.com/vex-language/vex-lang => ${lang}\n`,
 );
 
 fs.mkdirSync(out, { recursive: true });

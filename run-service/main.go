@@ -25,8 +25,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/irshadio/vex-lang/compiler/diag"
-	"github.com/irshadio/vex-lang/compiler/lexer"
+	"github.com/vex-language/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/lexer"
 )
 
 // Limits on what a request may send and what a program may use.

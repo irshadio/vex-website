@@ -22,7 +22,7 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'vex-run-service-'));
 for (const f of fs.readdirSync(src).filter((f) => f.endsWith('.go'))) fs.copyFileSync(path.join(src, f), path.join(work, f));
 fs.writeFileSync(
   path.join(work, 'go.mod'),
-  `module runservice\n\ngo 1.23\n\nrequire github.com/irshadio/vex-lang v0.0.0\n\nreplace github.com/irshadio/vex-lang => ${lang}\n`,
+  `module runservice\n\ngo 1.23\n\nrequire github.com/vex-language/vex-lang v0.0.0\n\nreplace github.com/vex-language/vex-lang => ${lang}\n`,
 );
 fs.mkdirSync(dist, { recursive: true });
 const env = { ...process.env, ...target };
