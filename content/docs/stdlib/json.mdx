@@ -1,0 +1,784 @@
+---
+title: vex:json
+description: API reference for vex:json, which turns Codable structs and enums into JSON text and back, and reads JSON of any shape into a Json value.
+---
+
+`vex:json` reads and writes JSON. It works at two levels:
+
+- **Typed.** A struct or enum that lists `Codable` can be written with [`encode`](#encode) and read back with [`decode`](#decode). The compiler writes the conversion from the fields, so there is no generated code to keep up to date.
+- **Any shape.** [`parse`](#parse) reads any JSON into a [`Json`](#json) value, which you look inside with `get`, `at` and `asString`, and [`write`](#write) turns one back into text.
+
+```vex title="users.vx"
+import "vex:json"
+
+enum Role: Codable { admin, guest }
+
+struct User: Codable {
+    name: string
+    age: int
+    tags: [string] = []
+    email: string? = nil
+    role = Role.guest
+}
+
+fn main() throws {
+    let ann = User(name: "Ann", age: 30, role: Role.admin)
+    let text = json.encode(ann)
+    println(text)
+
+    let back: User = try json.decode(text)
+    println(back)
+
+    let team = try json.decode<[User]>(r"""
+        [{"name": "Bo", "age": 4}, {"name": "Cy", "age": 52, "tags": ["ops"]}]
+        """)
+    println(team.map { it.name }, team[1].tags, team[0].role)
+}
+```
+
+```text title="Output"
+{"name":"Ann","age":30,"tags":[],"email":null,"role":"admin"}
+User(name: "Ann", age: 30, tags: [], email: nil, role: Role.admin)
+["Bo", "Cy"] ["ops"] Role.guest
+```
+
+[Raw strings](/docs/language/strings) such as `r"""..."""` are handy for JSON in source code, since `"`, `{` and `\` stay plain text in them.
+
+## Summary
+
+| Group | Name | Result | Throws |
+|---|---|---|---|
+| Typed | [`encode(value, indent:)`](#encode) | The JSON text of a Codable value | no |
+| | [`decode<T>(text)`](#decode) | The value of type `T` the text describes | `JsonError` |
+| Any shape | [`parse(text)`](#parse) | A `Json` value | `JsonError` |
+| | [`write(json, indent:)`](#write) | The JSON text of a `Json` value | no |
+| Between the two | [`toJson(value)`](#tojson) | A Codable value as `Json` | no |
+| | [`fromJson<T>(json)`](#fromjson) | The value of type `T` a `Json` describes | `JsonError` |
+| Types | [`Json`](#json) | A JSON value of any shape | |
+| | [`JsonError`](#jsonerror) | Why JSON couldn't be read | |
+
+## Codable
+
+`Codable` is a built-in constraint, like `Equatable` and `Hashable`. A type is Codable when it is one of these:
+
+- `int`, `float`, `bool` and `string`
+- a list `[T]` of a Codable type
+- a map `[string: T]` with `string` keys and a Codable value type
+- an optional `T?` of a Codable type
+- a struct or enum that lists `Codable` after its name
+- [`Json`](#json) itself
+
+A struct or enum opts in by listing `Codable`, like any interface. Every field of a Codable struct, and every value a case of a Codable enum carries, must be Codable too. The compiler checks this at the declaration, and names what to change:
+
+```vex title="notcodable.vx"
+import "vex:json"
+
+struct Point {
+    x: int
+    y: int
+}
+
+struct Shape: Codable {
+    name: string
+    origin: Point
+    ids: [int: string]
+}
+
+fn main() {
+    println(json.encode(Point(x: 1, y: 2)))
+}
+```
+
+```text
+error: field 'origin' is Point, which isn't Codable, so Shape can't be Codable
+  --> notcodable.vx:10:13
+   |
+10 |     origin: Point
+   |             ^^^^^ list Codable on Point
+
+error: field 'ids' is [int: string], which isn't Codable, so Shape can't be Codable
+  --> notcodable.vx:11:10
+   |
+11 |     ids: [int: string]
+   |          ^^^^^^^^^^^^^ JSON object keys are strings: use [string: string]
+
+error: encode needs T to be Codable, but Point isn't
+  --> notcodable.vx:15:13
+   |
+15 |     println(json.encode(Point(x: 1, y: 2)))
+   |             ^^^^^^^^^^^ list Codable on Point
+
+3 errors
+```
+
+Functions, records, ranges, futures, channels and interface values are never Codable. A type that writes its own conversion, as in [Custom conversion](#custom-conversion), can hold them anyway.
+
+**Generic code.** A generic function or type that encodes or decodes a type parameter asks for it with `<T: Codable>`. A generic struct is Codable for every type argument that is:
+
+```vex title="generic.vx"
+import "vex:json"
+
+struct Page<T: Codable>: Codable {
+    items: [T]
+    next: string? = nil
+}
+
+fn save<T: Codable>(value: T) -> string => json.encode(value)
+
+fn main() throws {
+    println(save(Page(items: [1, 2, 3])))
+    let page = try json.decode<Page<string>>(r"""
+        {"items": ["a", "b"], "next": "/p/2"}
+        """)
+    println(page)
+}
+```
+
+```text title="Output"
+{"items":[1,2,3],"next":null}
+Page<string>(items: ["a", "b"], next: "/p/2")
+```
+
+Leaving out the constraint, as in `fn save<T>(value: T)`, is an error where the type parameter is encoded:
+
+```text
+error: encode needs T to be Codable, but T isn't
+ --> save.vx:3:35
+  |
+3 | fn save<T>(value: T) -> string => json.encode(value)
+  |                                   ^^^^^^^^^^^ require it: <T: Codable>
+```
+
+## How values map to JSON
+
+| Vex | JSON written | JSON read |
+|---|---|---|
+| `int` | a whole number, `42` | a whole number only |
+| `float` | a number, always with a `.` or an exponent: `2.0`, `1e+21`; `nil`, infinity and NaN as `null` | any number |
+| `bool` | `true` or `false` | `true` or `false` |
+| `string` | a string, with `"`, `\` and control characters escaped | a string, with every JSON escape, including `\u` pairs |
+| `[T]` | an array | an array |
+| `[string: T]` | an object, keys in the map's order | an object |
+| `T?` | the value, or `null` for `nil` | `null` as `nil`, or a value |
+| struct | an object with a key for each field, in the order they are declared | an object; see below |
+| enum case without values | its name as a string: `"admin"` | the name as a string |
+| enum case with values | an object with one key, the case's name, holding an object of its values: `{"circle": {"radius": 2.0}}` | the same form |
+
+```vex title="mapping.vx"
+import "vex:json"
+
+enum Size: Codable { small, large }
+
+enum Shape: Codable {
+    circle(radius: float)
+    rect(width: int, height: int)
+    dot
+}
+
+struct Order: Codable {
+    id: int
+    size = Size.small
+    shapes: [Shape] = []
+    note: string?
+    prices: [string: float] = [:]
+}
+
+fn main() throws {
+    let o = Order(id: 7, size: Size.large, shapes: [Shape.circle(radius: 2), Shape.rect(width: 1, height: 3), Shape.dot], note: nil, prices: ["pen": 1.5])
+    println(json.encode(o))
+
+    let min = try json.decode<Order>(r"""
+        {"id": 8, "unknown": true}
+        """)
+    println(min)
+}
+```
+
+```text title="Output"
+{"id":7,"size":"large","shapes":[{"circle":{"radius":2.0}},{"rect":{"width":1,"height":3}},"dot"],"note":null,"prices":{"pen":1.5}}
+Order(id: 8, size: Size.small, shapes: [], note: nil, prices: [:])
+```
+
+Reading a struct follows these rules:
+
+- **Missing keys.** A key that isn't there takes the field's default. An optional field without a default, such as `note: string?`, becomes `nil`. A field with neither is an error: `age: missing`.
+- **`null`.** `null` is read only by optional fields. A non-optional field given `null` is an error, even when it has a default: `count: expected an int, found null`.
+- **Extra keys.** Keys that match no field are ignored, so newer JSON with more fields still reads.
+- **Key names.** Keys are the field names exactly as written. There is no renaming yet.
+
+### Ints and floats
+
+An `int` reads only a whole number written without a `.` or an exponent, so `3.0` and `1e3` are errors for an `int` field. A `float` reads any number, whole numbers included. A whole number too large for an `int`, such as `12345678901234567890`, is read as a float.
+
+JSON has no form for infinity or NaN, so a `float` that isn't finite is written as `null`. Reading that `null` back into a `float` fails; use `float?` for values that may not be finite.
+
+```vex title="numbers.vx"
+import "vex:json"
+
+struct Reading: Codable {
+    count: int
+    value: float
+    limit: float? = nil
+}
+
+fn main() throws {
+    let r = try json.decode<Reading>(r"""
+        {"count": 3, "value": 2}
+        """)
+    println(r)
+
+    try json.decode<Reading>(r"""
+        {"count": 3.0, "value": 2}
+        """) catch e { println(e) }
+    try json.decode<Reading>(r"""
+        {"count": 1e3, "value": 2}
+        """) catch e { println(e) }
+
+    println(json.encode(Reading(count: 1, value: float.nan, limit: float.infinity)))
+    try json.decode<Reading>(r"""
+        {"count": 1, "value": null}
+        """) catch e { println(e) }
+    println(json.encode([0.1, 100.0, 1e21, -0.0, 1.5e-7]))
+}
+```
+
+```text title="Output"
+Reading(count: 3, value: 2.0, limit: nil)
+count: expected an int, found a float
+count: expected an int, found a float
+{"count":1,"value":null,"limit":null}
+value: expected a number, found null
+[0.1,100.0,1e+21,-0.0,1.5e-07]
+```
+
+## Typed JSON
+
+### encode
+
+```vex
+pub fn encode<T: Codable>(value: T, indent: int = 0) -> string
+```
+
+Returns the JSON text for `value`.
+
+- **Parameters:** `value`, any Codable value; `indent`, the number of spaces per level. With the default `0`, or any number below 1, the text is compact, on one line with no spaces.
+- **Returns:** The JSON text. With an `indent`, objects and lists are spread over lines, and keys are followed by `": "`. Empty lists and objects stay `[]` and `{}`.
+- **Errors:** None. Every Codable value has a JSON form.
+
+```vex title="pretty.vx"
+import "vex:json"
+
+struct Point: Codable {
+    x: int
+    y: int
+}
+
+struct Path: Codable {
+    name: string
+    points: [Point]
+    meta: [string: string] = [:]
+}
+
+fn main() {
+    let p = Path(name: "route", points: [Point(x: 0, y: 0), Point(x: 3, y: 4)])
+    println(json.encode(p))
+    println(json.encode(p, indent: 2))
+    println(json.encode(42), json.encode("hi"), json.encode([1.5, 2.0]))
+}
+```
+
+```text title="Output"
+{"name":"route","points":[{"x":0,"y":0},{"x":3,"y":4}],"meta":{}}
+{
+  "name": "route",
+  "points": [
+    {
+      "x": 0,
+      "y": 0
+    },
+    {
+      "x": 3,
+      "y": 4
+    }
+  ],
+  "meta": {}
+}
+42 "hi" [1.5,2.0]
+```
+
+The text has no line ending at the end. Write it to a file with [`fs.write`](/docs/stdlib/fs#write).
+
+### decode
+
+```vex
+pub fn decode<T: Codable>(text: string) throws(JsonError) -> T
+```
+
+Returns the value of type `T` that the JSON `text` describes.
+
+- **Parameters:** `text`, the JSON. Spaces, tabs and line breaks around values are allowed.
+- **Returns:** A new value of type `T`.
+- **Errors:** Throws a [`JsonError`](#jsonerror): `syntax` when the text isn't valid JSON, and `mismatch` when it is valid but doesn't fit `T`.
+
+`T` comes from where the result goes, or is written after the name:
+
+```vex
+let back: User = try json.decode(text)       // T from the variable's type
+let team = try json.decode<[User]>(text)     // T written out
+```
+
+When nothing gives `T`, or the call has no `try`, the compiler says what to add:
+
+```text
+error: can't tell the type of T in this call to decode
+ --> decode.vx:8:17
+  |
+8 |     let u = try json.decode("1")
+  |                 ^^^^^^^^^^^ write it: decode<int>(...)
+
+error: decode can throw, so the call needs try
+ --> decode.vx:9:19
+  |
+9 |     let v: User = json.decode("1")
+  |                   ^^^^^^^^^^^^^^^^ write try before it to pass the error up, try ... catch to handle it, or try? to get nil
+```
+
+## JsonError
+
+```vex
+pub enum JsonError {
+    syntax(reason: string, line: int, column: int)
+    mismatch(path: string, reason: string)
+
+    pub fn toString() -> string
+}
+```
+
+Why JSON couldn't be read. [`decode`](#decode), [`parse`](#parse) and [`fromJson`](#fromjson) throw it.
+
+- **`syntax(reason, line, column)`**: the text isn't valid JSON. `line` and `column` count from 1 and point at the problem. Reasons include `unexpected character`, `expected ',' or ']'`, `expected a key in quotes`, `bad number`, `unclosed string` and `expected a value, found the end`.
+- **`mismatch(path, reason)`**: the JSON is valid but doesn't fit the type asked for. `path` names where, with `.field` for object keys and `[i]` for list items, such as `users[2].age` or `[0].tags[1]`; it is `""` for the whole value. Reasons are `missing`, `expected an int, found a string` and the like, `unknown case 'boss' of Role`, and `expected a case of Shape, found an int`.
+
+`toString` shows a syntax error as `invalid JSON at line 3, column 17: expected ',' or '}'`, and a mismatch as its path and reason, `users[2].age: expected an int, found a string`, or the reason alone when the path is empty. That is what `println(e)` and interpolation show, and what the program prints when the error reaches the top of `fn main() throws`.
+
+`throws(JsonError)` lets a `catch` match the two cases:
+
+```vex title="errors.vx"
+import "vex:json"
+
+struct User: Codable {
+    name: string
+    age: int
+}
+
+fn load(text: string) {
+    let users = try json.decode<[User]>(text) catch e {
+        match e {
+            syntax(reason, line, column) => println("not JSON ({line}:{column}): {reason}")
+            mismatch(path, reason) => println("wrong shape at {path}: {reason}")
+        }
+        []
+    }
+    println(users.len, "users")
+}
+
+fn main() throws {
+    load(r"""
+        [{"name": "Ann", "age": 30}]
+        """)
+    load(r"""
+        [{"name": "Ann", "age": 30}, {"name": "Bo"}]
+        """)
+    load(r"""
+        [
+          {"name": "Ann", "age": 30},
+          {"name": "Bo" "age": 4}
+        ]
+        """)
+
+    try json.decode<[User]>(r"""
+        [{"name": "Cy", "age": "old"}]
+        """) catch e { println(e) }
+    println(try? json.decode<User>(r"{}"))
+    let user = try json.decode<User>("[]")
+    println(user)
+}
+```
+
+```text title="Output"
+1 users
+wrong shape at [1].age: missing
+0 users
+not JSON (3:17): expected ',' or '}'
+0 users
+[0].age: expected an int, found a string
+nil
+error: expected an object, found a list
+```
+
+The last line comes from the error leaving `main`; the program exits with status 1.
+
+## Custom conversion
+
+A Codable type can write its own conversion, for dates, units and other values JSON has no form for. It writes both of these methods, with its own name in place of `Self`:
+
+```vex
+fn encode() -> json.Json
+static fn decode(value: json.Json) throws(json.JsonError) -> Self
+```
+
+`encode` returns the type as a [`Json`](#json) value, and `decode` reads it back, throwing `JsonError.mismatch` when the value doesn't fit. When a type writes both, its fields don't have to be Codable. A type that writes only one keeps the generated conversion for the other, and its fields must still be Codable.
+
+```vex title="custom.vx"
+import "vex:json"
+
+struct Day: Codable {
+    year: int
+    month: int
+    day: int
+
+    fn encode() -> json.Json => json.Json.text(value: "{year}-{month}-{day}")
+
+    static fn decode(value: json.Json) throws(json.JsonError) -> Day {
+        guard let s = value.asString else {
+            throw json.JsonError.mismatch(path: "", reason: "expected a date")
+        }
+        let parts = s.split("-")
+        guard parts.len == 3, let y = int.parse(parts[0]), let m = int.parse(parts[1]), let d = int.parse(parts[2]) else {
+            throw json.JsonError.mismatch(path: "", reason: "bad date '{s}'")
+        }
+        return Day(year: y, month: m, day: d)
+    }
+}
+
+struct Trip: Codable {
+    city: string
+    days: [Day]
+}
+
+fn main() throws {
+    let trip = Trip(city: "Lisbon", days: [Day(year: 2024, month: 5, day: 1), Day(year: 2024, month: 5, day: 2)])
+    let text = json.encode(trip)
+    println(text)
+    println(try json.decode<Trip>(text))
+
+    try json.decode<Trip>(r"""
+        {"city": "Oslo", "days": ["2024-6-1", 20240602]}
+        """) catch e { println(e) }
+    try json.decode<Trip>(r"""
+        {"city": "Oslo", "days": ["2024-6-x"]}
+        """) catch e { println(e) }
+}
+```
+
+```text title="Output"
+{"city":"Lisbon","days":["2024-5-1","2024-5-2"]}
+Trip(city: "Lisbon", days: [Day(year: 2024, month: 5, day: 1), Day(year: 2024, month: 5, day: 2)])
+days[1]: expected a date
+days[0]: bad date '2024-6-x'
+```
+
+An error thrown by `decode` gets the path to the value put in front of its own: the `""` path above becomes `days[1]`, and a path of `"inner"` would become `days[1].inner`.
+
+Methods named `encode` or `decode` with other signatures are errors on a Codable type, so a typo doesn't quietly fall back to the generated conversion:
+
+```text
+error: encode must take no parameters and return json.Json, so JSON can use it
+ --> day.vx:6:8
+  |
+6 |     fn encode() -> string => "{stamp}"
+  |        ^^^^^^ write fn encode() -> json.Json
+```
+
+```text
+error: decode must be static, take a json.Json and throw json.JsonError, so JSON can use it
+ --> day.vx:6:15
+  |
+6 |     static fn decode(value: json.Json) -> Day => Day(stamp: 0)
+  |               ^^^^^^ write static fn decode(value: json.Json) throws(json.JsonError) -> Day
+```
+
+## JSON of any shape
+
+### parse
+
+```vex
+pub fn parse(text: string) throws(JsonError) -> Json
+```
+
+Returns the [`Json`](#json) value of the JSON `text`.
+
+- **Parameters:** `text`, the JSON.
+- **Returns:** The value. Objects keep their keys in the order they appear. When a key appears twice, the last value wins and the key keeps its first position.
+- **Errors:** Throws `JsonError.syntax` when the text isn't valid JSON, including when there is text after the value. It never throws `mismatch`.
+
+```vex title="dynamic.vx"
+import "vex:json"
+
+fn main() throws {
+    let doc = try json.parse(r"""
+        {"user": {"name": "Ann", "langs": ["vex", "go"], "admin": false}}
+        """)
+    let user = doc.get("user")
+    let name = user?.get("name")?.asString ?? "?"
+    let first = user?.get("langs")?.at(0)?.asString
+    println(name, first, user?.get("admin")?.asBool)
+    println(user?.get("missing"), user?.get("langs")?.at(5), doc.at(0))
+    println(doc)
+    println(json.write(doc, indent: 2))
+}
+```
+
+```text title="Output"
+Ann vex false
+nil nil nil
+{"user":{"name":"Ann","langs":["vex","go"],"admin":false}}
+{
+  "user": {
+    "name": "Ann",
+    "langs": [
+      "vex",
+      "go"
+    ],
+    "admin": false
+  }
+}
+```
+
+### write
+
+```vex
+pub fn write(json: Json, indent: int = 0) -> string
+```
+
+Returns `json` as JSON text.
+
+- **Parameters:** `json`, the value; `indent`, the number of spaces per level, as for [`encode`](#encode).
+- **Returns:** The text, compact by default.
+- **Errors:** None.
+
+`write` only formats a value: it doesn't write a file. It gives the same text as `encode` does for the same value, and `write(value)` is what printing a `Json` shows.
+
+### Json
+
+```vex
+pub enum Json: Codable, Equatable {
+    null
+    boolean(value: bool)
+    integer(value: int)
+    number(value: float)
+    text(value: string)
+    list(items: [Json])
+    object(fields: [string: Json])
+
+    pub get isNull -> bool
+    pub get asBool -> bool?
+    pub get asInt -> int?
+    pub get asFloat -> float?
+    pub get asString -> string?
+    pub get asList -> [Json]?
+    pub get asObject -> [string: Json]?
+    pub fn get(key: string) -> Json?
+    pub fn at(index: int) -> Json?
+    pub fn toString() -> string
+}
+```
+
+A JSON value of any shape. Whole numbers are `integer` and other numbers `number`, as [`parse`](#parse) reads them; `object` is an ordered map, so keys stay in order.
+
+| Member | Gives |
+|---|---|
+| `isNull` | `true` for `null`, `false` otherwise |
+| `asBool` | The value of a `boolean`, or `nil` |
+| `asInt` | The value of an `integer`, or `nil`. A `number` gives `nil`, even `2.0` |
+| `asFloat` | The value of a `number`, or of an `integer` as a float; `nil` otherwise |
+| `asString` | The value of a `text`, or `nil` |
+| `asList` | The items of a `list`, or `nil` |
+| `asObject` | The fields of an `object`, or `nil` |
+| `get(key)` | The field `key` of an object; `nil` when the value isn't an object or has no such key |
+| `at(index)` | The item at `index` of a list; `nil` when the value isn't a list or `index` is out of range, negative included |
+| `toString()` | The value as compact JSON text, the same as `json.write(self)` |
+
+`get` and `at` return optionals, so they chain with `?.` and end with `??`, as in `doc.get("user")?.get("langs")?.at(0)?.asString ?? "?"`.
+
+```vex title="members.vx"
+import "vex:json"
+
+fn main() throws {
+    let items = try json.parse(r"""
+        [null, true, 3, 2.5, "hi", [1], {"a": 1}]
+        """)
+    for v in items.asList ?? [] {
+        println(v, v.isNull, v.asBool, v.asInt, v.asFloat, v.asString, v.asList, v.asObject)
+    }
+}
+```
+
+```text title="Output"
+null true nil nil nil nil nil nil
+true false true nil nil nil nil nil
+3 false nil 3 3.0 nil nil nil
+2.5 false nil nil 2.5 nil nil nil
+"hi" false nil nil nil hi nil nil
+[1] false nil nil nil nil [1] nil
+{"a":1} false nil nil nil nil nil ["a": 1]
+```
+
+`Json` is an ordinary enum, so you build values from its cases and take them apart with `match`. It is Equatable: two values are `==` when they have the same shape and contents, with object keys compared in any order. `integer(value: 1)` and `number(value: 1.0)` are different cases, so they aren't equal.
+
+```vex title="build.vx"
+import "vex:json"
+
+fn describe(value: json.Json) -> string => match value {
+    null => "null"
+    boolean(v) => "a bool, {v}"
+    integer(v) => "an int, {v}"
+    number(v) => "a float, {v}"
+    text(v) => "a string, {v}"
+    list(items) => "a list of {items.len}"
+    object(fields) => "an object with keys {fields.keys}"
+}
+
+fn main() throws {
+    let point = json.Json.object(fields: [
+        "x": json.Json.integer(value: 3),
+        "y": json.Json.number(value: 4.5),
+        "tags": json.Json.list(items: [json.Json.text(value: "a"), json.Json.null]),
+    ])
+    println(point)
+    println("point is {point}")
+    println(json.write(point, indent: 4))
+
+    for v in [point, json.Json.boolean(value: true), json.Json.integer(value: 1)] {
+        println(describe(v))
+    }
+
+    let same = try json.parse(r"""
+        { "x" : 3, "y" : 4.5, "tags" : ["a", null] }
+        """)
+    println(point == same, json.Json.integer(value: 1) == json.Json.number(value: 1.0))
+    let dup = try json.parse(r"""
+        {"b": 1, "a": 2, "b": 3}
+        """)
+    println(dup)
+}
+```
+
+```text title="Output"
+{"x":3,"y":4.5,"tags":["a",null]}
+point is {"x":3,"y":4.5,"tags":["a",null]}
+{
+    "x": 3,
+    "y": 4.5,
+    "tags": [
+        "a",
+        null
+    ]
+}
+an object with keys ["x", "y", "tags"]
+a bool, true
+an int, 1
+true false
+{"b":3,"a":2}
+```
+
+Where the type is known, a case can be written with a leading dot: `let x: json.Json = .integer(value: 3)`.
+
+`Json` is Codable, so it can be a field of a Codable struct, holding whatever the JSON has there, and `encode` writes it as it is:
+
+```vex title="field.vx"
+import "vex:json"
+
+struct Message: Codable {
+    kind: string
+    payload: json.Json = json.Json.null
+}
+
+fn main() {
+    let m = Message(kind: "point", payload: json.Json.list(items: [json.Json.integer(value: 1), json.Json.integer(value: 2)]))
+    println(json.encode(m))
+    println(m)
+}
+```
+
+```text title="Output"
+{"kind":"point","payload":[1,2]}
+Message(kind: "point", payload: [1,2])
+```
+
+<Callout type="warn" title="Known issue">
+Reading a `Json` back with `decode` or `fromJson`, on its own or as a field, doesn't work in the current compiler: decoding the JSON above as a `Message` fails with `payload: expected a case of Json, found a list`. Until it is fixed, read the document with [`parse`](#parse), take the known part with [`fromJson`](#fromjson), and keep the free-form part with `get`.
+</Callout>
+
+## Between the two
+
+### toJson
+
+```vex
+pub fn toJson<T: Codable>(value: T) -> Json
+```
+
+Returns `value` as a [`Json`](#json) value, the same value whose text `encode` writes.
+
+- **Parameters:** `value`, any Codable value.
+- **Returns:** The `Json` value.
+- **Errors:** None.
+
+### fromJson
+
+```vex
+pub fn fromJson<T: Codable>(json: Json) throws(JsonError) -> T
+```
+
+Returns the value of type `T` that `json` describes, by the same rules as [`decode`](#decode).
+
+- **Parameters:** `json`, the value to read.
+- **Returns:** A new value of type `T`.
+- **Errors:** Throws `JsonError.mismatch` when the value doesn't fit `T`.
+
+Together they handle JSON that is only partly known: parse the whole document, read the parts you know as types, and look at the rest by hand.
+
+```vex title="partial.vx"
+import "vex:json"
+
+struct Event: Codable {
+    kind: string
+    at: int
+}
+
+fn main() throws {
+    let doc = try json.parse(r"""
+        {"version": 2, "events": [{"kind": "open", "at": 10}, {"kind": "close", "at": 25}]}
+        """)
+    let version = doc.get("version")?.asInt ?? 1
+    let events = try json.fromJson<[Event]>(doc.get("events") ?? json.Json.list(items: []))
+    println(version, events)
+
+    let value = json.toJson(events[0])
+    println(value, value.get("kind")?.asString)
+
+    try json.fromJson<Event>(json.Json.text(value: "open")) catch e { println(e) }
+}
+```
+
+```text title="Output"
+2 [Event(kind: "open", at: 10), Event(kind: "close", at: 25)]
+{"kind":"open","at":10} open
+expected an object, found a string
+```
+
+## Limits
+
+- Text is read and written whole. There is no streaming reader or writer.
+- Keys are always the field names, and enum cases always use the forms above. There are no options to rename keys, skip fields or change the case form; write a [custom conversion](#custom-conversion) instead.
+- Numbers are 64-bit: an `int` holds whole numbers up to `int.max`, and larger ones are read as floats, losing digits past about 16.
+- Reading a `Json` with `decode` or `fromJson` fails in the current compiler; see the [known issue](#json) above.
+
+## See also
+
+- [Structs](/docs/language/structs)
+- [Enums](/docs/language/enums)
+- [Errors](/docs/language/errors)
+- [Generics](/docs/language/generics)
+- [vex:fs](/docs/stdlib/fs)
+- [Standard library overview](/docs/stdlib)
