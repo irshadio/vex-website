@@ -569,31 +569,31 @@
           {
             "id": "V-160",
             "text": "Trailing blocks with parameters: `xs.map { x in x * 2 }`, and an implicit name for a single parameter",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
             "id": "V-161",
             "text": "Fields: `let` fields set once at creation, field types inferred from defaults, `init` blocks for validation, a generated `copy(field:)`, fields readable everywhere but set only inside the type",
-            "status": "todo",
+            "status": "done",
             "size": "L"
           },
           {
             "id": "V-162",
             "text": "Optional ergonomics: `if let x` shorthand, comma-separated conditions in `if`/`while`/`guard`, `guard cond else`, and `?? return`/`throw`/`break`/`continue`",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
             "id": "V-163",
             "text": "Control flow: `defer`, labelled `break`/`continue`, `repeat { } while`",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
             "id": "V-164",
             "text": "Ranges as values: a `Range` type with `contains`, `step` and `reversed`, and list slicing `xs[1..3]`",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
@@ -611,19 +611,19 @@
           {
             "id": "V-167",
             "text": "Interfaces: static requirements, `Self`, generic methods and extensions of interfaces; needed for typed JSON (V-109)",
-            "status": "todo",
+            "status": "done",
             "size": "L"
           },
           {
             "id": "V-168",
-            "text": "Custom printing: a `description` getter used by `println`, `str` and interpolation",
-            "status": "todo",
+            "text": "Custom printing: a `toString()` method used by `println`, `str` and interpolation",
+            "status": "done",
             "size": "S"
           },
           {
             "id": "V-169",
             "text": "Local named functions, recursive ones included",
-            "status": "todo",
+            "status": "done",
             "size": "S"
           },
           {
@@ -699,7 +699,7 @@
           {
             "id": "V-109",
             "text": "JSON encode/decode built in, no codegen step",
-            "status": "todo",
+            "status": "done",
             "size": "L"
           },
           {
