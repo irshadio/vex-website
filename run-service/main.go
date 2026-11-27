@@ -503,16 +503,22 @@ func execLimited(args []string) {
 		}
 		n[i] = v
 	}
+	// Everything that allocates happens before the limits: under the memory
+	// limit, this process's own runtime may not get more memory.
+	argv, env := []string{args[5]}, os.Environ()
+	// When memory runs short, the program is killed before the service.
+	os.WriteFile("/proc/self/oom_score_adj", []byte("1000"), 0)
 	limits := []struct {
 		res int
 		max uint64
 	}{
 		{syscall.RLIMIT_CPU, n[0]},
-		{rlimitMemory, n[1]},
 		{syscall.RLIMIT_FSIZE, n[2]},
 		{syscall.RLIMIT_NOFILE, n[3]},
 		{rlimitNproc, n[4]},
 		{syscall.RLIMIT_CORE, 0},
+		// Last, since nothing can be allocated once it is set.
+		{rlimitMemory, n[1]},
 	}
 	for _, l := range limits {
 		if l.res < 0 {
@@ -529,9 +535,7 @@ func execLimited(args []string) {
 			os.Exit(1)
 		}
 	}
-	// When memory runs short, the program is killed before the service.
-	os.WriteFile("/proc/self/oom_score_adj", []byte("1000"), 0)
-	err := syscall.Exec(args[5], []string{args[5]}, os.Environ())
+	err := syscall.Exec(args[5], argv, env)
 	fmt.Fprintf(os.Stderr, "couldn't start the program: %v\n", err)
 	os.Exit(1)
 }
