@@ -3,7 +3,7 @@ title: vex:strings
 description: API reference for vex:strings, which repeats, joins and pads strings.
 ---
 
-`vex:strings` builds and pads strings. It has four functions: `repeat`, `join`, `padLeft` and `padRight`. Everything else you do with text, such as searching, splitting, replacing and trimming, is a built-in member of `string` and needs no import; see [String members](/docs/stdlib/built-ins#string-members).
+`vex:strings` builds and pads strings. It has four functions: `repeat`, `join`, `padLeft` and `padRight`. Each is also a built-in member that needs no import: `s.repeat(n)`, `parts.join(separator)`, `s.padStart(width, with: fill)` and `s.padEnd(width, with: fill)`, and the module's functions call them. Everything else you do with text, such as searching, splitting, replacing and trimming, is a built-in member of `string` and needs no import; see [String members](/docs/stdlib/built-ins#string-members).
 
 ```vex title="table.vx"
 import "vex:strings"

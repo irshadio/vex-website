@@ -1,11 +1,11 @@
 ---
 title: Built-ins
-description: Every built-in function, type and constraint, safe number parsing, and every member of numbers, strings, lists, maps, ranges and channels, with signatures, edge cases and the runtime errors they can raise.
+description: Every built-in function, type and constraint, safe number parsing, and every member of numbers, strings, lists, maps, sets, ranges, Bytes and channels, with signatures, edge cases and the runtime errors they can raise.
 ---
 
 Built-ins are the functions, types and members that every Vex file can use without an import. This page lists all of them. The signatures use `T` for a list's element type, `K` and `V` for a map's key and value types, and `?` for an optional result.
 
-Built-in names are reserved. You can't name a variable, function, parameter or type `print`, `println`, `input`, `panic`, `assert`, `expect`, `str`, `int`, `float`, `bool`, `string`, `void` or `Error`:
+Built-in names are reserved. You can't name a variable, function, parameter or type `print`, `println`, `eprint`, `eprintln`, `input`, `panic`, `assert`, `expect`, `str`, `int`, `float`, `bool`, `string`, `void` or `Error`:
 
 ```text
 error: 'str' is a built-in function and can't be used as a variable name
@@ -23,6 +23,7 @@ The async helpers `run`, `all` and `any`, and `hash`, are the exception: a funct
 |---|---|---|
 | `print(values...)` | `void` | Writes the values separated by spaces, with no line ending |
 | `println(values...)` | `void` | Writes the values separated by spaces, then a line ending |
+| `eprint(values...)`, `eprintln(values...)` | `void` | The same, to standard error |
 | `input(prompt: string = "")` | `string` | Writes the prompt and reads one line from standard input |
 | `str(value)` | `string` | Converts any value to text, the way `println` shows it |
 | `str(value: int, radix: int)` | `string` | Writes an `int` in a base from 2 to 36 |
@@ -80,12 +81,34 @@ How values print:
 - Structs print as `Name(field: value, ...)` and enum cases as `Enum.case` or `Enum.case(field: value)`. A struct that refers back to itself prints the repeat as `Name(...)` instead of looping forever.
 - A struct or enum with a `toString()` method prints what it returns instead, everywhere a value is shown; see [Structs](/docs/language/structs).
 - Ranges print as written, such as `0..10`, `1..=5` or `(0..10).step(2).reversed()`.
+- Sets print like lists, such as `[2, 3, 5]`, and `Bytes` as their length and first 32 bytes in hex: `Bytes(3 bytes: 01 02 ff)`.
 - Optionals print their value, or `nil`.
 - Functions print their type, such as `<fn() -> int>`.
 
 Passing something with no value, such as the result of a `void` function, is a compile error: `this expression has no value to print`.
 
 Output to standard output is buffered. The runtime flushes it before it writes an error, before `os.run` and `os.output` start a command, and when the program ends, so output and error messages appear in order.
+
+### eprint and eprintln
+
+`eprint` and `eprintln` print exactly as `print` and `println` do, to standard error instead of standard output. Use them for warnings, progress and problems, so that output sent to a file or another program stays clean while the messages still reach the terminal.
+
+```vex title="eprint.vx"
+fn main() {
+    let files = ["a.txt", "b.tmp", "c.txt"]
+    let kept = files.filter(fn(f) => !f.endsWith(".tmp"))
+    println(kept.join("\n"))
+    eprintln("warning:", files.len - kept.len, "file skipped")
+}
+```
+
+```text title="Output"
+a.txt
+c.txt
+warning: 1 file skipped
+```
+
+Standard output is flushed before anything is written to standard error, so the two keep their order in a terminal. [`os.stderr`](/docs/stdlib/os#stdout-and-stderr) writes to the same place, as a value you can store or pass to a function.
 
 ### input
 
@@ -238,9 +261,11 @@ fn main() {
 5
 error: assertion failed: average needs at least one number
  --> checks.vx:2
+  at average (checks.vx:2)
+  at main (checks.vx:12)
 ```
 
-The error goes to standard error and the program exits with status 1. Because `panic` never returns, it can end a function that must return a value, or a `catch` block that must give one.
+The `at` lines are the [stack trace](/docs/tools/runtime-errors#stack-traces): the calls that led to the error, which `vex run` and `vex test` show. The error goes to standard error and the program exits with status 1. Because `panic` never returns, it can end a function that must return a value, or a `catch` block that must give one.
 
 ### expect
 
@@ -318,6 +343,8 @@ slept
 | `string` | Immutable UTF-8 text |
 | `[T]` | List of `T` |
 | `[K: V]` | Map from `K` to `V` |
+| `Set<T>` | Values of `T` without repeats; see [Set members](#set-members) |
+| `Bytes` | Binary data, one byte from 0 to 255 per element; see [Bytes](#bytes) |
 | `T?` | Optional `T`: a value or `nil` |
 | `Range` | A range of ints, written `a..b` or `a..=b`; see [Range members](#range-members) |
 | `Error` | The built-in error struct, with one field, `message: string` |
@@ -373,12 +400,12 @@ Four built-in constraints can bound a [generic](/docs/language/generics) type pa
 
 | Constraint | Types that meet it |
 |---|---|
-| `Equatable` | `int`, `float`, `bool`, `string`, `Range`, enums whose cases carry no values, structs that define `operator ==`, structs and enums that list `Equatable` or `Hashable`, and lists, maps, optionals and records of these |
+| `Equatable` | `int`, `float`, `bool`, `string`, `Range`, `Bytes`, enums whose cases carry no values, structs that define `operator ==`, structs and enums that list `Equatable` or `Hashable`, and lists, maps, sets, optionals and records of these |
 | `Comparable` | `int`, `float`, `string`, enums whose cases carry no values, and structs that define `operator <` and `operator ==` |
-| `Hashable` | `int`, `string`, `bool`, enums whose cases carry no values, records of these, and structs and enums that list `Hashable` |
-| `Codable` | `int`, `float`, `bool`, `string`, lists, maps with `string` keys and optionals of these, and structs and enums that list `Codable`; see [vex:json](/docs/stdlib/json#codable) |
+| `Hashable` | `int`, `string`, `bool`, `Bytes`, enums whose cases carry no values, records of these, and structs and enums that list `Hashable` |
+| `Codable` | `int`, `float`, `bool`, `string`, `Bytes`, lists, sets, maps with `string` keys and optionals of these, and structs and enums that list `Codable`; see [vex:json](/docs/stdlib/json#codable) |
 
-`Equatable` is what `==` and list `contains` and `indexOf` need, `Comparable` is what `<`, `sort()`, `min()` and `max()` need, `Hashable` is what a map key needs, and `Codable` is what [`vex:json`](/docs/stdlib/json) needs to write a value as JSON and read it back. A struct or enum lists `Equatable`, `Hashable` or `Codable` after a `:` to get an `==` that compares every field, as in `struct Point: Hashable { ... }`.
+`Equatable` is what `==` and list `contains` and `indexOf` need, `Comparable` is what `<`, `sort()`, `min()` and `max()` need, `Hashable` is what a map key or a set item needs, and `Codable` is what [`vex:json`](/docs/stdlib/json) needs to write a value as JSON and read it back. A struct or enum lists `Equatable`, `Hashable` or `Codable` after a `:` to get an `==` that compares every field, as in `struct Point: Hashable { ... }`.
 
 ## String members
 
@@ -387,20 +414,31 @@ Strings are immutable: every member that changes text returns a new string. Inde
 | Member | Result | Description |
 |---|---|---|
 | `len` | `int` | The number of code points. A property, written without `()` |
-| `upper()` | `string` | The text with `a` to `z` changed to `A` to `Z` |
-| `lower()` | `string` | The text with `A` to `Z` changed to `a` to `z` |
+| `isEmpty` | `bool` | Whether the string is `""`. A property |
+| `graphemeCount` | `int` | The number of characters a reader sees, Unicode's grapheme clusters. A property |
+| `upper()` | `string` | The text in upper case, by the case mappings of Unicode 15.0 |
+| `lower()` | `string` | The text in lower case, the same way |
+| `capitalize()` | `string` | The text with its first character in title case |
 | `contains(text: string)` | `bool` | Whether `text` appears anywhere; always true for `""` |
 | `startsWith(text: string)` | `bool` | Whether the string begins with `text` |
 | `endsWith(text: string)` | `bool` | Whether the string ends with `text` |
 | `indexOf(text: string)` | `int?` | The code-point index of the first match, or `nil` |
+| `lastIndexOf(text: string)` | `int?` | The code-point index of the last match, or `nil` |
+| `count(text: string)` | `int` | How many times `text` appears, without overlapping |
 | `substring(from: int, to: int)` | `string` | The code points from `from` up to, not including, `to`; the same as `s[from..to]` |
-| `split(separator: string)` | `[string]` | The pieces between each separator, keeping empty pieces |
+| `split(separator: string, limit: int = 0)` | `[string]` | The pieces between each separator, keeping empty pieces; with a `limit` above 0, at most that many |
 | `replace(old: string, with: string)` | `string` | The text with every `old` replaced by `with` |
 | `trim()` | `string` | The text without spaces, tabs and line endings at both ends |
 | `trimStart()` | `string` | The same, at the start only |
 | `trimEnd()` | `string` | The same, at the end only |
+| `padStart(width: int, with: string = " ")` | `string` | Copies of `with` added at the start until the text is `width` characters long |
+| `padEnd(width: int, with: string = " ")` | `string` | The same, at the end |
+| `repeat(n: int)` | `string` | The text `n` times; `""` when `n` is 0 or less |
+| `reversed()` | `string` | The grapheme clusters in reverse order |
 | `chars()` | `[string]` | Each code point as its own string |
+| `graphemes()` | `[string]` | Each grapheme cluster as its own string |
 | `lines()` | `[string]` | Each line, without its `\n` or `\r\n` |
+| `toBytes()` | `Bytes` | The UTF-8 bytes of the text; see [Bytes](#bytes) |
 
 Strings can't be indexed with an `int` (`a string can't be indexed by int`). Slice them with a range instead: `s[1..3]` gives the characters from 1 up to 3 as a new string, and `s[i..=i]` the character at `i`. Use `chars()` to walk them all. See [Slicing](/docs/language/strings#slicing).
 
@@ -409,25 +447,44 @@ Strings can't be indexed with an `int` (`a string can't be indexed by int`). Sli
 ```vex title="search.vx"
 fn main() {
     let t = "Hello, World"
-    println(t.len, t.upper(), t.lower())
+    println(t.len, t.isEmpty, t.upper(), t.lower(), "élan".capitalize())
     println(t.contains("World"), t.contains(""), t.startsWith("Hell"), t.endsWith("d"))
-    println(t.indexOf("o"), t.indexOf("xyz"), "héllo".indexOf("l"))
-    println("é".len, "👍🏽".len, "👍🏽".chars())
-    println("Ärger".upper(), "ÉCOLE".lower())
+    println(t.indexOf("o"), t.lastIndexOf("o"), t.indexOf("xyz"), "héllo".indexOf("l"))
+    println("banana".count("a"), "aaaa".count("aa"))
+    println("Ärger".upper(), "ÉCOLE".lower(), "straße".upper())
 }
 ```
 
 ```text title="Output"
-12 HELLO, WORLD hello, world
+12 false HELLO, WORLD hello, world Élan
 true true true true
-4 nil 2
-1 2 ["👍", "🏽"]
-ÄRGER École
+4 8 nil 2
+3 2
+ÄRGER école STRASSE
 ```
 
-- `len` counts code points, so an emoji with a skin-tone modifier counts as 2, and `chars()` splits it in two.
-- `upper()` and `lower()` change only the ASCII letters for now. `Ä` and `É` stay as they are.
-- `indexOf` returns an optional; unwrap it with `if let` or give a default with `??`.
+- `upper()`, `lower()` and `capitalize()` follow Unicode 15.0 for every script, whatever the system's locale, including mappings that change the length, such as `ß` to `SS`. `capitalize` uses title case, which is upper case for most letters.
+- `indexOf` and `lastIndexOf` return optionals; unwrap them with `if let` or give a default with `??`.
+- `count` doesn't count overlapping matches, so `"aaaa".count("aa")` is 2. An empty `text` stops the program: `count needs text to look for, not an empty string`. The length of a string is `len`, not `count`.
+
+### Characters a reader sees
+
+`len` and `chars()` count code points, so an emoji with a skin-tone modifier, a flag or a letter followed by a combining accent counts as more than one. `graphemeCount` and `graphemes()` count what a reader sees as one character, as Swift does:
+
+```vex title="graphemes.vx"
+fn main() {
+    let thumb = "👍🏽"
+    println(thumb.len, thumb.graphemeCount, thumb.chars())
+    println("🇯🇵🇫🇷".graphemes(), "noe\u{308}l".reversed())
+}
+```
+
+```text title="Output"
+2 1 ["👍", "🏽"]
+["🇯🇵", "🇫🇷"] lëon
+```
+
+`reversed()` reverses whole grapheme clusters, so the accent stays on its letter.
 
 ### Slicing and splitting
 
@@ -436,6 +493,7 @@ fn main() {
     let t = "Hello, World"
     println(t.substring(0, 5), t[7..], "héllo"[1..3], t[..=0])
     println("a,b,,c".split(","), "abc".split("abc"), "".split(","))
+    println("k=v=w".split("=", limit: 2), "a,b,c".split(",", limit: 1))
     println("héy".chars())
     println("line1\nline2\r\nline3\n".lines(), "a\n\nb".lines(), "".lines())
 }
@@ -444,33 +502,40 @@ fn main() {
 ```text title="Output"
 Hello World él H
 ["a", "b", "", "c"] ["", ""] [""]
+["k", "v=w"] ["a,b,c"]
 ["h", "é", "y"]
 ["line1", "line2", "line3"] ["a", "", "b"] []
 ```
 
 - `substring(from, to)` needs `0 <= from <= to <= len`. Anything else stops the program: `substring(2, 10) is out of range for a string of length 5`. A range slice that reaches outside the string stops it too: `range 2..10 is out of range for a string of length 5`.
 - `split` keeps empty pieces, so a separator at either end gives an empty string there, and splitting `""` gives `[""]`. An empty separator stops the program: `split separator can't be empty`.
+- With `limit` above 0, as in Kotlin, `split` gives at most that many pieces, the last holding the rest. A `limit` of 0, the default, means no limit; a negative one stops the program.
 - `lines()` drops one final line ending, so `"a\n"` gives `["a"]`, and `""` gives `[]`.
 
-### Replacing and trimming
+### Replacing, trimming and padding
 
 ```vex title="tidy.vx"
 fn main() {
     let s = "  Hello, World  "
     println("[{s.trim()}]", "[{s.trimStart()}]", "[{s.trimEnd()}]")
     println("Hello".replace("l", "L"), "aaa".replace("a", "bb"))
+    println("7".padStart(3, with: "0"), "[{"ab".padEnd(5)}]", "ab".padEnd(5, with: ".-"), "long".padStart(2))
+    println("ab".repeat(3), "[{"x".repeat(0)}]", "stressed".reversed())
 }
 ```
 
 ```text title="Output"
 [Hello, World] [Hello, World  ] [  Hello, World]
 HeLLo bbbbbb
+007 [ab   ] ab.-. long
+ababab [] desserts
 ```
 
 - `trim`, `trimStart` and `trimEnd` remove spaces, tabs, `\n` and `\r`.
 - `replace` replaces every match, scanning left to right. An empty `old` stops the program: `replace needs text to look for, not an empty string`.
+- `padStart` and `padEnd` cut the last copy of `with` short when needed, and leave a string that is already `width` long or longer as it is.
 
-For repeating, joining and padding, see [vex:strings](/docs/stdlib/strings).
+[vex:strings](/docs/stdlib/strings) has the same repeating, joining and padding as functions.
 
 ## List members
 
@@ -504,6 +569,7 @@ Lists are shared references: `let b = a` makes `b` another name for the same lis
 | `join(separator: string = "")` | `string` | Each item as `str` shows it, with the separator between |
 | `slice(from: int, to: int)` | `[T]` | A new list of the items from `from` up to, not including, `to`; the same as `xs[from..to]` |
 | `copy()` | `[T]` | A new list with the same items |
+| `cast<U>()` | `[U]` | A copy with each item converted to `U`, such as a `[Circle]` to a `[Shape]`; see [Converting lists](/docs/language/lists) |
 
 Indexing with `xs[i]` reads and `xs[i] = v` writes. An index below 0 or at or past `len` stops the program, and so does one passed to `insert`, `remove` or `slice`. Indexing with a range, `xs[1..3]`, `xs[2..]` or `xs[..2]`, gives a new list; see [Slicing](/docs/language/lists#slicing).
 
@@ -553,10 +619,16 @@ Maps are shared references too. They keep their keys in the order they were firs
 | Member | Result | Description |
 |---|---|---|
 | `len` | `int` | The number of entries. A property |
+| `isEmpty` | `bool` | Whether the map has no entries. A property |
 | `keys` | `[K]` | The keys, in insertion order. A property |
 | `values` | `[V]` | The values, in insertion order. A property |
+| `entries` | `[({K key, V value})]` | The entries as records, in insertion order. A property |
 | `contains(key: K)` | `bool` | Whether the key is present |
 | `remove(key: K)` | `V?` | Removes the key and returns its value, or `nil` if it was missing |
+| `getOrPut(key: K, make: fn() -> V)` | `V` | The value of `key`; when it is missing, stores what `make` returns under `key` and returns it |
+| `update(key: K, change: fn(V) -> V)` | `V?` | Replaces the value of `key` with what `change` returns and gives the new value; a missing key stays missing and gives `nil` |
+| `filter(keep: fn(K, V) -> bool)` | `[K: V]` | A new map of the entries `keep` returns true for |
+| `mapValues(f: fn(V) -> R)` | `[K: R]` | A new map with the same keys and what `f` returns as values |
 | `copy()` | `[K: V]` | A new map with the same entries |
 
 Reading `m[key]` gives a `V?`, which is `nil` when the key is missing, and `m[key] = value` adds or replaces an entry.
@@ -583,7 +655,137 @@ true false
 2 3
 ```
 
+The helpers take their function as a trailing block, where `it` names a single parameter:
+
+```vex title="maphelpers.vx"
+fn main() {
+    var groups: [string: [string]] = [:]
+    for w in ["apple", "avocado", "banana", "cherry", "blueberry"] {
+        groups.getOrPut(w[..1]) { [] }.push(w)
+    }
+    println(groups)
+
+    var stock = ["apple": 3, "pear": 0]
+    println(stock.update("apple") { it - 1 }, stock.update("plum") { it - 1 }, stock)
+    println(stock.filter { name, n in n > 0 }, stock.mapValues { "{it} left" })
+    for e in stock.entries {
+        println(e.key, e.value)
+    }
+    let empty: [string: int] = [:]
+    println(empty.isEmpty, stock.isEmpty)
+}
+```
+
+```text title="Output"
+["a": ["apple", "avocado"], "b": ["banana", "blueberry"], "c": ["cherry"]]
+2 nil ["apple": 2, "pear": 0]
+["apple": 2] ["apple": "2 left", "pear": "0 left"]
+apple 2
+pear 0
+true false
+```
+
+- `getOrPut` and `update` change the map, so they can't be used on a constant map. `filter`, `mapValues` and `entries` leave it as it is.
+- `update` never adds a key. `m[k] += 1` is a compile error, since the key may be missing; write `m[k] = (m[k] ?? 0) + 1`, or `m.update(k) { it + 1 }` when the key is known to be there.
+- `mapValues` can't return an optional, since a map's values can't be optional.
+
 Maps have no `get`, `has`, `set` or `delete`. Using one of those names gives a hint toward the Vex way, such as `use .contains(key)` or `read a key with m[key], which gives nil when it is missing`. See [Maps](/docs/language/maps) for keys, iteration and the rules for optional values.
+
+## Set members
+
+A `Set<T>` holds values without repeats, in the order they were first added. A list literal makes a set wherever a set is expected, and `Set(list)` makes one from a list. Sets are shared references, like lists and maps.
+
+| Member | Result | Description |
+|---|---|---|
+| `len` | `int` | The number of items. A property |
+| `isEmpty` | `bool` | Whether the set has no items. A property |
+| `contains(item: T)` | `bool` | Whether `item` is in the set |
+| `insert(item: T)` | `bool` | Adds the item; gives `false` when it was already there |
+| `remove(item: T)` | `bool` | Removes the item; gives `false` when it wasn't there |
+| `union(other)` | `Set<T>` | A new set with the items of both, the new ones after; `other` is a set or a list |
+| `intersection(other)` | `Set<T>` | A new set with the items in both |
+| `subtracting(other)` | `Set<T>` | A new set with the items not in `other` |
+| `isSubset(of: other)` | `bool` | Whether every item is in `other`, a set or a list |
+| `toList()` | `[T]` | A new list of the items, in order |
+| `copy()` | `Set<T>` | A new set with the same items |
+
+```vex title="sets.vx"
+fn main() {
+    let primes: Set<int> = [2, 3, 5, 7]
+    var seen = Set<string>()
+    println(seen.insert("ann"), seen.insert("ann"), seen.remove("bo"), seen)
+    let ids = Set([3, 1, 3])
+    println(ids, primes.len, primes.isEmpty, primes.contains(4))
+    println(primes.intersection([3, 4, 5]), primes.union(ids), primes.subtracting([2]))
+    println(ids.isSubset(of: primes), primes == [7, 5, 3, 2])
+    println(primes.toList(), primes.copy())
+}
+```
+
+```text title="Output"
+true false false ["ann"]
+[3, 1] 4 false false
+[3, 5] [2, 3, 5, 7, 1] [3, 5, 7]
+false true
+[2, 3, 5, 7] [2, 3, 5, 7]
+```
+
+- Items can be any type a map key can be: `int`, `string`, `bool`, `Bytes`, enums whose cases carry no values, records of these, and structs and enums that list `Hashable`.
+- A set prints like a list. Two sets are `==` when they hold the same items, in any order.
+- Removing an item and inserting it again moves it to the end. A loop sees the items that were there when it started.
+- A set from a `const` can't change; `copy()` gives one that can. A set is Codable when its items are, and is written as a JSON list.
+
+## Bytes
+
+`Bytes` holds binary data, such as file contents, hashes or keys, like Swift's `Data` or Dart's `Uint8List`. Each byte reads as an `int` from 0 to 255. `Bytes` are shared references, like lists.
+
+| Member | Result | Description |
+|---|---|---|
+| `Bytes()`, `Bytes(count: n)`, `Bytes(list)` | `Bytes` | Empty bytes, `n` zero bytes, or the bytes of an `[int]` |
+| `Bytes.fromHex(text: string)` | `Bytes?` | The bytes of pairs of hex digits, or `nil` |
+| `len` | `int` | The number of bytes. A property |
+| `isEmpty` | `bool` | Whether there are no bytes. A property |
+| `b[i]`, `b[i] = x` | `int` | Reads or changes one byte |
+| `b[a..b]` and other range slices | `Bytes` | A new `Bytes` with a copy of those bytes |
+| `push(byte: int)` | `void` | Adds a byte at the end |
+| `append(other: Bytes)` | `void` | Adds every byte of `other` at the end |
+| `copy()` | `Bytes` | A separate `Bytes` with the same bytes |
+| `toList()` | `[int]` | The bytes as a list of ints |
+| `toHex()` | `string` | Two lowercase hex digits for each byte |
+| `decodeUtf8()` | `string?` | The bytes as text, or `nil` when they aren't valid UTF-8 |
+
+```vex title="bytes.vx"
+fn main() {
+    var header = Bytes()
+    let zeros = Bytes(count: 4)
+    let magic = Bytes([0x89, 0x50, 0x4e, 0x47])
+    let text = "Hello".toBytes()
+    println(zeros, magic, Bytes.fromHex("48690aff"), Bytes.fromHex("4"))
+
+    header.push(0x01)
+    header.append(magic)
+    header[0] = 0x02
+    println(header.len, header.isEmpty, header[1], header[1..3])
+    var total = 0
+    for byte in text {
+        total += byte
+    }
+    println(total, text.toHex(), text.decodeUtf8() ?? "binary", Bytes([0xff]).decodeUtf8())
+    println(text.toList(), text == "Hello".toBytes(), text.copy() == text)
+}
+```
+
+```text title="Output"
+Bytes(4 bytes: 00 00 00 00) Bytes(4 bytes: 89 50 4e 47) Bytes(4 bytes: 48 69 0a ff) nil
+5 false 137 Bytes(2 bytes: 89 50)
+500 48656c6c6f Hello nil
+[72, 101, 108, 108, 111] true true
+```
+
+- Storing a value outside 0 to 255, with `push`, `b[i] = x` or `Bytes([...])`, stops the program, as does an index out of range.
+- Two `Bytes` are `==` when they hold the same bytes, and they can be map keys; don't change `Bytes` while they are a key. Printing shows the first 32 bytes in hex.
+- `Bytes` can be sent to other isolates, which get a copy, and are Codable: JSON holds them as a base64 string.
+- [`vex:fs`](/docs/stdlib/fs#binary-files) reads and writes files as `Bytes`, and [`vex:crypto`](/docs/stdlib/crypto) hashes, encrypts and signs them.
 
 ## Range members
 
@@ -694,4 +896,5 @@ true false 81
 - [Strings](/docs/language/strings)
 - [Lists](/docs/language/lists)
 - [Maps](/docs/language/maps)
+- [vex:os streams](/docs/stdlib/os#stdout-and-stderr)
 - [Runtime errors](/docs/tools/runtime-errors)
