@@ -117,7 +117,7 @@ Doctor summary (to see all details, run vex doctor -v):
 
 ## Windows
 
-Vex works on Windows with no Visual Studio and no WSL. Programs are built with the SDK's clang from LLVM-MinGW.
+Vex works on Windows with no Visual Studio and no WSL. Programs are built with the SDK's clang from LLVM-MinGW. [Vex on Windows](/docs/windows) covers installing, the console, paths, `vex doctor` and every difference in detail.
 
 - `vex build hello.vx` writes `hello.exe`.
 - Arguments, environment variables, file names and console output are UTF-8, so text in any script prints correctly in Windows Terminal and PowerShell.
@@ -143,16 +143,24 @@ Built bin/vex (vex 0.1.0-dev+3a88a7e)
 
 The part after `+` is the git commit the compiler was built from, with `-dirty` added when the working tree had uncommitted changes. The compiler has no Go dependencies outside the standard library, and the standard library and runtime are embedded in `bin/vex`, so it works on its own: you can copy it anywhere. Add its folder to your `PATH`:
 
-```sh
-echo 'export PATH="'"$PWD"'/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
+<Tabs items={['macOS and Linux', 'Windows']}>
+  <Tab value="macOS and Linux">
+    ```sh
+    echo 'export PATH="'"$PWD"'/bin:$PATH"' >> ~/.zshrc
+    source ~/.zshrc
+    ```
 
-On Windows, run `./build.sh` from Git Bash, or build from PowerShell or `cmd`:
+    Use `~/.bashrc` instead of `~/.zshrc` with bash.
+  </Tab>
+  <Tab value="Windows">
+    `./build.sh` works from Git Bash. From PowerShell, build and add the folder to your user `PATH`, then open a new terminal:
 
-```bat
-go build -o bin\vex.exe .\cmd\vex
-```
+    ```powershell
+    go build -o bin\vex.exe .\cmd\vex
+    [Environment]::SetEnvironmentVariable("Path", "$PWD\bin;" + [Environment]::GetEnvironmentVariable("Path", "User"), "User")
+    ```
+  </Tab>
+</Tabs>
 
 Without the SDK's toolchain, a few extra packages are needed for `vex:crypto`: on macOS, `swiftc` from the Command Line Tools, which `xcode-select --install` provides; on Linux, OpenSSL 3's development files (`sudo apt install libssl-dev` or `sudo dnf install openssl-devel`). On Linux, install a C compiler with `sudo apt install build-essential`, `sudo dnf install gcc` or `sudo pacman -S base-devel`.
 
@@ -225,6 +233,8 @@ Vex keeps nothing outside its own folder except the package cache, `~/.vex/pkg`,
 
 Your shell can't find `vex` on the `PATH`. Check that the folder you added really contains the `vex` binary, that you ran `source` on your shell file (or opened a new terminal), and that you edited the file of the shell you use: run `echo $SHELL` to see which one that is.
 
+On Windows the message is `The term 'vex' is not recognized`. A `PATH` change reaches only terminals opened after it, so open a new one; see [Vex on Windows](/docs/windows#troubleshooting).
+
 ### No C compiler found
 
 ```text
@@ -233,9 +243,18 @@ vex: no C compiler found; install clang (on macOS: xcode-select --install) or se
 
 `vex check` works without a C compiler, but `vex run` and `vex build` need one. On Windows and Linux the SDK brings its own; check that `toolchain/` is still next to `bin/`. On macOS run `xcode-select --install`. Or point `CC` at a compiler you have:
 
-```sh
-export CC=gcc
-```
+<Tabs items={['macOS and Linux', 'Windows']}>
+  <Tab value="macOS and Linux">
+    ```sh
+    export CC=gcc
+    ```
+  </Tab>
+  <Tab value="Windows">
+    ```powershell
+    $env:CC = "C:\Program Files\LLVM\bin\clang.exe"
+    ```
+  </Tab>
+</Tabs>
 
 ### `CC` names a missing program
 
@@ -243,7 +262,7 @@ export CC=gcc
 vex: running the C compiler (nosuchcc): exec: "nosuchcc": executable file not found in $PATH
 ```
 
-The `CC` environment variable is set to a command that doesn't exist. Fix it, or remove it with `unset CC` so that `vex` finds its compiler by itself. `vex doctor -v` shows which compiler it chose.
+The `CC` environment variable is set to a command that doesn't exist. Fix it, or remove it with `unset CC` (`Remove-Item Env:CC` in PowerShell) so that `vex` finds its compiler by itself. `vex doctor -v` shows which compiler it chose.
 
 ### The C compiler fails on generated code
 

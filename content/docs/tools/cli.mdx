@@ -82,10 +82,20 @@ vex run store               # the project in store/
 
 The program's standard input, output and error are connected to the terminal, so `input()` and pipes work as usual:
 
-```sh
-printf 'Ann\n' | vex run ask.vx
-vex run report.vx > report.txt
-```
+<Tabs items={['macOS and Linux', 'Windows']}>
+  <Tab value="macOS and Linux">
+    ```sh
+    printf 'Ann\n' | vex run ask.vx
+    vex run report.vx > report.txt
+    ```
+  </Tab>
+  <Tab value="Windows">
+    ```powershell
+    'Ann' | vex run ask.vx
+    vex run report.vx > report.txt
+    ```
+  </Tab>
+</Tabs>
 
 Compile errors are printed and nothing runs. If the program builds, `vex run` exits with the program's own exit status.
 
@@ -149,7 +159,7 @@ Built hello
 | `src/app.vx` | `app` |
 | a project | the `name` from `package.toml` |
 
-The executable is written to the current folder, not next to the source: `vex build src/app.vx` creates `./app`.
+The executable is written to the current folder, not next to the source: `vex build src/app.vx` creates `./app`, or `app.exe` on Windows, where `-o` names get `.exe` added too. See [Vex on Windows](/docs/windows).
 
 `-o` sets the output path. It can come before or after the target:
 
@@ -231,12 +241,22 @@ vex emit-c [file or folder]
 
 Prints the C code that `vex build` would compile, to standard output. The output is one self-contained C file: the runtime library first, then your program after a `// --- Program ---` line.
 
-```sh
-vex emit-c hello.vx > hello.c
-cc -std=gnu11 -fwrapv -w -pthread -O3 hello.c -o hello -lm
-```
+<Tabs items={['macOS and Linux', 'Windows']}>
+  <Tab value="macOS and Linux">
+    ```sh
+    vex emit-c hello.vx > hello.c
+    cc -std=gnu11 -fwrapv -w -pthread -O3 hello.c -o hello -lm
+    ```
+  </Tab>
+  <Tab value="Windows">
+    ```powershell
+    cmd /c "vex emit-c hello.vx > hello.c"
+    clang -std=gnu11 -fwrapv -w -O3 "-Wl,--stack,8388608" hello.c -o hello.exe -lm -lbcrypt
+    ```
+  </Tab>
+</Tabs>
 
-`emit-c` leaves test blocks out, like `vex build`.
+In PowerShell the redirect goes through `cmd`, since Windows PowerShell's `>` writes UTF-16. `emit-c` leaves test blocks out, like `vex build`.
 
 [Generated C](/docs/tools/generated-c) explains how each Vex construct appears in it.
 
@@ -605,7 +625,7 @@ On macOS the sanitizer ends the program with an abort signal, so `vex run` adds 
 
 ### VEX_CFLAGS and CC
 
-`VEX_CFLAGS` adds flags to every C compile, after the build-mode flags, so they win when they conflict: `VEX_CFLAGS="-O2" vex build app.vx` builds with `-O2`. `CC` picks the C compiler. Both are described under [Environment variables](#environment-variables).
+`VEX_CFLAGS` adds flags to every C compile, after the build-mode flags, so they win when they conflict: `VEX_CFLAGS="-O2" vex build app.vx` builds with `-O2`; in PowerShell, set `$env:VEX_CFLAGS = "-O2"` first. `CC` picks the C compiler. Both are described under [Environment variables](#environment-variables).
 
 ## Exit codes
 
@@ -657,7 +677,7 @@ If no C compiler is found, every build fails with:
 vex: no C compiler found; install clang (on macOS: xcode-select --install) or set $CC
 ```
 
-The C compiler is called with `-std=gnu11 -fwrapv -w -pthread`, then the [build mode](#build-modes) flags (`-O3` by default), then `VEX_CFLAGS`, then the flags from the `[c]` section of `package.toml`, the output and the generated C file, the sources, libraries and frameworks from the `[c]` section, and finally `-lm`. `-fwrapv` defines what `&+`, `&-` and `&*` do on overflow, and `-w` hides warnings about the generated code. See [C interop](/docs/projects/c-interop) for the `[c]` section.
+The C compiler is called with `-std=gnu11 -fwrapv -w -pthread`, then the [build mode](#build-modes) flags (`-O3` by default), then `VEX_CFLAGS`, then the flags from the `[c]` section of `package.toml`, the output and the generated C file, the sources, libraries and frameworks from the `[c]` section, and finally `-lm`. On Windows, `-pthread` is left out, since the runtime uses Win32 threads, and `-Wl,--stack,8388608` and `-lbcrypt` are added. `-fwrapv` defines what `&+`, `&-` and `&*` do on overflow, and `-w` hides warnings about the generated code. See [C interop](/docs/projects/c-interop) for the `[c]` section.
 
 When the C compiler fails, `vex` says whose fault it is likely to be:
 
@@ -677,9 +697,18 @@ Every Vex program, whether run with `vex run` or built, reads these when it star
 | `VEX_GC_STRESS` | A number `n`: runs a collection every `n` allocations, every fourth one major. Very slow; used to test the collector. |
 | `VEX_GC_VERIFY` | When set, checks at each minor collection that no write barrier was missed. Used with `VEX_GC_STRESS` to test the collector. |
 
-```sh
-VEX_GC_STATS=1 vex run cycles.vx
-```
+<Tabs items={['macOS and Linux', 'Windows']}>
+  <Tab value="macOS and Linux">
+    ```sh
+    VEX_GC_STATS=1 vex run cycles.vx
+    ```
+  </Tab>
+  <Tab value="Windows">
+    ```powershell
+    $env:VEX_GC_STATS = "1"; vex run cycles.vx
+    ```
+  </Tab>
+</Tabs>
 
 ```text
 gc: 7 collections, 31250 KB allocated, 4096 KB peak heap, 2578 KB live, 4160 KB from the system, 4160 KB at most, 0 KB given back

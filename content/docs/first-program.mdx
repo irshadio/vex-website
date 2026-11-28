@@ -146,9 +146,18 @@ Built greet
 
 This writes an executable called `greet` in the current folder, named after the source file, or `greet.exe` on Windows. Run it like any other program:
 
-```sh
-./greet
-```
+<Tabs items={['macOS and Linux', 'Windows']}>
+  <Tab value="macOS and Linux">
+    ```sh
+    ./greet
+    ```
+  </Tab>
+  <Tab value="Windows">
+    ```powershell
+    .\greet.exe
+    ```
+  </Tab>
+</Tabs>
 
 ```text title="Output"
 Hello, Vex!
@@ -362,9 +371,18 @@ Built todo
 
 The executable takes its name from `name` in `package.toml`. When the output name is an existing folder, the binary goes inside it, so `vex build todo` from the parent folder writes `todo/todo`.
 
-```sh
-./todo
-```
+<Tabs items={['macOS and Linux', 'Windows']}>
+  <Tab value="macOS and Linux">
+    ```sh
+    ./todo
+    ```
+  </Tab>
+  <Tab value="Windows">
+    ```powershell
+    .\todo.exe
+    ```
+  </Tab>
+</Tabs>
 
 ```text title="Output"
 [ ] Write the docs (high)

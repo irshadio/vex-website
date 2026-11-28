@@ -124,7 +124,7 @@ When packages ask for different versions of the same package, Vex uses the oldes
 
 ## The download cache
 
-Downloads are kept in one cache shared by every project: `~/.vex/pkg/<repository>@<version>`, such as `~/.vex/pkg/github.com/ann/charts@0.3.1`. Set `VEX_CACHE` to use another folder. A project whose packages are all cached builds offline.
+Downloads are kept in one cache shared by every project: `~/.vex/pkg/<repository>@<version>`, such as `~/.vex/pkg/github.com/ann/charts@0.3.1`. On Windows it is `%USERPROFILE%\.vex\pkg`. Set `VEX_CACHE` to use another folder: `export VEX_CACHE=/data/vex-pkg`, or `$env:VEX_CACHE = "D:\vex-pkg"` in PowerShell. A project whose packages are all cached builds offline.
 
 `vex get` runs the system `git`, fetching tags with a shallow clone, so `git` must be installed and able to reach the repository. Private repositories work with whatever credentials your `git` already uses. [`vex doctor`](/docs/tools/cli#vex-doctor) checks that `git` is there.
 
