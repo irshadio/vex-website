@@ -1,6 +1,6 @@
 ---
 title: Runtime errors
-description: Every error the Vex runtime can stop a program with, what each message looks like, which line it points to, the exit status, and how runtime errors show up in tests and sanitizer builds.
+description: Every error the Vex runtime can stop a program with, what each message looks like, which line it points to, the stack traces that list the calls leading to it, the exit status, and how runtime errors show up in tests and sanitizer builds.
 ---
 
 Some mistakes can only be found while the program runs: an index past the end of a list, a division by zero, text that isn't a number. Vex checks for these and stops the program with a clear message instead of carrying on with a wrong value or crashing. This page lists every runtime error the runtime can raise.
@@ -24,13 +24,117 @@ error: index 4 is out of range for a list of length 3
 
 - The message starts with `error:` and goes to standard error. Everything printed before it on standard output is flushed first, so the order you see is the order things happened.
 - The `-->` line gives the file and line where the error happened. There is no column and no source excerpt, since the program no longer has its source.
+- When the error happens outside `main` itself, a [stack trace](#stack-traces) follows: the calls that led to it, innermost first.
 - The program stops at once with **exit status 1**. Nothing after the failing line runs, `catch` blocks don't run, and pending async tasks and timers are dropped.
 
 Runtime errors are not [thrown errors](/docs/language/errors). A `try ... catch` can't catch them: they mean the program itself is wrong. To handle a condition, check for it first, as in `if i < xs.len`, or use the optional forms Vex provides, such as `m[key]`, which gives `nil` for a missing key instead of stopping.
 
-The same messages appear whether you use `vex run` or run a built executable. Under `vex run`, the exit status of `vex` is the program's exit status, 1.
+The same messages appear whether you use `vex run` or run a built executable; only the stack trace depends on how the program was built. Under `vex run`, the exit status of `vex` is the program's exit status, 1.
 
-When the error happens inside a standard module, the location points into that module, for example `vex:math/math.vx:40`. Look one step up, at your call to it.
+When the error happens inside a standard module, the location points into that module, for example `vex:math/math.vx:40`. The stack trace shows your call to it on the next line.
+
+## Stack traces
+
+With `vex run` and `vex test`, and in programs built with `vex build --traces` or `vex build --debug`, a runtime error that happens outside `main` is followed by the calls that led to it, innermost first, each with the line it was at:
+
+```vex title="store.vx"
+struct Store {
+    items: [int]
+
+    fn get(i: int) -> int => items[i]
+}
+
+fn total(store: Store, picks: [int]) -> int {
+    return picks.map(fn(i) => store.get(i)).sum()
+}
+
+fn main() {
+    let store = Store(items: [5, 7, 9])
+    println(total(store, [0, 2]))
+    println(total(store, [1, 5]))
+}
+```
+
+```text title="Output"
+14
+error: index 5 is out of range for a list of length 3
+ --> store.vx:4
+  at Store.get (store.vx:4)
+  at closure in total (store.vx:8)
+  at total (store.vx:8)
+  at main (store.vx:14)
+```
+
+- Methods show as `Type.name`, closures as `closure in` the function around them, and test blocks as `test "name"`.
+- Recursion shows a repeated call once, followed by `... repeated N more times`, so a deep recursion takes a few lines.
+- Each async task has its own chain, which ends with the call that started it: `in a task started by main (app.vx:20)`. A generator's chain goes on with the code asking it for its next value.
+- An error thrown with `throw` that escapes `main` shows where it was thrown and the calls that led there, the same way; see [Errors that escape main](#errors-that-escape-main).
+
+```vex title="countdown.vx"
+fn countdown(n: int) -> int {
+    if n == 0 {
+        return 10 / n
+    }
+    return countdown(n - 1)
+}
+
+fn main() {
+    println(countdown(50))
+}
+```
+
+```text title="Output"
+error: division by zero
+ --> countdown.vx:3
+  at countdown (countdown.vx:3)
+  at countdown (countdown.vx:5)
+  ... repeated 49 more times
+  at main (countdown.vx:9)
+```
+
+```vex title="task.vx"
+import "vex:time"
+
+async fn check(xs: [int]) -> int {
+    await time.sleep(1)
+    return xs[3]
+}
+
+async fn main() {
+    let task = check([1, 2])
+    println(await task)
+}
+```
+
+```text title="Output"
+error: index 3 is out of range for a list of length 2
+ --> task.vx:5
+  at check (task.vx:5)
+  in a task started by main (task.vx:9)
+```
+
+### Traces and release builds
+
+Recording each call costs time in programs made of many small calls, so a plain `vex build` leaves traces out, and its errors show only the `-->` line:
+
+| How the program is built | Stack traces |
+|---|---|
+| `vex run`, `vex test` | On |
+| `vex build --traces` | On, with full optimization |
+| `vex build --debug` | On |
+| `vex build` | Off |
+
+```sh
+vex build store.vx && ./store
+```
+
+```text
+14
+error: index 5 is out of range for a list of length 3
+ --> store.vx:4
+```
+
+Build with `--traces` to ship a program whose errors still say how they were reached.
 
 ## Lists
 
@@ -113,9 +217,29 @@ fn main() {
 ```text title="Output"
 error: can't change a constant list; change a copy made with .copy()
  --> constlist.vx:4
+  at add (constlist.vx:4)
+  at main (constlist.vx:8)
 ```
 
 Maps give `can't change a constant map; change a copy made with .copy()`. Pass `primes.copy()` instead.
+
+## Bytes
+
+[`Bytes`](/docs/stdlib/built-ins#bytes) are checked like lists: an index out of range stops the program, and so does a value that isn't a byte, whether it is pushed, stored at an index or given to `Bytes([...])`:
+
+```vex title="bytesbad.vx"
+fn main() {
+    var data = Bytes([1, 2])
+    data.push(300)
+}
+```
+
+```text title="Output"
+error: 300 is not a byte; a byte is 0 to 255
+ --> bytesbad.vx:3
+```
+
+An index out of range gives `index 2 is out of range for Bytes of length 2`. Wrong sizes passed to [`vex:crypto`](/docs/stdlib/crypto#mistakes-and-errors), such as a salt that is too short, stop the program the same way.
 
 ## Strings
 
@@ -345,7 +469,7 @@ In tests, [`expect`](/docs/tools/testing#expect) reports a failed condition with
 
 ## Errors that escape main
 
-A `fn main() throws` can let a thrown error reach the top. The program prints `error:` and the error's message, and exits with status 1. Unlike the other runtime errors, there is no `-->` line, because the error was thrown on purpose and carries its own message:
+A `fn main() throws` can let a thrown error reach the top. The program prints `error:` and the error's message, the line where it was thrown, and, when it was thrown outside `main`, the calls that led there. It exits with status 1:
 
 ```vex title="escape.vx"
 fn load() throws -> int {
@@ -360,6 +484,9 @@ fn main() throws {
 
 ```text title="Output"
 error: config file is missing
+ --> escape.vx:2
+  at load (escape.vx:2)
+  at main (escape.vx:6)
 ```
 
 A typed error, from a function marked `throws(E)`, prints the enum case and its values:
@@ -381,7 +508,12 @@ fn main() throws {
 
 ```text title="Output"
 error: LoadError.notFound(path: "a.txt")
+ --> typed.vx:7
+  at load (typed.vx:7)
+  at main (typed.vx:11)
 ```
+
+A typed error passed up through a function that throws plain errors keeps the line of its original `throw` and the calls above it.
 
 ## Stack overflow
 
@@ -433,6 +565,8 @@ async fn main() {
 ```text title="Output"
 error: run can't be used inside async code; use await
  --> nested_run.vx:6
+  at helper (nested_run.vx:6)
+  at main (nested_run.vx:10)
 ```
 
 Make `helper` async and `await` the future instead. Calling `run` directly inside an async function is caught by the compiler.
@@ -551,6 +685,7 @@ test "aborts in C" {
 ✗ divides by zero
 error: division by zero
  --> isolation.vx:19
+  at test "divides by zero" (isolation.vx:19)
 ✗ exits
   stopped with exit status 3
 ✗ aborts in C

@@ -267,7 +267,7 @@ c finished
 
 `b` fails first in time, but `a` is first in the list, so `all` fails with `a`'s error. `any` settles with the first future to finish, which is `d`'s failure. The last line comes from task `c`, which keeps running after `main` is done.
 
-**In `async fn main() throws`**, an error that reaches the top is printed as `error: <message>` with exit code 1, but only once every other task and timer is done. The loop finishes its work first:
+**In `async fn main() throws`**, an error that reaches the top is printed as `error: <message>`, with the line it was thrown at and the calls that led there, and exit code 1, but only once every other task and timer is done. The loop finishes its work first:
 
 ```vex title="main_error.vx"
 import "vex:time"
@@ -296,6 +296,9 @@ tick 0
 tick 1
 tick 2
 error: boom
+ --> main_error.vx:5
+  at fail (main_error.vx:5)
+  at main (main_error.vx:17)
 ```
 
 The exit code is 1. The `error:` line goes to standard error.
