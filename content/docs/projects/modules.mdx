@@ -199,9 +199,9 @@ Imports go at the top of a file, before any declaration. There are three forms:
 |---|---|---|
 | `"vex:name"` | A standard library module, built into the compiler | `import "vex:math"` |
 | `"path"` | A folder of this project, relative to the importing file | `import "models"`, `import "../models"` |
-| `"package:name"` | A dependency from the package manager | Planned, see [Packages](/docs/projects/packages) |
+| `"package:name"` | A package added with `vex get`, or a folder inside it | `import "package:charts"`, `import "package:charts/line"` |
 
-The standard library modules are `vex:fs`, `vex:isolate`, `vex:math`, `vex:os`, `vex:strings` and `vex:time`. See the [standard library](/docs/stdlib).
+The standard library modules are `vex:crypto`, `vex:datetime`, `vex:fs`, `vex:isolate`, `vex:json`, `vex:math`, `vex:os`, `vex:random`, `vex:regex`, `vex:strings` and `vex:time`. See the [standard library](/docs/stdlib). Packages are covered on [Packages](/docs/projects/packages).
 
 ### The module's name
 
@@ -454,10 +454,10 @@ sources = ["native/clipboard_x11.c"]
 libs = ["X11"]
 
 [dependencies]
-# read by the package manager, which is planned
+charts = { git = "https://github.com/ann/charts", version = "0.3.1" }
 
 [dev-dependencies]
-# read by the package manager, which is planned
+# accepted and skipped for now
 ```
 
 ### `[package]`
@@ -510,7 +510,7 @@ C code for one operating system. Each section takes the same keys as `[c]`. When
 
 ### `[dependencies]` and `[dev-dependencies]`
 
-These sections are accepted, and their contents are skipped without being checked. They are reserved for the package manager, which is not built yet. See [Packages](/docs/projects/packages).
+`[dependencies]` lists the packages the project uses, one per line, as `name = { git = "...", version = "..." }` with an optional `path`. `vex get` writes these lines, and the exact versions go to `package.lock`. See [Packages](/docs/projects/packages). `[dev-dependencies]` is accepted, and its contents are skipped without being checked.
 
 ### Errors in package.toml
 
@@ -578,7 +578,7 @@ Import errors and their messages:
 | Import | Message |
 |---|---|
 | `import "vex:nothing"` | `unknown module 'vex:nothing'`, with the list of standard modules as a hint |
-| `import "package:charts"` | `package imports aren't supported yet` |
+| `import "package:charts"` without the package in `package.toml` | `no package 'charts' in package.toml`, with `add it with: vex get <repository URL>` as a hint |
 | `import "http://x"` | `unknown import scheme in 'http://x'` |
 | `import "/abs"` | `import paths must be relative` |
 | `import "."` | `a module can't import its own folder` |
