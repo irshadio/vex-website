@@ -1,6 +1,6 @@
 ---
 title: Operators
-description: Arithmetic, integer overflow and division rules, wrapping operators, bitwise operators, comparison and identity, logical operators, assignment, the range operators, ?? and ?., is and as?, and the full precedence table.
+description: Arithmetic, integer overflow and division rules, wrapping operators, bitwise operators, comparison and identity, logical operators, assignment, the range operators, ??, ?. and ?[ ], is and as?, and the full precedence table.
 ---
 
 Vex has a small set of operators, and each one works only on the types it makes sense for. Numbers don't convert silently, integer overflow stops the program instead of producing a wrong number, and comparisons can't be chained by accident. This page lists every operator, its exact behaviour and the order in which operators combine.
@@ -31,7 +31,7 @@ fn main() {
 5.0 3.5 10.0 12
 ```
 
-Structs can define `+`, `-`, `*`, `/`, `%`, unary `-`, `==`, `<` and indexing for themselves. See [Structs](/docs/language/structs#operators).
+Structs and enums can define `+`, `-`, `*`, `/`, `%`, unary `-`, `==`, `<` and indexing for themselves. See [Structs](/docs/language/structs#operators) and [Enums](/docs/language/enums#operators).
 
 ## Integer arithmetic
 
@@ -191,11 +191,13 @@ Which types can be compared:
 | `string` | yes, by text | yes, code point by code point |
 | `bool` | yes | no |
 | enum whose cases carry no values | yes | yes, in declaration order |
-| enum whose cases carry values | if it lists `Equatable` or `Hashable`: the case, then its values | no |
+| enum whose cases carry values | if it lists `Equatable` or `Hashable`: the case, then its values; or if it defines `operator ==` | if it defines `operator <` |
 | record | yes, field by field, if every field can be compared | no |
 | struct | if it lists `Equatable` or `Hashable`, which compare every field, or defines `operator ==` | if it defines `operator <` |
 | list | yes, element by element, if the elements can be compared | no |
 | map | yes, entry by entry whatever their order, if the values can be compared | no |
+| set | yes, item by item whatever their order | no |
+| `Bytes` | yes, byte by byte | no |
 | optional | yes: equal when both are `nil` or both hold equal values | no |
 | function, interface value | no | no |
 
@@ -244,7 +246,7 @@ true false true
 true
 ```
 
-- `===` works on structs, lists, maps, interface values, C handles and enums whose cases carry values. Any struct can use it, whether or not it has `==`.
+- `===` works on structs, lists, maps, sets, `Bytes`, interface values, C handles and enums whose cases carry values. Any struct can use it, whether or not it has `==`.
 - Ints, strings, functions and other values have no identity: `n === 1` gives `'===' compares references, but an int is a value`, with the hint `use == to compare values`.
 - `===` has the same precedence as `==`, and doesn't chain either.
 
@@ -377,7 +379,7 @@ B
 
 ## Optional operators
 
-`??` gives a fallback for `nil`, and `?.` reads a member only when the value isn't `nil`. Both are covered in full on the [Optionals](/docs/language/optionals) page.
+`??` gives a fallback for `nil`, `?.` reads a member only when the value isn't `nil`, and `?[ ]` indexes only when it isn't. Both are covered in full on the [Optionals](/docs/language/optionals) page.
 
 ```vex title="optional.vx"
 fn fallback() -> int {
@@ -392,7 +394,7 @@ fn main() {
     println(none ?? fallback())
     println(none ?? some ?? 0)
     let words: [string]? = nil
-    println(words?.len ?? 0)
+    println(words?.len ?? 0, words?[0] ?? "none")
 }
 ```
 
@@ -401,7 +403,7 @@ fn main() {
 fallback ran
 0
 7
-0
+0 none
 ```
 
 - `a ?? b` runs `b` only when `a` is `nil`.
@@ -409,6 +411,7 @@ fallback ran
 - `??` binds tighter than comparisons and looser than arithmetic and ranges: `a ?? 0 > 5` is `(a ?? 0) > 5`, and `a ?? 1 + 2` is `a ?? (1 + 2)`.
 - The right side of `??` can be `return`, `throw`, `break` or `continue`, which leaves when the left side is `nil`: `let n = int.parse(text) ?? return 0`. See [Leaving early](/docs/language/optionals#leaving-early).
 - `x?.name` is `nil` when `x` is `nil`, and otherwise the member wrapped in an optional. A call through `?.`, such as `user?.greet()`, runs only when `user` isn't `nil`.
+- `xs?[i]` is `nil` when `xs` is `nil`, and otherwise `xs[i]` as an optional; an index out of range still stops the program. See [Optional indexing](/docs/language/optionals#optional-indexing).
 
 ## Type tests
 
@@ -427,7 +430,7 @@ From highest (binds tightest) to lowest:
 
 | Level | Operators | Grouping |
 |---|---|---|
-| 1 | Postfix: call `f(x)`, index `a[i]`, member `a.b`, optional member `a?.b` | left to right |
+| 1 | Postfix: call `f(x)`, index `a[i]`, member `a.b`, optional member `a?.b`, optional index `a?[i]` | left to right |
 | 2 | Prefix: `-a`, `!a`, `~a`, `await a`, `try a` | right to left |
 | 3 | `<<` `>>` | left to right |
 | 4 | `*` `/` `%` `&*` `&` | left to right |
@@ -480,7 +483,7 @@ When an expression mixes levels in a way that isn't obvious, add parentheses. Th
 - `+` on a string and anything else: `can't use '+' with string and int`.
 - `%`, `%=`, the wrapping operators and the bitwise operators reject floats: `'%' can't be used with float`, `&+= can't be used with float`, `'&' works only on int, found float`.
 - `!` needs a `bool`: `'!' needs a bool, found int`.
-- Lists and maps have no arithmetic operators: `[1] + [2]` gives `'+' can't be used with [int]`. They compare with `==` and `===`.
+- Lists, maps and sets have no arithmetic operators: `[1] + [2]` gives `'+' can't be used with [int]`. They compare with `==` and `===`.
 - Operands run left to right, including for operators that structs define.
 
 ## Comparison

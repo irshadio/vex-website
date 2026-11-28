@@ -359,8 +359,8 @@ The compiler checks generic code once, against its constraints, rather than at e
 
 | Constraint | Allows | Met by |
 |---|---|---|
-| `Equatable` | `==`, `!=`, `list.contains` | `int`, `float`, `bool`, `string`, enums whose cases carry no values, structs that define `operator ==`, structs and enums that list `Equatable` or `Hashable`, and lists, maps, optionals and records of these |
-| `Comparable` | `<`, `<=`, `>`, `>=`, and `==` | `int`, `float`, `string`, enums whose cases carry no values, structs that define `operator <` and `operator ==` |
+| `Equatable` | `==`, `!=`, `list.contains` | `int`, `float`, `bool`, `string`, enums whose cases carry no values, structs and enums that define `operator ==`, structs and enums that list `Equatable` or `Hashable`, and lists, maps, optionals and records of these |
+| `Comparable` | `<`, `<=`, `>`, `>=`, and `==` | `int`, `float`, `string`, enums whose cases carry no values, structs that define `operator <` and `operator ==`, and enums that define `operator <` and have `==` |
 | `Hashable` | map keys, and `==` | `int`, `bool`, `string`, enums whose cases carry no values, records of these, and structs and enums that list `Hashable` |
 
 ```vex title="constraints.vx"
@@ -433,7 +433,7 @@ error: count needs T to be Hashable, but float isn't
   --> unmet.vx:14:13
    |
 14 |     println(count([1.5]))
-   |             ^^^^^ Hashable types are int, string, bool, enums whose cases carry no values, records of those, and structs and enums that list Hashable
+   |             ^^^^^ Hashable types are int, string, bool, Bytes, enums whose cases carry no values, records of those, and structs and enums that list Hashable
 
 2 errors
 ```
