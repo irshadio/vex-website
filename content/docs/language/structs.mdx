@@ -411,6 +411,8 @@ fn main() {
 Span(low: 2, high: 9, size: 7, label: "week")
 error: assertion failed: low must not exceed high
  --> init.vx:8
+  at Span.init (init.vx:8)
+  at main (init.vx:17)
 ```
 
 - A `let` field without a default that `init` sets in one of its own top-level statements, such as `size` above, is worked out by `init` and isn't a parameter of the constructor. Passing it is an error: `Span has no parameter 'size'`.

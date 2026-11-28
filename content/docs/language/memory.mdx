@@ -234,6 +234,8 @@ fn main() {
 ```text title="Output"
 error: can't change a constant list; change a copy made with .copy()
  --> const_runtime.vx:4
+  at add (const_runtime.vx:4)
+  at main (const_runtime.vx:8)
 ```
 
 Since constants never change, every [isolate](/docs/concurrency/isolates) shares the same copy. See [Constants](/docs/language/constants).

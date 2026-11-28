@@ -186,6 +186,8 @@ fn main() {
 true
 error: can't change a constant list; change a copy made with .copy()
  --> frozenalias.vx:4
+  at addPrime (frozenalias.vx:4)
+  at main (frozenalias.vx:10)
 ```
 
 For maps, the message is `can't change a constant map; change a copy made with .copy()`. Use `.copy()` to get a changeable list or map with the same contents:
