@@ -4,6 +4,8 @@ import { Hero } from '@/components/home/hero';
 import { Pillars } from '@/components/home/pillars';
 import { Glance } from '@/components/home/glance';
 import { Performance } from '@/components/home/performance';
+import { Interop } from '@/components/home/interop';
+import { Devices } from '@/components/home/devices';
 import { Platforms } from '@/components/home/platforms';
 import { Pipeline } from '@/components/home/pipeline';
 import { RoadmapSummary } from '@/components/home/roadmap-summary';
@@ -21,6 +23,8 @@ export default function HomePage() {
         <Glance />
         <Performance />
         <Platforms />
+        <Interop />
+        <Devices />
         <Pipeline />
         <RoadmapSummary />
         <Closing />
