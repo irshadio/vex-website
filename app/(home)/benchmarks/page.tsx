@@ -70,7 +70,7 @@ export default async function BenchmarksPage() {
               ['Machine', data.machine.cpu],
               ['System', `${data.machine.os}, ${data.machine.memory} memory`],
               ['Measured', data.date],
-              ['Runs', '10 timed runs after 2 warm-ups'],
+              ['Runs', '20 timed runs after 2 warm-ups'],
             ].map(([k, v]) => (
               <div key={k} className="py-2 lg:pr-6">
                 <p className="text-xs font-semibold tracking-[0.12em] text-fd-muted-foreground uppercase">{k}</p>
