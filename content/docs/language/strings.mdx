@@ -1,6 +1,6 @@
 ---
 title: Strings
-description: String literals, escape sequences, interpolation, multi-line and raw strings, characters and Unicode, slicing with ranges, comparison, an overview of the string methods, and formatting and parsing numbers.
+description: String literals, escape sequences, interpolation and format specs, multi-line and raw strings, characters, grapheme clusters and Unicode case mapping, slicing with ranges, comparison, every string method, and formatting and parsing numbers.
 ---
 
 A `string` holds text encoded as UTF-8. Strings are values: they can't be changed in place, and every method that seems to change one returns a new string. Text and values combine through interpolation, `"Hi {name}"`, rather than with `+`.
@@ -145,6 +145,72 @@ Outer inner ANN done
 
 For anything longer than a short expression, compute it into a variable first. It reads better.
 
+### Format specs
+
+An interpolated value can take a format spec after a `:`, as in Python and Rust. It sets the digits after the point, pads to a width, aligns, and writes integers in other bases:
+
+```vex title="formatspec.vx"
+fn main() {
+    let price = 9.987
+    let n = 42
+    let name = "Ann"
+    println("{price:.2} {n:04} [{n:6}] {3:.1}")
+    println("[{name:<6}] [{name:>6}] [{name:^7}] [{name:*^9}]")
+    println("{n:x} {n:#X} {n:b} {n:#o}")
+    println("{n:+} {1234567:,} {3.14159:+08.3}")
+
+    let rows = [("apples", 3, 1.5), ("kiwis", 12, 0.25)]
+    for (item, qty, cost) in rows {
+        println("{item:<8}{qty:>4}{cost:>8.2}")
+    }
+}
+```
+
+```text title="Output"
+9.99 0042 [    42] 3.0
+[Ann   ] [   Ann] [  Ann  ] [***Ann***]
+2a 0x2A 101010 0o52
++42 1,234,567 +003.142
+apples     3    1.50
+kiwis     12    0.25
+```
+
+The parts of a spec are all optional, and go in this order:
+
+| Part | Meaning | Example |
+|---|---|---|
+| fill and alignment | `<` left, `>` right, `^` centre, after an optional fill character (a space when left out) | `{name:*^9}` is `***Ann***` |
+| `+` | Always show the sign | `{n:+}` is `+42` |
+| `#` | A `0x`, `0b` or `0o` prefix for a base | `{n:#X}` is `0x2A` |
+| `0` | Pad with zeros after the sign | `{n:04}` is `0042` |
+| width | The least number of characters | `{n:6}` is `    42` |
+| `,` | Thousands separators | `{1234567:,}` is `1,234,567` |
+| `.` and digits | Digits after the point | `{price:.2}` is `9.99` |
+| type | `x` and `X` for hexadecimal, `b` for binary, `o` for octal | `{n:b}` is `101010` |
+
+- Any value can be padded and aligned, and the width counts characters. Numbers are right-aligned by default and other values left-aligned.
+- A sign, zeros, separators and a precision need an `int` or `float`, and a base needs an `int`. An `int` with a precision prints like a float: `{3:.1}` is `3.0`. Rounding is as in [`toFixed`](#formatting-and-parsing-numbers), halves away from zero.
+- The spec is plain text, checked when the program compiles. A `:` inside brackets, a call or a nested string isn't a spec, so `{m["a"] ?? 0:03}` pads the value of `m["a"] ?? 0`.
+
+A spec that doesn't fit the value is a compile error:
+
+```vex title="badspec.vx"
+fn main() {
+    let name = "Ann"
+    println("{name:.2}")
+}
+```
+
+```text title="Output"
+error: format spec '.2' needs an int or float, found string
+ --> badspec.vx:3:20
+  |
+3 |     println("{name:.2}")
+  |                    ^^ only fill, alignment and width, as in :<10, apply to string
+```
+
+An unknown character gives `unexpected 'q' in format spec`, with a hint showing the order of the parts.
+
 ### Why interpolation and not `+`
 
 `+` joins two strings, and only strings. Joining a number is an error that points to interpolation:
@@ -251,7 +317,7 @@ fn main() {
 
 ## Characters and Unicode
 
-Vex has no `char` type. A character is a `string` of length 1, and `.chars()` splits a string into them:
+Vex has no `char` type. A character is a `string` of length 1, and `.chars()` splits a string into them, one Unicode code point each:
 
 ```vex title="chars.vx"
 fn main() {
@@ -272,9 +338,46 @@ fn main() {
 ```
 
 - `len` counts Unicode code points, not bytes and not user-perceived characters. `"👍🏽"` is a thumbs-up followed by a skin-tone modifier, so its length is 2.
-- Indexes in slices, `substring` and `indexOf` count code points the same way.
+- Indexes in slices, `substring`, `indexOf` and `lastIndexOf` count code points the same way.
 - Strings can't be indexed with `s[i]` (`a string can't be indexed by int`) or looped over directly (`can't loop over a value of type string`). Loop over `.chars()`, and take one character with `s[i..=i]` (see [Slicing](#slicing)).
 - Names in code are ASCII only; strings and comments can hold any Unicode text.
+
+### Grapheme clusters
+
+What a reader sees as one character can be several code points: a letter followed by a combining accent, an emoji with a skin tone, or a flag made of two regional indicators. `graphemeCount` and `graphemes()` count and split by these grapheme clusters, as Swift counts characters, following Unicode 15.0. `reversed()` reverses clusters too, so accents stay on their letters:
+
+```vex title="graphemes.vx"
+fn main() {
+    let word = "noe\u{308}l 👍🏽 🇯🇵"
+    println(word.len, word.graphemeCount)
+    println(word.graphemes())
+    println(word.reversed())
+}
+```
+
+```text title="Output"
+11 8
+["n", "o", "ë", "l", " ", "👍🏽", " ", "🇯🇵"]
+🇯🇵 👍🏽 lëon
+```
+
+Use `graphemeCount` for what a person would call the length of the text, such as a limit on a user name, and `len` for indexes and slices.
+
+### Case mapping
+
+`upper()` and `lower()` follow the case mappings of Unicode 15.0 for every script, the same whatever the system's locale. Some mappings change the length: `"straße".upper()` is `"STRASSE"`. `capitalize()` puts the first character in title case, which is upper case for most letters:
+
+```vex title="case.vx"
+fn main() {
+    println("straße".upper(), "ÀÉÎ".lower(), "émile".capitalize())
+    println("ǆemal".capitalize(), "vex".upper().len, "straße".upper().len)
+}
+```
+
+```text title="Output"
+STRASSE àéî Émile
+ǅemal 3 7
+```
 
 ## Slicing
 
@@ -359,25 +462,36 @@ This order is fast and predictable but isn't a dictionary order for any human la
 
 ## String methods
 
-Strings have one property, `len`, and these methods. Every method returns a new value; the original string never changes.
+Strings have the properties `len`, `isEmpty` and `graphemeCount`, and these methods. Every method returns a new value; the original string never changes.
 
 | Member | Result | Description |
 |---|---|---|
 | `s.len` | `int` | Number of code points |
-| `s.upper()` | `string` | Letters `a` to `z` changed to uppercase |
-| `s.lower()` | `string` | Letters `A` to `Z` changed to lowercase |
+| `s.isEmpty` | `bool` | Whether the string is `""` |
+| `s.graphemeCount` | `int` | Number of grapheme clusters, the characters a reader sees |
+| `s.upper()`, `s.lower()` | `string` | The text in upper or lower case, for every script |
+| `s.capitalize()` | `string` | The first character in title case |
 | `s.contains(text)` | `bool` | Whether `text` appears in `s` |
 | `s.startsWith(text)` | `bool` | Whether `s` begins with `text` |
 | `s.endsWith(text)` | `bool` | Whether `s` ends with `text` |
 | `s.indexOf(text)` | `int?` | Code point index of the first match, or `nil` |
+| `s.lastIndexOf(text)` | `int?` | Code point index of the last match, or `nil` |
+| `s.count(text)` | `int` | How many times `text` appears, without overlapping |
 | `s.substring(from, to)` | `string` | Code points from `from` up to, not including, `to`; the same as `s[from..to]` |
 | `s.split(separator)` | `[string]` | The parts between each separator |
+| `s.split(separator, limit: n)` | `[string]` | At most `n` parts, the last holding the rest; 0 means no limit |
 | `s.replace(old, with)` | `string` | Every `old` replaced with `with` |
+| `s.padStart(width, with: fill)` | `string` | Copies of `fill` added at the start until `s` is `width` characters long; `fill` is a space when left out |
+| `s.padEnd(width, with: fill)` | `string` | The same, at the end |
+| `s.repeat(n)` | `string` | The string `n` times, or `""` when `n` is 0 or less |
+| `s.reversed()` | `string` | The grapheme clusters in reverse order |
 | `s.trim()` | `string` | Spaces, tabs and line endings removed from both ends |
 | `s.trimStart()` | `string` | The same, at the start only |
 | `s.trimEnd()` | `string` | The same, at the end only |
 | `s.chars()` | `[string]` | Each code point as a string |
+| `s.graphemes()` | `[string]` | Each grapheme cluster as a string |
 | `s.lines()` | `[string]` | Each line, without its line ending |
+| `s.toBytes()` | `Bytes` | The UTF-8 bytes of the string (see [Bytes](/docs/language/bytes)) |
 
 ```vex title="methods.vx"
 fn main() {
@@ -388,15 +502,23 @@ fn main() {
     println("a,b,,c".split(","), "one\ntwo\r\nthree\n".lines())
     println("a-b-c".replace("-", "+"), "ÀbC".upper(), "ÀbC".lower())
     println("vex.vx".endsWith(".vx"), "hello".indexOf("z"), "🙂ok".indexOf("ok"))
+    println("banana".count("an"), "banana".lastIndexOf("an"), "aaaa".count("aa"))
+    println("k=v=w".split("=", limit: 2), "7".padStart(3, with: "0"), "[{"ab".padEnd(5, with: ".")}]")
+    println("-".repeat(5), "".isEmpty, "stressed".reversed())
 }
 ```
 
 ```text title="Output"
 /home/ann/notes txt
 ["a", "b", "", "c"] ["one", "two", "three"]
-a+b+c ÀBC Àbc
+a+b+c ÀBC àbc
 true nil 1
+2 3 2
+["k", "v=w"] 007 [ab...]
+----- true desserts
 ```
+
+The length of a string is `len`; `count` always takes the text to look for.
 
 ### Edge cases
 
@@ -417,9 +539,14 @@ true nil 1
 | `"".lines()` | `[]` |
 | `"\n\nx".lines()` | `["", "", "x"]` |
 | `"   ".trim()` | `""` |
-| `"ÀbC".upper()` | `"ÀBC"`: only `a` to `z` change |
+| `"a,b,c".split(",", limit: 0)` | `["a", "b", "c"]`: a limit of 0 means no limit |
+| `"a,b".split(",", limit: -1)` | stops the program: `split limit can't be negative, found -1` |
+| `"abc".count("")` | stops the program: `count needs text to look for, not an empty string` |
+| `"12345".padStart(3)` | `"12345"`: a longer string stays as it is |
+| `"7".padStart(4, with: "ab")` | `"aba7"`: the last copy is cut short |
+| `"straße".upper()` | `"STRASSE"`, one character longer |
 
-The [`vex:strings`](/docs/stdlib/strings) module adds `repeat`, `join`, `padLeft` and `padRight`, and [Built-ins](/docs/stdlib/built-ins) has the complete reference for every member. You can add your own methods to `string` with an [extension](/docs/language/extensions).
+The [`vex:strings`](/docs/stdlib/strings) module has the same helpers as functions, `repeat`, `join`, `padLeft` and `padRight`, and [Built-ins](/docs/stdlib/built-ins) has the complete reference for every member. You can add your own methods to `string` with an [extension](/docs/language/extensions).
 
 ## Printing values
 
@@ -444,7 +571,7 @@ The [`vex:strings`](/docs/stdlib/strings) module adds `repeat`, `join`, `padLeft
 
 ### Formatting and parsing numbers
 
-`x.toFixed(n)` writes a `float` with exactly `n` digits after the point, and `str(n, radix: r)` writes an `int` in another base. Going the other way, `int.parse` and `float.parse` read text that may not be a number and give `nil` when it isn't:
+Inside a string, a [format spec](#format-specs) such as `{price:.2}` or `{n:x}` is usually simplest. Outside one, `x.toFixed(n)` writes a `float` with exactly `n` digits after the point, and `str(n, radix: r)` writes an `int` in another base. Going the other way, `int.parse` and `float.parse` read text that may not be a number and give `nil` when it isn't:
 
 ```vex title="format.vx"
 fn main() {
@@ -471,8 +598,8 @@ See [int.parse and float.parse](/docs/stdlib/built-ins#intparse-and-floatparse) 
 - A `"..."` string can't span lines: a line break before the closing quote gives `unterminated string`.
 - Strings can't be changed in place. `var s = "ab"; s += "c"` works because it builds a new string and assigns it to `s`.
 - `s.len` is a property: `s.len()` gives `len is a property, not a method`, and `s.len = 2` gives `len can't be changed`.
-- `upper` and `lower` change only ASCII letters for now.
-- `+` joins strings only: `can't use '+' with string and int`. `"a" * 3` is an error too; use `strings.repeat` from `vex:strings`.
+- `upper`, `lower` and `capitalize` don't depend on the system's locale, so `"i".upper()` is `"I"` everywhere.
+- `+` joins strings only: `can't use '+' with string and int`. `"a" * 3` is an error too; write `"a".repeat(3)`.
 
 ## See also
 
