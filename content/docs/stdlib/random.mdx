@@ -1,0 +1,222 @@
+---
+title: vex:random
+description: API reference for vex:random, which rolls numbers from ranges, picks and shuffles list items, and gives the same values every run from a seeded generator.
+---
+
+`vex:random` makes random numbers, picks items and shuffles lists. Its functions draw from a generator the operating system seeds, one for each isolate, so each run gives different values. A [`Random`](#random) made with a seed gives the same values in the same order on every run, for tests and replays.
+
+```vex title="dice.vx"
+import "vex:random"
+
+fn main() {
+    let roll = random.nextInt(1..=6)
+    println(roll >= 1 && roll <= 6)
+    let coin = if random.nextBool() { "heads" } else { "tails" }
+    println(coin == "heads" || coin == "tails")
+    let deck = ["A", "K", "Q", "J"]
+    let hand = deck.shuffled()
+    println(hand.len, hand.sorted() == deck.sorted(), deck)
+}
+```
+
+```text title="Output"
+true
+true
+4 true ["A", "K", "Q", "J"]
+```
+
+The values change from run to run, so the program prints only facts about them.
+
+<Callout type="warn" title="Not for secrets">
+`vex:random` is fast and predictable to anyone who learns its state. Never use it for passwords, keys, tokens or anything an attacker shouldn't guess. Use [`crypto.randomBytes`](/docs/stdlib/crypto#randombytes) and [`crypto.uuid`](/docs/stdlib/crypto#uuid), which read the system's secure random source.
+</Callout>
+
+## Summary
+
+| Function | Result |
+|---|---|
+| [`nextInt(range)`](#nextint) | One of the values of a range, each equally likely |
+| [`nextFloat()`](#nextfloat) | A float from 0.0 up to, not including, 1.0 |
+| [`nextBool()`](#nextbool) | `true` or `false`, each half of the time |
+| [`pick(items)`](#pick) | A random item of a list, or `nil` when it is empty |
+| [`shuffle(items)`](#shuffle-and-shuffled) | Puts a list in a random order, in place |
+| [`shuffled(items)`](#shuffle-and-shuffled) | A copy of a list in a random order |
+| [`Random(seed:)`](#random) | A generator with all of the above that repeats its values for a seed |
+
+In a file that imports `vex:random`, lists also have the members `xs.shuffle()` and `xs.shuffled()`.
+
+## nextInt
+
+```vex
+pub fn nextInt(range: Range) -> int
+```
+
+Returns one of the values of `range`, each equally likely.
+
+- **Parameters:** `range`, the values to choose from: `1..=6` for a die, `0..n` for an index. Stepped and reversed ranges work, so `(0..100).step(2)` gives an even number.
+- **Returns:** An `int` the range gives.
+- **Errors:** An empty range stops the program: `nextInt needs a range with values, found the empty range 5..5`.
+
+The result is unbiased: every value is equally likely, whatever the size of the range.
+
+```vex title="ranges.vx"
+import "vex:random"
+
+fn main() {
+    let gen = random.Random(seed: 3)
+    var even = true
+    var counts = [0, 0, 0]
+    for i in 0..1000 {
+        if gen.nextInt((0..100).step(2)) % 2 != 0 {
+            even = false
+        }
+        counts[gen.nextInt(0..3)] += 1
+    }
+    println(even, counts.all(fn(c) => c > 250))
+    println(gen.nextInt(10..=10), gen.nextInt((1..=5).reversed()) <= 5)
+}
+```
+
+```text title="Output"
+true true
+10 true
+```
+
+## nextFloat
+
+```vex
+pub fn nextFloat() -> float
+```
+
+Returns a random float from 0.0 up to, not including, 1.0.
+
+- **Parameters:** none.
+- **Returns:** A `float` with 53 random bits, evenly spread over the interval.
+- **Errors:** None.
+
+Scale and shift it for other intervals: `low + random.nextFloat() * (high - low)` gives a float from `low` up to `high`.
+
+```vex title="float.vx"
+import "vex:random"
+
+fn main() {
+    let gen = random.Random(seed: 1)
+    let xs = [gen.nextFloat(), gen.nextFloat(), gen.nextFloat()]
+    println(xs.all(fn(x) => x >= 0.0 && x < 1.0))
+    let price = 10.0 + gen.nextFloat() * 5.0
+    println(price >= 10.0 && price < 15.0)
+}
+```
+
+```text title="Output"
+true
+true
+```
+
+## nextBool
+
+```vex
+pub fn nextBool() -> bool
+```
+
+Returns `true` or `false`, each half of the time.
+
+- **Parameters:** none.
+- **Returns:** A `bool`.
+- **Errors:** None.
+
+## pick
+
+```vex
+pub fn pick<T>(items: [T]) -> T?
+```
+
+Returns a random item of `items`.
+
+- **Parameters:** `items`, the list to choose from. It isn't changed.
+- **Returns:** One of the items, each equally likely, or `nil` when the list is empty.
+- **Errors:** None.
+
+The result is optional, so give a default with `??` or unwrap it with `if let`.
+
+## shuffle and shuffled
+
+```vex
+pub fn shuffle<T>(items: [T])
+pub fn shuffled<T>(items: [T]) -> [T]
+```
+
+`shuffle` puts the items of a list in a random order, in place. `shuffled` returns a shuffled copy and leaves the list as it was.
+
+- **Parameters:** `items`, the list. `shuffle` changes it, so it can't be a constant list.
+- **Returns:** nothing for `shuffle`; a new list for `shuffled`.
+- **Errors:** None.
+
+Every order is equally likely: they use the Fisher-Yates shuffle. In a file that imports `vex:random` they are also list members, so `deck.shuffle()` is `random.shuffle(deck)`.
+
+```vex title="pick.vx"
+import "vex:random"
+
+fn main() {
+    let gen = random.Random(seed: 42)
+    let colors = ["red", "green", "blue"]
+    println(gen.pick(colors), gen.pick(colors))
+    let none: [string] = []
+    println(gen.pick(none))
+    let order = [1, 2, 3, 4, 5]
+    println(gen.shuffled(order), order)
+    gen.shuffle(order)
+    println(order)
+}
+```
+
+```text title="Output"
+red red
+nil
+[1, 2, 4, 3, 5] [1, 2, 3, 4, 5]
+[4, 2, 1, 5, 3]
+```
+
+## Random
+
+```vex
+pub struct Random {
+    pub let seed: int
+
+    pub fn nextInt(range: Range) -> int
+    pub fn nextFloat() -> float
+    pub fn nextBool() -> bool
+    pub fn pick<T>(items: [T]) -> T?
+    pub fn shuffle<T>(items: [T])
+    pub fn shuffled<T>(items: [T]) -> [T]
+}
+```
+
+A generator of random values that starts from `seed`. Two generators made with the same seed give the same values in the same order, on every run and every system, which makes a test, a simulation or a game level repeatable. Its methods work as the module's functions of the same name do.
+
+```vex title="seeded.vx"
+import "vex:random"
+
+fn main() {
+    let a = random.Random(seed: 7)
+    let b = random.Random(seed: 7)
+    let first = [a.nextInt(1..=6), a.nextInt(1..=6), a.nextInt(1..=6)]
+    let second = [b.nextInt(1..=6), b.nextInt(1..=6), b.nextInt(1..=6)]
+    println(first, second, first == second, a.seed)
+}
+```
+
+```text title="Output"
+[2, 1, 4] [2, 1, 4] true 7
+```
+
+- The generator is SplitMix64, written in Vex: fast, with a period of 2<sup>64</sup>, and good enough for games, simulations and sampling.
+- A `Random` is an ordinary struct, so pass it to the functions that need random values, and give it a fixed seed in tests.
+- The module's own functions use one generator per isolate, seeded by the operating system the first time it is used. Isolates never share it, so it needs no locks.
+
+## See also
+
+- [vex:crypto](/docs/stdlib/crypto), for secure random bytes and UUIDs
+- [Range members](/docs/stdlib/built-ins#range-members)
+- [List members](/docs/stdlib/built-ins#list-members)
+- [Standard library overview](/docs/stdlib)

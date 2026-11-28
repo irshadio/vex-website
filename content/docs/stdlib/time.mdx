@@ -37,7 +37,7 @@ fn main() {
 | [`sleep(ms)`](#sleep) | A `Future<void>` that completes after `ms` milliseconds |
 | [`timeout(future, ms)`](#timeout) | The future's value as an optional, `nil` if `ms` milliseconds pass first |
 
-There are no date, calendar, time zone or formatting functions yet.
+For dates, calendar fields, time zones, durations and ISO 8601 text, use [vex:datetime](/docs/stdlib/datetime). `vex:time` stays the module for measuring and waiting; `time.sleep(d.inMillis)` waits for a `datetime.Duration`.
 
 ## nanos
 
@@ -222,6 +222,7 @@ See [Timeouts](/docs/concurrency/async#timeouts) for more examples, and [Cancell
 
 ## See also
 
+- [vex:datetime](/docs/stdlib/datetime)
 - [Async and await](/docs/concurrency/async)
 - [Concurrency overview](/docs/concurrency)
 - [Built-ins: run, all and any](/docs/stdlib/built-ins#run-all-and-any)

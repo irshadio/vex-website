@@ -1,0 +1,323 @@
+---
+title: vex:datetime
+description: API reference for vex:datetime, with DateTime for moments to the microsecond in UTC or local time, Duration for lengths of time, calendar fields, and reading and writing ISO 8601.
+---
+
+`vex:datetime` handles dates and times. It has two types: `DateTime`, a moment in time to the microsecond, and `Duration`, a length of time. A `DateTime` is shown either in UTC or in the local time zone; its calendar fields and its text follow the way it is shown.
+
+```vex title="launch.vx"
+import "vex:datetime"
+
+fn main() throws {
+    let launch = datetime.utc(2024, 3, 15, hour: 9, minute: 30)
+    println(launch)
+    println(launch.year, launch.month, launch.day, launch.weekday, launch.hour, launch.minute)
+
+    let meeting = launch + 1.hours + 30.minutes
+    let gap = meeting - launch
+    println(meeting, gap, gap.inMinutes, meeting > launch)
+
+    let parsed = try datetime.parse("2024-03-15T09:30:05.25+05:30")
+    println(parsed, parsed.isUtc, parsed.millisecond)
+}
+```
+
+```text title="Output"
+2024-03-15T09:30:00Z
+2024 3 15 5 9 30
+2024-03-15T11:00:00Z 1h30m0s 90 true
+2024-03-15T04:00:05.250Z true 250
+```
+
+Calendar fields follow the proleptic Gregorian calendar, as ISO 8601 does. `vex:time` stays the module for measuring how long code takes and for waiting; see [vex:time](/docs/stdlib/time).
+
+## Summary
+
+| Function | Result |
+|---|---|
+| [`now()`](#now) | The current moment, shown in local time |
+| [`utc(year, month, day, ...)`](#utc-and-local) | The moment of a date and time in UTC |
+| [`local(year, month, day, ...)`](#utc-and-local) | The moment of a date and time in the local time zone |
+| [`fromUnix(seconds, utc:)`](#fromunix-and-fromunixmicros) | The moment a number of seconds after 1970-01-01 UTC |
+| [`fromUnixMicros(micros, utc:)`](#fromunix-and-fromunixmicros) | The same, from microseconds |
+| [`parse(text)`](#parse) | The moment ISO 8601 text describes; throws |
+
+| Type | What it is |
+|---|---|
+| [`DateTime`](#datetime) | A moment in time, to the microsecond, shown in UTC or local time |
+| [`Duration`](#duration) | A length of time, positive or negative, to the microsecond |
+
+## Making a DateTime
+
+### now
+
+```vex
+pub fn now() -> DateTime
+```
+
+Returns the current moment, shown in local time.
+
+- **Parameters:** none.
+- **Returns:** A `DateTime` from the system's wall clock. Call `toUtc()` on it to show it in UTC.
+- **Errors:** None.
+
+The wall clock follows the system time and can jump when it is changed. To measure how long code takes, use [`time.nanos()`](/docs/stdlib/time#nanos).
+
+```vex title="now.vx"
+import "vex:datetime"
+
+fn main() {
+    let start = datetime.now()
+    let today = start.toUtc()
+    println(today.year >= 2024, start.isUtc, today.isUtc)
+    println(datetime.now() - start < datetime.Duration.seconds(1))
+}
+```
+
+```text title="Output"
+true false true
+true
+```
+
+### utc and local
+
+```vex
+pub fn utc(year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0, millisecond: int = 0) -> DateTime
+pub fn local(year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0, millisecond: int = 0) -> DateTime
+```
+
+Return the moment of a date and time, read in UTC or in the local time zone, and shown the same way.
+
+- **Parameters:** `year`, `month` (1 to 12) and `day`; `hour`, `minute`, `second` and `millisecond`, which default to 0.
+- **Returns:** A `DateTime`.
+- **Errors:** None.
+
+Fields past their usual range roll over, as in Dart: month 13 is January of the next year, day 0 is the last day of the month before, and February 29 of a year that isn't a leap year is March 1. For `local`, a time the clocks skip when they go forward moves on by the jump, and a time they show twice when they go back gives the first.
+
+```vex title="fields.vx"
+import "vex:datetime"
+
+fn main() {
+    println(datetime.utc(2024, 13, 1), datetime.utc(2024, 3, 0), datetime.utc(2023, 2, 29))
+    println(datetime.utc(2024, 3, 15, millisecond: 250))
+    println(datetime.utc(12345, 1, 1), datetime.utc(-1, 1, 1))
+    println(datetime.utc(2024, 1, 31).add(datetime.Duration.days(1)), datetime.utc(2024, 3, 1).subtract(1.days))
+}
+```
+
+```text title="Output"
+2025-01-01T00:00:00Z 2024-02-29T00:00:00Z 2023-03-01T00:00:00Z
+2024-03-15T00:00:00.250Z
++012345-01-01T00:00:00Z -000001-01-01T00:00:00Z
+2024-02-01T00:00:00Z 2024-02-29T00:00:00Z
+```
+
+### fromUnix and fromUnixMicros
+
+```vex
+pub fn fromUnix(seconds: int, utc: bool = false) -> DateTime
+pub fn fromUnixMicros(micros: int, utc: bool = false) -> DateTime
+```
+
+Return the moment `seconds` seconds, or `micros` microseconds, after 1970-01-01 00:00:00 UTC, the Unix epoch.
+
+- **Parameters:** the count, negative for moments before 1970; `utc`, whether to show the moment in UTC rather than local time.
+- **Returns:** A `DateTime`. `unix`, `unixMillis` and `unixMicros` read the count back.
+- **Errors:** None.
+
+```vex title="unix.vx"
+import "vex:datetime"
+
+fn main() {
+    let t = datetime.fromUnix(1700000000, utc: true)
+    println(t, t.unix, t.unixMillis, t.unixMicros)
+    let m = datetime.fromUnixMicros(1700000000123456, utc: true)
+    println(m, m.microsecond, m.millisecond)
+}
+```
+
+```text title="Output"
+2023-11-14T22:13:20Z 1700000000 1700000000000 1700000000000000
+2023-11-14T22:13:20.123456Z 123456 123
+```
+
+### parse
+
+```vex
+pub fn parse(text: string) throws -> DateTime
+```
+
+Reads a date and time in ISO 8601 form.
+
+- **Parameters:** `text`: a date `YYYY-MM-DD`, optionally followed by `T` or a space and a time `HH:MM`, `HH:MM:SS` or `HH:MM:SS.fraction`, then optionally `Z` or an offset such as `+05:30`, `+0530` or `+05`.
+- **Returns:** With `Z` or an offset, the moment shown in UTC. Without one, the time is local, and a date alone is local midnight.
+- **Errors:** Throws an `Error` saying what is wrong, such as `'2023-02-29' isn't an ISO 8601 date: the day must be from 1 to 28, found 29`. Leap seconds aren't read.
+
+```vex title="parse.vx"
+import "vex:datetime"
+
+fn main() {
+    let texts = ["2024-03-15 09:30:05Z", "2024-03-15T09:30:05.123456-0800", "2023-02-29", "2024-3-15", "2024-03-15T25:00", "yesterday"]
+    for text in texts {
+        let d = try datetime.parse(text) catch e {
+            println(e.message)
+            continue
+        }
+        println(d)
+    }
+}
+```
+
+```text title="Output"
+2024-03-15T09:30:05Z
+2024-03-15T17:30:05.123456Z
+'2023-02-29' isn't an ISO 8601 date: the day must be from 1 to 28, found 29
+'2024-3-15' isn't an ISO 8601 date: expected 2 digits for the month
+'2024-03-15T25:00' isn't an ISO 8601 date: the hour must be from 0 to 23, found 25
+'yesterday' isn't an ISO 8601 date: expected 4 digits for the year
+```
+
+## DateTime
+
+```vex
+pub struct DateTime: Hashable {
+    pub let isUtc: bool
+
+    pub get year -> int
+    pub get month -> int
+    pub get day -> int
+    pub get hour -> int
+    pub get minute -> int
+    pub get second -> int
+    pub get millisecond -> int
+    pub get microsecond -> int
+    pub get weekday -> int
+    pub get offset -> Duration
+
+    pub get unix -> int
+    pub get unixMillis -> int
+    pub get unixMicros -> int
+
+    pub fn toUtc() -> DateTime
+    pub fn toLocal() -> DateTime
+    pub fn add(d: Duration) -> DateTime
+    pub fn subtract(d: Duration) -> DateTime
+    pub fn toIso() -> string
+}
+```
+
+A moment in time, stored as microseconds since 1970-01-01 UTC, as Dart stores it, together with whether it is shown in UTC or in local time. Make one with the functions above; its fields can't be changed.
+
+| Member | Result |
+|---|---|
+| `year`, `month`, `day` | The date, with `month` from 1 to 12 and `day` from 1 |
+| `hour`, `minute`, `second` | The time of day, from 0 to 23, 0 to 59 and 0 to 59 |
+| `millisecond`, `microsecond` | The fraction of the second, from 0 to 999 and from 0 to 999999 |
+| `weekday` | The day of the week, from 1 for Monday to 7 for Sunday, as in ISO 8601 |
+| `isUtc` | Whether the fields show UTC rather than local time |
+| `offset` | How far the time shown is ahead of UTC: zero for UTC, and for local time the zone's offset at this moment, summer time included |
+| `unix`, `unixMillis`, `unixMicros` | The seconds, milliseconds or microseconds since 1970-01-01 UTC, rounded down |
+| `toUtc()`, `toLocal()` | The same moment, shown in UTC or in local time |
+| `add(d)`, `+ d` | The moment `d` later, shown the same way |
+| `subtract(d)` | The moment `d` earlier |
+| `a - b` | The `Duration` from `b` to `a` |
+| `toIso()` | The moment in ISO 8601 form, which printing and interpolation use |
+
+- Moments compare with `==`, `<` and the rest by the instant, whichever way they are shown, so a moment in UTC and the same moment in local time are equal. A `DateTime` is Hashable, so it can be a map key or a set item, and a list of them can be sorted.
+- `toIso()` writes `2024-03-15T09:30:00Z` in UTC and `2024-03-15T15:00:00+05:30` in local time, adding milliseconds or microseconds only when there are any. Years outside 0 to 9999 get a sign and six digits: `+012345`.
+- `DateTime` isn't Codable. Store `toIso()` text or `unixMicros` in JSON, and read it back with `parse` or `fromUnixMicros`.
+
+### Time zones
+
+The local time zone comes from the system, or from the `TZ` environment variable, which is read again each time it is needed. This program sets `TZ` itself, so it prints the same everywhere:
+
+```vex title="zones.vx"
+import "vex:datetime"
+import "vex:os"
+
+fn main() throws {
+    os.setEnv("TZ", "Asia/Kolkata")
+    let launch = datetime.utc(2024, 3, 15, hour: 9, minute: 30)
+    let local = launch.toLocal()
+    println(local, local.hour, local.offset, local.isUtc)
+    println(local == launch, local.toUtc())
+
+    os.setEnv("TZ", "America/New_York")
+    println(launch.toLocal(), launch.toLocal().offset)
+    let summer = datetime.local(2024, 7, 1, hour: 12)
+    println(summer, summer.offset, summer.toUtc())
+    let skipped = datetime.local(2024, 3, 10, hour: 2, minute: 30)
+    println(skipped)
+    let midnight = try datetime.parse("2024-03-15")
+    println(midnight, midnight.isUtc)
+}
+```
+
+```text title="Output"
+2024-03-15T15:00:00+05:30 15 5h30m0s false
+true 2024-03-15T09:30:00Z
+2024-03-15T05:30:00-04:00 -4h0m0s
+2024-07-01T12:00:00-04:00 -4h0m0s 2024-07-01T16:00:00Z
+2024-03-10T03:30:00-04:00
+2024-03-15T00:00:00-04:00 false
+```
+
+New York's clocks jump from 2:00 to 3:00 on 2024-03-10, so 2:30 that day doesn't exist and `local` moves it on by the hour.
+
+## Duration
+
+```vex
+pub struct Duration: Hashable {
+    pub static fn days(n: int) -> Duration
+    pub static fn hours(n: int) -> Duration
+    pub static fn minutes(n: int) -> Duration
+    pub static fn seconds(n: int) -> Duration
+    pub static fn millis(n: int) -> Duration
+    pub static fn micros(n: int) -> Duration
+
+    pub get inDays -> int
+    pub get inHours -> int
+    pub get inMinutes -> int
+    pub get inSeconds -> int
+    pub get inMillis -> int
+    pub get inMicros -> int
+    pub get isNegative -> bool
+    pub fn abs() -> Duration
+}
+```
+
+A length of time, positive or negative, to the microsecond. A day is always 24 hours.
+
+- Make one with `Duration.days(n)`, `hours`, `minutes`, `seconds`, `millis` or `micros`. In a file that imports `vex:datetime`, ints have the same as properties: `90.seconds`, `5.minutes + 30.seconds`.
+- `inDays`, `inHours`, `inMinutes`, `inSeconds`, `inMillis` and `inMicros` give it back in whole units, rounded toward zero.
+- It has `+`, `-`, unary `-`, `* n` and `/ n` with an int (rounding toward zero), the comparisons, `abs()` and `isNegative`. It is Hashable.
+- It prints as Go writes durations: `1h30m0s`, `2.5s`, `750ms`, `3µs`.
+
+```vex title="durations.vx"
+import "vex:datetime"
+
+fn main() {
+    let d = 90.seconds
+    println(d, 1.hours + 30.minutes, 2500.millis, 750.millis, 3.micros, datetime.Duration.days(2))
+    println(d.inMinutes, d.inSeconds, d.inMillis, (-d).inMinutes, (-d).isNegative, (-d).abs())
+    println(d * 3, d / 4, d - 2.minutes, 1.days > 23.hours, 0.seconds)
+    let cache = [1.hours: "hourly"]
+    println(cache[60.minutes] ?? "none")
+}
+```
+
+```text title="Output"
+1m30s 1h30m0s 2.5s 750ms 3µs 48h0m0s
+1 90 90000 -1 true 1m30s
+4m30s 22.5s -30s true 0s
+hourly
+```
+
+To wait for a `Duration` in async code, pass its milliseconds to [`time.sleep`](/docs/stdlib/time#sleep): `await time.sleep(d.inMillis)`.
+
+## See also
+
+- [vex:time](/docs/stdlib/time)
+- [vex:json](/docs/stdlib/json)
+- [Operators](/docs/language/operators)
+- [Standard library overview](/docs/stdlib)
