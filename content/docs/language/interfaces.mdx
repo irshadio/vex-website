@@ -1,6 +1,6 @@
 ---
 title: Interfaces
-description: Declaring interfaces with methods, properties and default methods, static requirements, Self and generic methods, implementing them in structs and enums, using interfaces as types and as constraints, interface inheritance, generic interfaces and interface extensions.
+description: Declaring interfaces with methods, properties and default methods, static requirements, Self and generic methods, implementing them in structs and enums, using interfaces as types and as constraints, interface inheritance, generic interfaces, sealed interfaces with exhaustive match, and interface extensions.
 ---
 
 An interface is a list of methods and properties that a type promises to have. Code written against the interface works with every type that keeps the promise: a `[Shape]` can hold circles and rectangles, and a function taking a `Shape` accepts either.
@@ -377,9 +377,9 @@ error: list item 2: expected Square, found Circle
 
 Write `let xs: [Shape] = [...]`. A list literal passed straight to a `[Shape]` parameter gets its type from the parameter.
 
-A `[Square]` that already exists isn't a `[Shape]`, though. Lists can be changed, and a `[Shape]` view would let code push a `Circle` into a list of squares:
+A `[Square]` that already exists can be passed where a `[Shape]` is expected, but it is copied, with each element converted. Lists can be changed, and sharing would let code push a `Circle` into a list of squares, so changes to the copy don't reach the original:
 
-```vex title="invariant.vx"
+```vex title="list_copy.vx"
 interface Shape {
     fn area() -> float
 }
@@ -389,30 +389,30 @@ struct Square: Shape {
     fn area() -> float => side * side
 }
 
-fn total(xs: [Shape]) -> float {
-    var t = 0.0
-    for x in xs {
-        t += x.area()
-    }
-    return t
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.14 * radius * radius
+}
+
+fn addCircle(xs: [Shape]) -> int {
+    xs.push(Circle(radius: 1))
+    return xs.len
 }
 
 fn main() {
-    println(total([Square(side: 2)]))    // fine: the literal is built as [Shape]
     let squares = [Square(side: 3)]
-    println(total(squares))
+    println(addCircle(squares), squares.len)
+    let shapes: [Shape] = [Square(side: 3)]
+    println(addCircle(shapes), shapes.len)
 }
 ```
 
 ```text title="Output"
-error: argument 'xs': expected [Shape], found [Square]
-  --> invariant.vx:21:19
-   |
-21 |     println(total(squares))
-   |                   ^^^^^^^
+2 1
+2 2
 ```
 
-Declare it as `let squares: [Shape] = [...]`, or make the function generic: `fn total<T: Shape>(xs: [T])` accepts a `[Square]` directly (see [Generics](/docs/language/generics#interface-constraints)).
+To share one list, declare it as `let squares: [Shape] = [...]`, or make the function generic: `fn total<T: Shape>(xs: [T])` takes a `[Square]` directly, without a copy (see [Generics](/docs/language/generics#interface-constraints)). `squares.cast<Shape>()` makes the copy where no type is written; see [Converting lists](/docs/language/lists#converting-lists).
 
 ### What you can do with an interface value
 
@@ -875,6 +875,112 @@ error: a generic requirement can't have a default
 
 Calling a static member the constraint doesn't require is an error: `T.missing()` gives `T has no static requirement 'missing'`.
 
+## Sealed interfaces
+
+`sealed interface` closes an interface: only structs and enums of the same module can implement it. The compiler then knows every type a value can be, as with Kotlin's and Dart's sealed types, so a `match` needs no `_` arm once every type has one:
+
+```vex title="sealed.vx"
+sealed interface Result {}
+
+struct Ok: Result {
+    value: int
+}
+
+struct Failed: Result {
+    message: string
+}
+
+struct Loading: Result {}
+
+fn show(r: Result) -> string => match r {
+    Ok(:value) => "got {value}"
+    f: Failed => f.message
+    Loading() => "..."
+}
+
+fn main() {
+    let results: [Result] = [Ok(value: 42), Failed(message: "timed out"), Loading()]
+    for r in results {
+        println(show(r))
+    }
+}
+```
+
+```text title="Output"
+got 42
+timed out
+...
+```
+
+Leaving a type out is an error that names it:
+
+```vex title="sealed_missing.vx"
+sealed interface Result {}
+
+struct Ok: Result {
+    value: int
+}
+
+struct Loading: Result {}
+
+fn show(r: Result) -> string => match r {
+    Ok(:value) => "got {value}"
+}
+
+fn main() {
+    println(show(Loading()))
+}
+```
+
+```text title="Output"
+error: match doesn't handle 'Loading'
+ --> sealed_missing.vx:9:33
+  |
+9 | fn show(r: Result) -> string => match r {
+  |                                 ^^^^^ add l: Loading => ..., or _ => ...
+```
+
+A sealed interface can have members and defaults, and extend other interfaces. The types of an interface that extends it are among its own, and a typed pattern for that interface covers them all:
+
+```vex title="sealed_shapes.vx"
+sealed interface Shape {
+    fn area() -> float
+}
+
+sealed interface Round: Shape {
+    fn radius() -> float
+}
+
+struct Circle: Round {
+    r: float
+    fn area() -> float => 3.0 * r * r
+    fn radius() -> float => r
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+}
+
+fn describe(shape: Shape) -> string => match shape {
+    r: Round => "round, radius {r.radius()}"
+    Square(:side) => "square {side}"
+}
+
+fn main() {
+    println(describe(Circle(r: 2)), describe(Square(side: 3)))
+}
+```
+
+```text title="Output"
+round, radius 2.0 square 3.0
+```
+
+- A type is covered by a typed pattern `f: Failed`, a struct pattern that only binds fields, such as `Loading()` or `Ok(:value)`, or `_`. Struct patterns that test values, such as `Ok(value: 0)`, and arms with `when` cover only some values, as for enums.
+- In other modules, a struct, enum or interface can't list a sealed interface, or one that extends it, after `:`. A match there must still name each type; one that is private to its module needs a `_` arm.
+- A generic sealed interface works the same for types that name an instance, `struct Word: Token<string>`. When a generic struct or enum implements a sealed interface, a match on it needs `_`, since it can't list every instance.
+- `sealed` is only a keyword before `interface`, so it can still name a variable.
+
 ## Adding methods with extensions
 
 `extension Shape { ... }` adds methods to every type that implements `Shape`. Unlike defaults, these methods can't be replaced by the implementing types. They work on interface values, in generic code and on the types themselves. See [Extending interfaces](/docs/language/extensions#extending-interfaces).
@@ -892,7 +998,8 @@ Calling a static member the constraint doesn't require is an error: `T.missing()
 - Methods that implement an interface can't be `async`, and are `static` exactly when the requirement is.
 - Defaults call the implementing type's versions of other members. Two defaults with the same name must be resolved by the type.
 - An interface value exposes only the interface's members, prints as the value inside, and can't be compared with `==`. `is`, `as?` and type patterns get the concrete type back.
-- A list literal of mixed types needs a written interface type. An existing `[Square]` isn't a `[Shape]`.
+- A `match` on an interface value needs a `_` arm, unless the interface is [sealed](#sealed-interfaces) and every type has an arm.
+- A list literal of mixed types needs a written interface type. An existing `[Square]` passed as a `[Shape]` is copied.
 - Interface values can't be sent to [isolates](/docs/concurrency/isolates).
 - `extension Shape { ... }` adds methods to every `Shape` that can't be replaced; see [Extensions](/docs/language/extensions#extending-interfaces).
 
@@ -905,6 +1012,7 @@ Calling a static member the constraint doesn't require is an error: `T.missing()
 | Property requirements | `get` / `set` | `{ get set }` | no | `val` / `var` | yes |
 | Downcasting | `is` / `as?` | `as?` | type assertion | `as?` / `is` | narrowing |
 | Generic interfaces | yes | associated types | yes | yes | yes |
+| Sealed | `sealed interface` | no | no | `sealed interface` | unions |
 
 ## See also
 
