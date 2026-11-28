@@ -386,7 +386,7 @@ error: nothing after try can throw
 
 ## Errors that reach main
 
-`fn main() throws` lets errors pass all the way up. An error that reaches the top stops the program, prints `error: ` and the message to standard error, and exits with code 1:
+`fn main() throws` lets errors pass all the way up. An error that reaches the top stops the program, prints `error: ` and the message to standard error, followed by where it was thrown and the calls that led there, and exits with code 1:
 
 ```vex title="main_throws.vx"
 fn load() throws -> int {
@@ -403,14 +403,22 @@ fn main() throws {
 ```text title="Output"
 starting
 error: config missing
+ --> main_throws.vx:2
+  at load (main_throws.vx:2)
+  at main (main_throws.vx:7)
 ```
 
 ```sh
 $ vex run main_throws.vx; echo "exit code $?"
 starting
 error: config missing
+ --> main_throws.vx:2
+  at load (main_throws.vx:2)
+  at main (main_throws.vx:7)
 exit code 1
 ```
+
+The `at` lines are a stack trace, innermost call first. `vex run` and `vex test` show them; a plain `vex build` leaves them out unless it is given `--traces` or `--debug`, and the error then shows only the source line. See [Runtime errors](/docs/tools/runtime-errors).
 
 A `main` without `throws` must handle every error itself, since `try` there has nowhere to pass the error.
 
@@ -518,6 +526,9 @@ fn main() throws {
 ```text title="Output"
 failed: LoadError.notFound(path: "x.cfg")
 error: LoadError.notFound(path: "y.cfg")
+ --> typed_up.vx:7
+  at open (typed_up.vx:7)
+  at main (typed_up.vx:19)
 ```
 
 Passing it through a function that throws a different enum is an error: you must catch it and decide what it means there.
@@ -639,7 +650,7 @@ Vex has two kinds of failure, and they are handled differently.
 | Created by | `throw` | `panic(...)`, `assert(...)`, index out of range, division by zero, integer overflow, bad `int(...)` text, stack overflow |
 | Visible in types | yes: `throws` and `try` | no |
 | Can be caught | yes | no: the program stops |
-| Output | `error: message` if it reaches `main` | `error: message` and the source line |
+| Output | `error: message` and the throw site if it reaches `main` | `error: message` and the source line |
 | Exit code | 1 | 1 |
 
 A runtime error stops the program even inside a `try ... catch`:
@@ -658,6 +669,8 @@ fn main() {
 ```text title="Output"
 error: index 5 is out of range for a list of length 1
  --> not_caught.vx:2
+  at get (not_caught.vx:2)
+  at main (not_caught.vx:6)
 ```
 
 Use `throw` for conditions a caller can reasonably react to, such as bad input or a missing file. Use `panic` and `assert` for conditions that mean the code is wrong. When an operation can fail on ordinary input, check first (`if i < xs.len`) or write a function that throws or returns an optional. See [Runtime errors](/docs/tools/runtime-errors) for the full list.

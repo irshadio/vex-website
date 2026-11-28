@@ -1,9 +1,9 @@
 ---
 title: Extensions
-description: Adding methods, getters, setters, static members and operators to existing types, including int, float, bool, string, lists, maps and interfaces, and how extensions are scoped across modules.
+description: Adding methods, getters, setters, static members and operators to existing types, including int, float, bool, string, Bytes, lists, maps and interfaces, how extensions are scoped across modules, and extension types, distinct types that wrap one value at no cost.
 ---
 
-An extension adds members to a type that already exists. You can extend your own structs, enums and interfaces, types from other modules, and the built-in types `int`, `float`, `bool`, `string`, lists and maps. Calls to the new members look exactly like calls to the type's own.
+An extension adds members to a type that already exists. You can extend your own structs, enums and interfaces, types from other modules, and the built-in types `int`, `float`, `bool`, `string`, `Bytes`, lists and maps. A related form, [`extension type`](#extension-types), makes a new type out of an existing one. Calls to the new members look exactly like calls to the type's own.
 
 ```vex title="shout.vx"
 extension string {
@@ -45,7 +45,7 @@ Methods can have default parameters, throw, be `async` and be generic, like any 
 
 ## Extending structs and enums
 
-An extension of a struct or enum can add methods, getters, setters (structs only), static methods, static constants and operators (structs only):
+An extension of a struct or enum can add methods, getters, setters (structs only), static methods, static constants and operators:
 
 ```vex title="struct_ext.vx"
 struct Counter {
@@ -534,7 +534,7 @@ Calling `s.half()` from `main.vx` gives `method 'half' of the extension is priva
 
 ## What can't be extended
 
-Optionals, records and function types can't be extended:
+Optionals, records, function types and sets can't be extended:
 
 ```vex title="cant_extend.vx"
 extension int? {
@@ -553,13 +553,13 @@ error: int? can't be extended
  --> cant_extend.vx:1:11
   |
 1 | extension int? {
-  |           ^^^^ extend a struct, an enum, an interface, int, float, bool, string, a list or a map
+  |           ^^^^ extend a struct, an enum, an interface, int, float, bool, string, Bytes, a list or a map
 
 error: fn() can't be extended
  --> cant_extend.vx:5:11
   |
 5 | extension fn() {
-  |           ^^^^ extend a struct, an enum, an interface, int, float, bool, string, a list or a map
+  |           ^^^^ extend a struct, an enum, an interface, int, float, bool, string, Bytes, a list or a map
 
 2 errors
 ```
@@ -665,14 +665,113 @@ A file that doesn't import `text` doesn't see `shout` at all: `string has no met
 
 Extensions of types from other modules are written with the module name: `extension shapes.Point { ... }`. They can only use that type's `pub` fields and methods. See [Modules](/docs/projects/modules).
 
+## Extension types
+
+`extension type` makes a new type out of an existing one, as in Dart 3. It wraps exactly one value, named in parentheses, and costs nothing at run time: a `UserId` is compiled as a plain `int`, creating one and reading `.value` do no work, and its methods take the `int` itself. The compiler still keeps the two apart, so a user id can't be passed where an order id or a count is expected:
+
+```vex title="exttype.vx"
+extension type UserId(value: int): Hashable, Comparable {
+    static const root = UserId(value: 0)
+
+    fn isAdmin() -> bool => value < 100
+}
+
+extension type Email(value: string)
+
+fn load(id: UserId) -> string => "user {id.value}"
+
+fn main() {
+    let id = UserId(value: 42)
+    let n: int = id.value
+    println(id, n, id.isAdmin(), load(id))
+    println(Email(value: "ann@example.com"), UserId.root)
+
+    let names = [UserId(value: 7): "ann", id: "bob"]
+    println(names[UserId(value: 7)] ?? "?", id < UserId(value: 50))
+    println(id.copy(value: 43))
+
+    match id {
+        UserId(value: 0) => println("root")
+        UserId(:value) => println("id {value}")
+    }
+}
+```
+
+```text title="Output"
+UserId(value: 42) 42 true user 42
+Email(value: "ann@example.com") UserId(value: 0)
+ann true
+UserId(value: 43)
+id 42
+```
+
+It is a distinct type in both directions: an `int` isn't a `UserId`, and a `UserId` isn't an `int`. Wrap a value with `UserId(value: ...)` and unwrap it with `.value`:
+
+```vex title="exttype_mix.vx"
+extension type UserId(value: int)
+
+fn load(id: UserId) {}
+
+fn main() {
+    load(42)
+}
+```
+
+```text title="Output"
+error: argument 'id': expected UserId, found int
+ --> exttype_mix.vx:6:10
+  |
+6 |     load(42)
+  |          ^^ wrap it: UserId(value: 42)
+```
+
+Only the members in its body and in extensions of it are available: `id.abs()` gives `UserId has no method 'abs'`, even though `int` has `abs`. Write `id.value.abs()`.
+
+`Codable` writes the plain value to JSON, not an object, and a `toString` method changes how it prints:
+
+```vex title="exttype_json.vx"
+import "vex:json"
+
+extension type Email(value: string): Codable
+
+struct Account: Codable {
+    email: Email
+}
+
+extension type Celsius(value: float) {
+    fn toString() -> string => "{value}°C"
+}
+
+fn main() throws {
+    let text = json.encode(Account(email: Email(value: "ann@example.com")))
+    println(text)
+    let back: Account = try json.decode(text)
+    println(back.email.value, Celsius(value: 21.5))
+}
+```
+
+```text title="Output"
+{"email":"ann@example.com"}
+ann@example.com 21.5°C
+```
+
+- The body holds methods, getters, operators, static methods and constants, used without `self.` as in a struct. It has no other fields, no `init` block and no setters: the value never changes. `id.copy(value: 7)` makes a new one.
+- The body is optional: `extension type Email(value: string)`. An `extension` of an extension type adds members as for a struct.
+- `: Equatable`, `Hashable`, `Comparable` and `Codable` give it `==`, hashing (so it can be a map key), `<` and JSON from the value it wraps, which must have them.
+- It prints like a struct, `UserId(value: 42)`, unless it has a `fn toString() -> string`.
+- It works in lists, maps, optionals and records, can be generic (`extension type Box<T>(value: T)`), matches patterns such as `UserId(value: 42)` and `UserId(:value)`, and can be a constant: `static const root = UserId(value: 0)`.
+- `pub extension type` makes the type and its value usable from other modules; its methods need their own `pub`.
+- It can't list other interfaces, so it is never an interface value, and `is` and `as?` never name one: having no wrapper, its values don't carry a type tag. Listing one gives `an extension type can only list Equatable, Hashable, Comparable and Codable, which it gets from the value it wraps`, with the hint `use a struct to implement Shape`.
+
 ## Extension members as values
 
 Extension methods can be torn off like built-in ones: with `let xs = [1, 2, 3]`, `xs.tail` is a function bound to `xs`. See [Closures](/docs/language/closures).
 
 ## Rules and edge cases
 
-- Extensions add methods and getters to structs, enums and built-in types, and setters, static members and operators to structs (enums get static members but not setters or operators). Extensions of interfaces add methods only.
-- Extendable: structs, enums, interfaces (not generic ones yet), `int`, `float`, `bool`, `string`, lists, maps, and type aliases of those. Not extendable: optionals, records, function types.
+- Extensions add methods and getters to structs, enums and built-in types, static members and operators to structs and enums, and setters to structs. Extensions of interfaces add methods only.
+- Extendable: structs, enums, extension types, interfaces, `int`, `float`, `bool`, `string`, `Bytes`, lists, maps, and type aliases of those. Not extendable: optionals, records, function types and sets.
+- `extension type Name(value: T)` is a different declaration: a new, distinct type, compiled as the `T` it wraps. See [Extension types](#extension-types).
 - A method added to an interface reaches every type that implements it, and every interface that extends it. It can't share a name with a requirement, and implementing types can't replace it.
 - No fields. No replacing or shadowing existing members.
 - A generic struct or enum is extended by its bare name; its type parameters are in scope.

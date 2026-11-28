@@ -475,7 +475,7 @@ image 40 wide
 ```
 
 - The type is a struct, an enum or another interface that the value's interface allows. A type that can't hold it is an error, as with [`is`](/docs/language/types#type-tests).
-- Interfaces are open: another struct can implement one at any time. A `match` on an interface value always needs a `_` arm.
+- Interfaces are open: another struct can implement one at any time. A `match` on an interface value needs a `_` arm, unless the interface is [sealed](/docs/language/interfaces#sealed-interfaces).
 - Type patterns nest like any other: `[t: Text, Image(:width)]` matches a list of views that starts with a text and ends with an image.
 - On a value whose type is already a struct, a typed pattern is an error, since it always matches; use a binding instead.
 
@@ -723,7 +723,7 @@ What counts as covered:
 - **`bool`** is covered by `true` and `false`.
 - **Records** are covered when every combination of their fields is.
 - **Lists** are covered by `[]` together with `[_, ...]`, or by any set of lengths that ends with a `...` pattern.
-- **Interface values** are never covered by type patterns alone, since any struct may implement the interface later. Add a `_` arm.
+- **Interface values** are never covered by type patterns alone, since any struct may implement the interface later. Add a `_` arm. A [sealed interface](/docs/language/interfaces#sealed-interfaces) is the exception: it is covered when each of its types is, by a typed pattern or a struct pattern that only binds fields.
 - **`int`, `float` and `string`** have too many values to list, so a match on them always needs a `_` arm, even as a statement:
 
 ```vex title="needs_wildcard.vx"

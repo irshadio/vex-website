@@ -363,7 +363,7 @@ HI
 - `x?.method` is `nil` when `x` is `nil`, and otherwise a function bound to the value inside.
 - A method must be torn off a value: `User.greet` gives `method 'greet' isn't static, so it needs a value of type User`.
 - An async method tears off as an async function value, such as `async fn(int) -> string?`.
-- Generic methods and `map` can't be torn off: `generic method 'pick' can't be used as a value`, `'map' can't be used as a value`. Wrap them in a closure.
+- Generic methods, `map` and `mapValues` can't be torn off: `generic method 'pick' can't be used as a value`, `'map' can't be used as a value`. Wrap them in a closure.
 
 ## Trailing blocks
 

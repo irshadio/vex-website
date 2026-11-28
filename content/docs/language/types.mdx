@@ -1,6 +1,6 @@
 ---
 title: Types
-description: The built-in types (int, float, bool, string, lists, maps, records, optionals, ranges, function types), number semantics, conversions and safe parsing, type inference rules, type aliases, comparing values, and type tests with is and as?.
+description: The built-in types (int, float, bool, string, lists, maps, sets, Bytes, records, optionals, ranges, function types), number semantics, conversions and safe parsing, type inference rules, type aliases, comparing values, and type tests with is and as?.
 ---
 
 Vex is statically typed: every value has a type known at compile time, and the compiler rejects a program that mixes types in ways that don't fit. You write few types yourself, because the compiler infers them from values. This page lists the built-in types, explains how numbers behave, how to convert between types, how inference works, how to name a type with `typedef`, and how to ask an interface value which type it holds.
@@ -15,6 +15,8 @@ Vex is statically typed: every value has a type known at compile time, and the c
 | Text | `string` | `"hi {name}"` | UTF-8, immutable. [Strings](/docs/language/strings) |
 | List | `[T]` | `[1, 2, 3]` | Ordered, growable, shared reference. [Lists](/docs/language/lists) |
 | Map | `[K: V]` | `["a": 1]` | Ordered by insertion, shared reference. [Maps](/docs/language/maps) |
+| Set | `Set<T>` | `[1, 2]` where a set is expected | No repeats, ordered by insertion, shared reference. [Sets](/docs/language/sets) |
+| Binary data | `Bytes` | `"hi".toBytes()`, `Bytes([0x89])` | Bytes from 0 to 255, shared reference. [Bytes](/docs/language/bytes) |
 | Record | `(int, string)`, `({int x, int y})` | `(1, "a")`, `(x: 1, y: 2)` | Fixed group of values. [Records](/docs/language/records) |
 | Optional | `T?` | `nil`, or a `T` | [Optionals](/docs/language/optionals) |
 | Range | `Range` | `0..10`, `1..=5`, `(0..10).step(2)` | Ints from a start to an end. [Ranges](/docs/language/lists#ranges) |
@@ -22,6 +24,7 @@ Vex is statically typed: every value has a type known at compile time, and the c
 | Struct | `User` | `User(name: "Ann")` | Shared reference. [Structs](/docs/language/structs) |
 | Enum | `Shape` | `Shape.circle(radius: 1)` | Value. [Enums](/docs/language/enums) |
 | Interface | `Shape` | any value that implements it | [Interfaces](/docs/language/interfaces) |
+| Extension type | `UserId` | `UserId(value: 42)` | A distinct type compiled as the value it wraps. [Extension types](/docs/language/extensions#extension-types) |
 | Future | `Future<T>`, `Future<T, E>` | the result of an `async fn` call | [Async](/docs/concurrency/async) |
 | Channel | `Channel<T>` | `Channel<int>()` | [Isolates](/docs/concurrency/isolates) |
 | Error | `Error` | `Error("disk full")` | The built-in error type. [Errors](/docs/language/errors) |
@@ -149,17 +152,19 @@ Write `if items.len > 0`. Booleans compare with `==` and `!=`, but not with `<`.
 
 ## Strings
 
-`string` holds UTF-8 text and can't be changed in place; methods return new strings. `len` counts Unicode code points. Strings join with `+` only to other strings, and everything else goes in through interpolation: `"{count} items"`. See [Strings](/docs/language/strings).
+`string` holds UTF-8 text and can't be changed in place; methods return new strings. `len` counts Unicode code points, and `graphemeCount` the characters a reader sees. Strings join with `+` only to other strings, and everything else goes in through interpolation: `"{count} items"`. See [Strings](/docs/language/strings).
 
 ## Collections, records and ranges
 
 - `[T]` is a list of `T`. `[int?]` is a list of optional ints; `[int]?` is an optional list.
-- `[K: V]` is a map from `K` to `V`. Keys can be `int`, `string`, `bool`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable`. Values can be anything except an optional.
+- `[K: V]` is a map from `K` to `V`. Keys can be `int`, `string`, `bool`, `Bytes`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable`. Values can be anything except an optional.
+- `Set<T>` holds each item at most once; items have the same types as map keys. A list literal makes a set where one is expected: `let primes: Set<int> = [2, 3, 5]`. See [Sets](/docs/language/sets).
+- `Bytes` holds binary data, each byte an `int` from 0 to 255. See [Bytes](/docs/language/bytes).
 - `(int, string)` is a record with two positional fields; `({int x, int y})` one with named fields; `(int, {string name})` mixes both.
 
 - `Range` holds ints from a start up to an end: `0..10` leaves out `10`, `1..=5` includes `5`. It drives `for` loops and slices lists and strings, and can be a constant, a field or a parameter. See [Ranges](/docs/language/lists#ranges).
 
-Lists and maps are shared references; records are values. See [Lists](/docs/language/lists), [Maps](/docs/language/maps) and [Records](/docs/language/records).
+Lists, maps, sets and `Bytes` are shared references; records are values. See [Lists](/docs/language/lists), [Maps](/docs/language/maps) and [Records](/docs/language/records).
 
 ## Optionals
 
@@ -363,16 +368,12 @@ fn main() {
 - An alias of a struct creates values and reaches static members: after `typedef Pt = Point`, `Pt(x: 1, y: 2)` works. An alias of an enum reaches its cases, and an alias of an interface can be implemented and used as a constraint.
 - `pub typedef` makes the alias visible to other modules. See [Modules](/docs/projects/modules).
 - Aliases are declared at the top level and can't refer to themselves (`typedef Loop refers to itself`). Use a struct or enum for a type that contains itself.
-- An alias doesn't create a new type. `typedef UserId = int` still accepts any `int`, as the example shows.
+- An alias doesn't create a new type. `typedef UserId = int` still accepts any `int`, as the example shows. For a distinct type, where `UserId` and `int` don't mix, use an [extension type](/docs/language/extensions#extension-types): `extension type UserId(value: int)`.
 - Built-in type names can't be redefined: `typedef int = string` gives `'int' is a built-in type and can't be used as a type name`.
-
-<Callout type="warn" title="Planned">
-Distinct wrapper types, where `UserId` and `int` don't mix, are planned as extension types. They don't exist yet.
-</Callout>
 
 ## Comparing values
 
-`==` and `!=` work on `int`, `float`, `bool`, `string` and enums whose cases carry no values, and on lists, maps, optionals and records whose contents can be compared. Two ranges are equal when they give the same values, so `0..3 == 0..=2`. Structs and enums compare with `==` when they list `Equatable` or `Hashable`, or define `operator ==`. `===` and `!==` tell whether two references are the same object. `<`, `<=`, `>` and `>=` work on `int`, `float`, `string` and enums whose cases carry no values. [Operators](/docs/language/operators#comparison) has the details, and [Structs](/docs/language/structs#equality) shows `Equatable` and `Hashable`.
+`==` and `!=` work on `int`, `float`, `bool`, `string` and enums whose cases carry no values, and on lists, maps, optionals and records whose contents can be compared. Two ranges are equal when they give the same values, so `0..3 == 0..=2`. Sets compare item by item whatever their order, and `Bytes` byte by byte. Structs and enums compare with `==` when they list `Equatable` or `Hashable`, or define `operator ==`. `===` and `!==` tell whether two references are the same object. `<`, `<=`, `>` and `>=` work on `int`, `float`, `string`, enums whose cases carry no values, and structs and enums that define `operator <`. [Operators](/docs/language/operators#comparison) has the details, and [Structs](/docs/language/structs#equality) shows `Equatable` and `Hashable`.
 
 ## Type tests
 
@@ -486,6 +487,7 @@ error: Shape has no member 'radius'
 | Implicit int to float | literals only | literals only | no | constants only | one type |
 | Null | `T?` only | `T?` only | `T?` only | any pointer | `T \| null` |
 | Type alias | `typedef` | `typealias` | `typealias` | `type X = Y` | `type` |
+| Distinct wrapper type | `extension type` | struct | `value class` | defined type | branded type |
 
 ## See also
 

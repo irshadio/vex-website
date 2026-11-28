@@ -1,6 +1,6 @@
 ---
 title: Enums
-description: Enums with plain cases and cases that carry values, the .case shorthand, methods, Self and static members, equality and ordering, printing with toString, and exhaustive match.
+description: Enums with plain cases and cases that carry values, the .case shorthand, methods, Self and static members, raw values, case names and allCases, equality and ordering, operators, printing with toString, and exhaustive match.
 ---
 
 An enum is a type whose value is exactly one of a fixed list of cases. A case can be a plain name, like `red`, or carry values, like `circle(radius: float)`. Together with [`match`](#matching-on-an-enum), enums let the compiler check that your code handles every possibility.
@@ -73,7 +73,7 @@ error: case value 'float' needs a type
   |                          ^ write it as float: int
 ```
 
-An enum must have at least one case, and there are no raw values: `enum Level { low = 1 }` is a syntax error. If you need a number or a string for each case, write a method that returns it (see [Methods](#methods)).
+An enum must have at least one case. To give each case a fixed number or string, give the enum a raw type: see [Raw values](#raw-values).
 
 ## Creating values
 
@@ -399,9 +399,9 @@ Light.green Light.yellow false Go
 Light.green nil
 ```
 
-This is also how you attach a number or a string to each case, since Vex enums have no raw values: write a getter like `label` above.
+A getter like `label` attaches any value to each case. For a fixed `int` or `string` per case, [raw values](#raw-values) are shorter, and `Light.allCases` lists the cases without writing `all` by hand.
 
-Enums can't have setters or operators, and a `const` inside an enum must be `static const`. Methods and cases share one namespace: a method can't have the same name as a case.
+Enums can't have setters, and a `const` inside an enum must be `static const`. They can define [operators](#operators). Methods and cases share one namespace: a method can't have the same name as a case.
 
 Inside an enum's methods, `Self` names the enum's own type, as in a struct:
 
@@ -423,6 +423,72 @@ fn main() {
 ```text title="Output"
 Level.high
 ```
+
+## Raw values
+
+An enum whose cases carry no values can give each case a fixed `int` or `string`, as in Swift. The raw type comes right after the name, before any interfaces. `Color(rawValue:)` finds the case with a raw value, and `.rawValue` reads it back:
+
+```vex title="raw.vx"
+import "vex:json"
+
+enum Color: int {
+    red = 1
+    green
+    blue
+}
+
+enum Level: string, Codable {
+    low = "L"
+    high = "H"
+    unknown
+
+    fn describe() -> string => "{self.name}={rawValue}"
+}
+
+enum Shape { circle(radius: float), empty }
+
+struct Setting: Codable {
+    level: Level
+}
+
+fn main() throws {
+    let c = Color(rawValue: 2)
+    println(c, c?.name, Color(rawValue: 9))
+    println(Color.blue.rawValue, Level.unknown.rawValue)
+    for color in Color.allCases {
+        println(color.name, color.rawValue)
+    }
+    println(Level.allCases, Level.high.describe())
+    println(Shape.circle(radius: 1).name, Shape.empty.name)
+    let text = json.encode(Setting(level: .high))
+    let back: Setting = try json.decode(text)
+    println(text, back.level)
+}
+```
+
+```text title="Output"
+Color.green green nil
+3 unknown
+red 1
+green 2
+blue 3
+[Level.low, Level.high, Level.unknown] high=H
+circle empty
+{"level":"H"} Level.high
+```
+
+- Raw values are `int` or `string` literals. An `int` case without `= ...` counts up from the case before, and the first one is 0. A `string` case without one uses the case's name.
+- `Type(rawValue: x)` gives an optional, `nil` when no case has that raw value.
+- No two cases can share a raw value: `raw value 1 is already used by case 'red'`, with the hint `give each case its own raw value`.
+- Inside the enum's methods, `rawValue` alone is `self.rawValue`.
+- A Codable enum with raw values is written to JSON as its raw value, `"H"` above, rather than as its case's name.
+- A raw value on an enum without a raw type is an error, `case 'low' has a raw value, but Level has no raw type`, with the hint `give the enum a raw type: enum Level: int`. An enum whose cases carry values can't have raw values.
+
+### Case names and allCases
+
+Every enum has `.name`, the name of a value's case as a string, as `Shape.empty.name` shows above. An enum's own member called `name` takes its place. `Type.allCases` lists the cases of any enum whose cases carry no values, with or without raw values, in the order they are declared.
+
+`.name` is a property of the value, so inside the enum's methods it is written `self.name`.
 
 ## Enums never change
 
@@ -482,7 +548,7 @@ fn main() {
 true
 ```
 
-Once any case carries values, the enum can't be compared with `==` at all, even between cases without values. Use `match` or `if case` instead:
+Once any case carries values, the enum can't be compared with `==`, even between cases without values, unless it lists `Equatable` or defines `operator ==`. Use `match` or `if case`, or list `Equatable`:
 
 ```vex title="payload_eq.vx"
 enum Shape { circle(radius: float), empty }
@@ -501,7 +567,71 @@ error: values of type Shape can't be compared with ==
   |             ^^^^^^^^^^^^^^^^
 ```
 
-There's no conversion from an enum to a number: `int(Level.high)` is reported as `can't convert Level to int`.
+Listing `Equatable` compares the case and then its values. `Hashable` does the same and also lets the enum be a map key:
+
+```vex title="payload_equatable.vx"
+enum Shape: Equatable {
+    circle(radius: float)
+    empty
+}
+
+fn main() {
+    let s = Shape.circle(radius: 2)
+    println(s == .circle(radius: 2), s == .circle(radius: 3), s != .empty)
+    println([Shape.empty, s].contains(.circle(radius: 2)))
+}
+```
+
+```text title="Output"
+true false true
+true
+```
+
+There's no conversion from an enum to a number: `int(Level.high)` is reported as `can't convert Level to int`. Use [raw values](#raw-values) for that.
+
+## Operators
+
+An enum defines operators the way a [struct](/docs/language/structs#operators) does: `self` is the left operand and the parameter the right one. With `operator <` and `==`, an enum sorts without `by:`:
+
+```vex title="enum_ops.vx"
+enum Shape: Equatable {
+    circle(radius: float)
+    square(side: float)
+
+    fn area() -> float => match self {
+        circle(r) => 3.14 * r * r
+        square(s) => s * s
+    }
+
+    operator <(other: Shape) -> bool => area() < other.area()
+}
+
+enum Money {
+    cents(amount: int)
+
+    operator +(other: Money) -> Money => match (self, other) {
+        (cents(a), cents(b)) => .cents(amount: a + b)
+    }
+}
+
+fn main() {
+    let a = Shape.circle(radius: 1)
+    let b = Shape.square(side: 2)
+    println(a == Shape.circle(radius: 1), a != b, a < b)
+    println([b, a].sorted())
+    var total = Money.cents(amount: 150)
+    total += .cents(amount: 75)
+    println(total)
+}
+```
+
+```text title="Output"
+true true true
+[Shape.circle(radius: 1.0), Shape.square(side: 2.0)]
+Money.cents(amount: 225)
+```
+
+The rules are those for structs, except that an enum can't define `[]=`, since its values never change. A compound assignment such as `+=` makes a new value and stores it in the `var`.
 
 ## Printing
 
@@ -614,14 +744,15 @@ fn main() {
 ## Rules and edge cases
 
 - An enum needs at least one case. Case values need a name and a type, and can't have defaults.
-- No raw values: write a method or getter that maps each case to a number or string.
+- Raw values are `int` or `string`, only on enums whose cases carry no values: `enum Color: int { red = 1 }`. `Color(rawValue:)` gives a `Color?`.
+- `.name` gives any value's case name, and `Type.allCases` lists the cases of an enum whose cases carry no values.
 - A case without values is written without `()`; a case with values must be called.
 - `.case` needs an expected type.
 - The values a case carries are read with `match` or `if case`, never with `.`.
 - A `match` on an enum must name every case or end with `_`. A `_` after all cases are named is an error, and so is an arm that repeats a case.
 - Arms with `when` don't count toward covering a case.
-- `==`, `!=`, ordering, map keys and `Hashable` work only when no case carries values.
-- Enum values never change. Enums can't have setters or operators, and their constants must be `static const`.
+- `==`, `!=`, ordering, map keys and `Hashable` work without declaring anything only when no case carries values. Otherwise list `Equatable` or `Hashable`, or define `operator ==` and `operator <`.
+- Enum values never change. Enums can't have setters or define `[]=`, and their constants must be `static const`.
 - An enum prints as `Enum.case(values)` unless it has a `fn toString() -> string` method. `Self` in its methods names the enum.
 
 ## Comparison
@@ -630,7 +761,7 @@ fn main() {
 |---|---|---|---|---|---|
 | Cases with values | `circle(radius: float)` | `case circle(radius: Double)` | sealed class subclasses | `Circle { radius: f64 }` | union of object types |
 | Exhaustive match | yes | yes | `when` on sealed | yes | with `never` checks |
-| Raw values | no | yes | properties | discriminants | string literals |
+| Raw values | `enum Color: int` | `enum Color: Int` | properties | discriminants | string literals |
 | Shorthand | `.red` | `.red` | no | no | no |
 
 ## See also
