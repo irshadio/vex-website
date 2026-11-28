@@ -1,9 +1,9 @@
 ---
 title: The vex command
-description: Every vex subcommand, argument and flag, how file and project mode work, where binaries go, debug and sanitizer builds, exit codes, and the environment variables the compiler and runtime read.
+description: Every vex subcommand, argument and flag, how file and project mode work, where binaries go, packages, API docs, checking the toolchain, debug, trace and sanitizer builds, exit codes, and the environment variables the compiler and runtime read.
 ---
 
-`vex` is the compiler and toolchain in one command. It checks Vex source, translates it to C, calls the system C compiler to build a native executable, and can run the result right away. This page documents every subcommand as of version `0.1.0-dev`.
+`vex` is the compiler and toolchain in one command. It checks Vex source, translates it to C, calls a C compiler to build a native executable, and can run the result right away. It also fetches packages, writes API documentation and checks the tools it builds with. This page documents every subcommand as of version `0.1.0-dev`.
 
 ## Overview
 
@@ -15,9 +15,12 @@ vex <command> [arguments]
 |---|---|
 | [`vex run [flags] [file or folder] [-- args]`](#vex-run) | Compile and run a program |
 | [`vex build [file or folder] [-o out] [flags]`](#vex-build) | Build a native executable |
+| [`vex emit-c [file or folder]`](#vex-emit-c) | Print the generated C code |
 | [`vex check [file or folder]`](#vex-check) | Check a program for errors without building it |
 | [`vex test [file or folder] [flags]`](#vex-test) | Run the program's tests |
-| [`vex emit-c [file or folder]`](#vex-emit-c) | Print the generated C code |
+| [`vex get [flags] [repo[@version]]...`](#vex-get) | Add dependencies and lock their versions |
+| [`vex doc [path] [name]`](#vex-doc) | Show or write the API documentation |
+| [`vex doctor [-v]`](#vex-doctor) | Check the tools Vex builds with |
 | [`vex ast <file>`](#vex-ast) | Print the syntax tree of one source file |
 | [`vex tokens <file>`](#vex-tokens) | Print the tokens of one source file |
 | [`vex version`](#vex-version) | Print the Vex version |
@@ -26,7 +29,7 @@ vex <command> [arguments]
 There are no global flags other than `-h`/`--help` (the same as `vex help`) and `-v`/`--version` (the same as `vex version`).
 
 <Callout type="warn" title="Planned">
-There is no `vex fmt`, `vex new` or `vex get` yet. Package fetching is designed but not built; see [Packages](/docs/projects/packages).
+There is no `vex fmt` or `vex new` yet.
 </Callout>
 
 ## File mode and project mode
@@ -126,10 +129,11 @@ Builds a native executable and prints its path.
 | Flag | Effect |
 |---|---|
 | `-o out` | Where to write the program (default: its name) |
+| `--traces` | List the calls that led to a runtime error; on with `--debug` |
 | `--debug` | Compile without optimizations and with debug information (`-O0 -g`) instead of `-O3`, and keep the generated C next to the program as `<out>.c` |
 | `--sanitize=list` | Build in sanitizers that stop the program at memory and other errors: `address`, `undefined` and `thread`, comma-separated |
 
-Flags can come before or after the target. See [Build modes](#build-modes) for `--debug` and `--sanitize`.
+Flags can come before or after the target. See [Build modes](#build-modes) for `--traces`, `--debug` and `--sanitize`.
 
 ```sh
 vex build hello.vx
@@ -141,7 +145,7 @@ Built hello
 
 | Target | Default output name |
 |---|---|
-| `hello.vx` | `hello`: the file name without `.vx` |
+| `hello.vx` | `hello`: the file name without `.vx`, and `hello.exe` on Windows |
 | `src/app.vx` | `app` |
 | a project | the `name` from `package.toml` |
 
@@ -162,9 +166,9 @@ vex build -o bin/tool src/app.vx    # bin/tool
 vex: building would replace the source file h; choose another name with -o
 ```
 
-The executable is self-contained: the runtime and garbage collector are compiled into it, and it depends only on the C library and the system math and thread libraries. Copy it to another machine with the same operating system and CPU architecture and it runs there. There is no cross-compilation option yet.
+The executable is self-contained: the runtime and garbage collector are compiled into it, and it depends only on the C library and the system math and thread libraries. Copy it to another machine with the same operating system and CPU architecture and it runs there. Built with the Linux SDK's toolchain, it is a static executable that runs on any x86-64 Linux, whatever its C library. There is no cross-compilation option yet.
 
-Builds are optimized with `-O3` unless `--debug` is given.
+Builds are optimized with `-O3` unless `--debug` is given. A plain build leaves [stack traces](/docs/tools/runtime-errors#stack-traces) out, since recording each call slows down programs made of many small calls; add `--traces` to keep them.
 
 ## vex check
 
@@ -235,6 +239,89 @@ cc -std=gnu11 -fwrapv -w -pthread -O3 hello.c -o hello -lm
 `emit-c` leaves test blocks out, like `vex build`.
 
 [Generated C](/docs/tools/generated-c) explains how each Vex construct appears in it.
+
+## vex get
+
+```text
+vex get [--path folder] [repo[@version]]...
+```
+
+Adds packages to the project and locks the exact versions of everything it depends on. A package is a git repository with version tags such as `v0.3.1`.
+
+```sh
+vex get https://github.com/ann/charts           # the newest tag
+vex get https://github.com/ann/charts@0.3.1     # that version
+vex get https://github.com/ann/charts@0.3       # the newest 0.3.x
+vex get --path camera https://github.com/vex-lang/packages   # a package in a folder, tagged camera/v0.2.0
+vex get                                         # download what package.toml lists and lock it again
+```
+
+| Flag | Effect |
+|---|---|
+| `--path folder` | The folder of the package, for repositories that hold several packages, each tagged `folder/vX.Y.Z` |
+
+Each repository is added to the `[dependencies]` of `package.toml` under the name the package gives itself, and the version, commit and content hash of every package, including the ones those packages use, are written to `package.lock`. With no repositories, `vex get` downloads what `package.toml` lists and writes `package.lock` again. It runs the system `git`, so `git` must be installed; [`vex doctor`](#vex-doctor) checks for it.
+
+`vex run`, `vex build`, `vex test` and `vex check` then use exactly the versions in `package.lock`, downloading any that are missing from the cache. [Packages](/docs/projects/packages) covers versions, the lock file and the cache in full.
+
+## vex doc
+
+```text
+vex doc [file, folder or vex:module] [name] [-o dir] [--text]
+```
+
+Writes or prints the API documentation of a program, a project or a standard module, from its [`///` doc comments](/docs/tools/doc).
+
+| Flag | Effect |
+|---|---|
+| `-o dir` | Where to write the HTML pages (default: `doc`) |
+| `--text` | Print an overview to the terminal instead of writing HTML |
+
+```sh
+vex doc                      # HTML pages in doc/, one per module, and an index
+vex doc shapes -o site       # the project in shapes/, written to site/
+vex doc --text               # an overview in the terminal
+vex doc Circle               # one declaration's signature and doc comment
+vex doc Circle.area          # a member
+vex doc vex:json Json        # the standard library too
+```
+
+With a name, `vex doc` prints that declaration, as `--text` does. Only `pub` declarations are documented, except in a root module that has none, such as a program of one file, where all are. See [API docs](/docs/tools/doc).
+
+## vex doctor
+
+```text
+vex doctor [-v]
+```
+
+Checks the tools Vex builds with and says how to install what is missing. It never installs anything itself.
+
+```text title="Output of vex doctor"
+Doctor summary (to see all details, run vex doctor -v):
+[✓] Vex (0.1.0-dev+11b0009)
+[✓] C toolchain - builds Vex programs (Apple clang 21.0.0)
+[✓] git - downloads packages for vex get (git 2.50.1)
+[✓] Xcode - builds iOS apps (Xcode 26.4)
+[!] Android toolchain - builds Android apps (NDK 29.0.13113456)
+    ! Java 11.0.26 is too old; Android builds need JDK 17 or newer
+      Set $JAVA_HOME to Android Studio's JDK
+
+! Doctor found issues in 1 category.
+```
+
+| Check | Needed for |
+|---|---|
+| Vex | The version, and the standard library built into `vex` |
+| C toolchain | Building any program. On macOS it also looks for `swiftc`, which programs that import `vex:crypto` need |
+| git | Downloading packages with `vex get` |
+| Xcode (macOS only) | Building apps for iPhone and iPad, in the coming UI framework |
+| Android toolchain | Building Android apps: the Android SDK, the NDK and JDK 17 or newer |
+
+| Flag | Effect |
+|---|---|
+| `-v`, `--verbose` | Show where each tool was found, such as which C compiler was chosen and whether it came with the Vex SDK, and more details |
+
+Only a missing or broken C toolchain is an error, with exit status 1. Problems with git, Xcode and the Android tools are warnings with a line saying how to fix them, and the exit status stays 0, so `vex doctor` can run in scripts and CI.
 
 ## vex ast
 
@@ -332,6 +419,9 @@ Commands:
   emit-c [file or folder] Print the generated C code
   check [file or folder] Check a program for errors
   test [file or folder] [flags] Run the program's tests
+  get [flags] [repo[@version]]... Add dependencies and lock their versions
+  doc [path] [name]      Show or write the API documentation
+  doctor [-v]            Check the tools Vex builds with
   ast <file>             Print the syntax tree of a source file
   tokens <file>          Print the tokens of a source file
   version                Print the Vex version
@@ -340,7 +430,7 @@ Commands:
 Run 'vex help <command>' for details.
 ```
 
-`vex help <command>` prints the usage line of one command, and for `run`, `build` and `test` their flags and the environment variables they read:
+`vex help <command>` prints the usage line of one command and what it does, and for `run`, `build`, `test`, `get`, `doc` and `doctor` their flags and the environment variables they read:
 
 ```text title="vex help build"
 Usage: vex build [file or folder] [-o out] [flags]
@@ -349,6 +439,7 @@ Build a native executable.
 
 Flags:
   -o out            where to write the program (default: its name)
+  --traces          list the calls that led to a runtime error; on with --debug
   --debug           compile without optimizations and with debug information
                     (-O0 -g) instead of -O3
   --sanitize=list   build in sanitizers that stop the program at memory and
@@ -356,12 +447,17 @@ Flags:
                     --sanitize=address,undefined
 
 Environment:
-  CC                the C compiler (default: clang, then cc, then gcc)
+  CC                the C compiler (default: the clang of the Vex SDK, found
+                    next to vex in toolchain/bin, then clang, cc or gcc)
   VEX_CFLAGS        more flags for the C compiler, after the others, so they
                     can override them, e.g. VEX_CFLAGS="-march=native"
 
 With --debug, the generated C is kept next to the program as <out>.c, so a
 debugger can step through it.
+
+Runtime errors show their source line. Stack traces, on for vex run and vex
+test, cost time in programs made of many small calls, so a build leaves them
+out unless --traces or --debug is given.
 ```
 
 ```text title="vex help test"
@@ -378,12 +474,13 @@ Flags:
                     --sanitize=address,undefined
 
 Environment:
-  CC                the C compiler (default: clang, then cc, then gcc)
+  CC                the C compiler (default: the clang of the Vex SDK, found
+                    next to vex in toolchain/bin, then clang, cc or gcc)
   VEX_CFLAGS        more flags for the C compiler, after the others, so they
                     can override them, e.g. VEX_CFLAGS="-march=native"
 ```
 
-`vex help run` lists the same flags as `build` without `-o`, under `Flags, before the program:`. The other commands print only their usage line and summary:
+`vex help run` lists the same flags as `build` without `-o` and `--traces`, under `Flags, before the program:`, since `vex run` always keeps traces. `check`, `emit-c`, `ast`, `tokens` and `version` print only their usage line and summary:
 
 ```text title="vex help check"
 Usage: vex check [file or folder]
@@ -395,7 +492,7 @@ An unknown command name prints `vex help: unknown command "name"` and exits with
 
 ## Build modes
 
-`vex build`, `vex run` and `vex test` build an optimized program by default. Two flags change that, for finding bugs:
+`vex build`, `vex run` and `vex test` build an optimized program by default. Three flags change that:
 
 | Flags | C compiler flags added |
 |---|---|
@@ -403,6 +500,14 @@ An unknown command name prints `vex help: unknown command "name"` and exits with
 | `--debug` | `-O0 -g` |
 | `--sanitize=list` | `-O3 -fsanitize=list -fno-sanitize-recover=all -fno-omit-frame-pointer -g` |
 | `--debug --sanitize=list` | `-O0 -g -fsanitize=list -fno-sanitize-recover=all -fno-omit-frame-pointer` |
+
+### --traces
+
+`--traces` keeps [stack traces](/docs/tools/runtime-errors#stack-traces) in a `vex build`, so a runtime error lists the calls that led to it. The program stays fully optimized; recording each call costs some speed in programs made of many small calls. `vex run`, `vex test` and `--debug` builds always have traces, and a plain `vex build` leaves them out.
+
+```sh
+vex build --traces app.vx
+```
 
 ### --debug
 
@@ -507,7 +612,7 @@ On macOS the sanitizer ends the program with an abort signal, so `vex run` adds 
 | Code | Meaning |
 |---|---|
 | 0 | Success. For `vex run`, the program exited with 0. For `vex test`, every test passed or there were none |
-| 1 | Compile errors, a file that can't be read, a missing `package.toml`, or a C compiler failure. For `vex test`, a failed test or a `-filter` that matched nothing |
+| 1 | Compile errors, a file that can't be read, a missing `package.toml`, or a C compiler failure. For `vex test`, a failed test or a `-filter` that matched nothing. For `vex get`, a repository or version that can't be found. For `vex doctor`, a C toolchain that can't build programs |
 | 2 | Usage error: an unknown command, an unknown flag, a missing `-o` or `-filter` value, too many targets, or a bad `--sanitize` list |
 | any | `vex run` passes on the program's exit status: 1 after a runtime error or an error escaping `main`, the value given to `os.exit`, or 128 plus the signal number |
 
@@ -520,7 +625,7 @@ Run 'vex help' for a list of commands.
 
 ```text
 flag needs an argument: -o
-Usage: vex build [file or folder] [-o output] [--debug] [--sanitize=list]
+Usage: vex build [file or folder] [-o output] [--traces] [--debug] [--sanitize=list]
 ```
 
 ```text
@@ -541,7 +646,8 @@ Flags take one dash or two, and a value can follow `=` or a space: `-o app`, `--
 
 | Variable | Effect |
 |---|---|
-| `CC` | The C compiler to use, which may include arguments, such as `CC="clang -v"`. When unset, `vex` uses the first of `clang`, `cc` and `gcc` found on the `PATH`. |
+| `CC` | The C compiler to use, which may be a full path with spaces or include arguments, such as `CC="clang -v"`. When unset, `vex` uses the clang of the [Vex SDK](/docs/install), in `toolchain/bin` next to the folder of the real `vex` binary, then the first of `clang`, `cc` and `gcc` found on the `PATH`. `vex doctor -v` shows which one was chosen. |
+| `VEX_CACHE` | Where `vex get` and builds keep downloaded packages (default: `~/.vex/pkg`). |
 | `VEX_CFLAGS` | Extra flags for the C compiler, split at spaces and added after the default and build-mode flags, so they can override them, for example `VEX_CFLAGS="-march=native"`. |
 | `NO_COLOR` | When set to any non-empty value, diagnostics are printed without color. Color is also off when standard error isn't a terminal. |
 
@@ -568,14 +674,15 @@ Every Vex program, whether run with `vex run` or built, reads these when it star
 | Variable | Effect |
 |---|---|
 | `VEX_GC_STATS` | When set to anything other than `0`, prints a garbage collector summary to standard error when the program ends. |
-| `VEX_GC_STRESS` | A number `n`: runs a full collection every `n` allocations. Very slow; used to test the collector. |
+| `VEX_GC_STRESS` | A number `n`: runs a collection every `n` allocations, every fourth one major. Very slow; used to test the collector. |
+| `VEX_GC_VERIFY` | When set, checks at each minor collection that no write barrier was missed. Used with `VEX_GC_STRESS` to test the collector. |
 
 ```sh
-VEX_GC_STATS=1 vex run words.vx
+VEX_GC_STATS=1 vex run cycles.vx
 ```
 
 ```text
-gc: 2 collections, 7220 KB allocated, 4149 KB peak heap, 4149 KB live
+gc: 7 collections, 31250 KB allocated, 4096 KB peak heap, 2578 KB live, 4160 KB from the system, 4160 KB at most, 0 KB given back
 ```
 
 ## See also
