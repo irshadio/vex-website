@@ -857,7 +857,7 @@ error: continue can only be used inside a loop
 2 errors
 ```
 
-`throw` inside a deferred block gives `throw can't be used in a defer block`, and `try` without `?` or `catch` gives `the error can't pass up: a defer block doesn't throw`. [Compile errors](/docs/tools/compile-errors#defer-blocks) lists them all.
+`throw` inside a deferred block gives `throw can't be used in a defer block`, and `try` without `?` or `catch` gives `the error can't pass up: a defer block runs as its block ends, so it can't throw`. [Compile errors](/docs/tools/compile-errors#defer-blocks) lists them all.
 
 ## match
 

@@ -688,7 +688,7 @@ error: break can only be used inside a loop
 3 errors
 ```
 
-A `try` that would pass an error up gives `the error can't pass up: a defer block doesn't throw`. Handle errors inside the block with `try?` or `try ... catch`, and use loops inside it freely: `break` and `continue` work on a loop within the block. See [defer](/docs/language/control-flow#defer).
+A `try` that would pass an error up gives `the error can't pass up: a defer block runs as its block ends, so it can't throw`. Handle errors inside the block with `try?` or `try ... catch`, and use loops inside it freely: `break` and `continue` work on a loop within the block. See [defer](/docs/language/control-flow#defer).
 
 ### return outside a statement
 

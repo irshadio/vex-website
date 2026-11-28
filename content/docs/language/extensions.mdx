@@ -487,9 +487,7 @@ error: 'big' is already added to every Shape by an extension
 6 errors
 ```
 
-<Callout type="warn" title="Not yet">
-Extensions of generic interfaces aren't supported: `extension Store<int> { ... }` gives `extensions of generic interfaces aren't supported yet`, and `extension Store { ... }` gives `Store is generic, so it needs type arguments`. Give the interface a default method instead. Methods added to an interface can't be torn off as function values yet; call them in a closure.
-</Callout>
+A generic interface is extended without type arguments, `extension Store { ... }`, and the methods use the interface's own type parameters; they may also have their own. Writing `extension Store<int> { ... }` gives `an extension of a generic interface names it without type arguments`. Methods added to an interface can be torn off as function values, like other methods.
 
 ### Interface extensions across modules
 

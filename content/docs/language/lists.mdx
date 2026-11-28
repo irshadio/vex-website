@@ -363,7 +363,7 @@ true false [1, 2, 3] 3
 | `r.start`, `r.end` | `int` | The bounds as written: `(1..=5).reversed().start` is `1`. Properties. |
 | `r.contains(value)` | `bool` | Whether `value` is one of the values the range gives. |
 | `r.toList()` | `[int]` | A new list of the values, in order. |
-| `r.step(by)` | `Range` | The same range keeping the first value and then every `by`th one. `by` must be more than 0. |
+| `r.step(by)` | `Range` | The same range keeping the first value and then every `by`th one. `by` must be more than 0. Steps chain: `(0..10).step(2).step(3)` takes every third of 0, 2, 4, 6, 8, giving `[0, 6]`. |
 | `r.reversed()` | `Range` | The same values, last first. |
 
 ### Stepping and reversing

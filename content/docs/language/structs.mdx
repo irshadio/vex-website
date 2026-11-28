@@ -1087,7 +1087,7 @@ error: toString can't throw
 ```
 
 - A generic `toString<T>()` is an error too: `toString can't have type parameters`.
-- An [extension](/docs/language/extensions) of a struct or enum can add `toString`, with the same effect. Built-in types always print the built-in way; a `toString` that an extension adds to `int` or `string` is an ordinary method.
+- An [extension](/docs/language/extensions) of a struct or enum can add `toString`, with the same effect. Built-in types always print the built-in way, so an extension can't add `toString` to `int`, `string` or another built-in type: `int always prints in its built-in form, so an extension can't add toString`.
 - `toString` is also an ordinary method, so `m.toString()` calls it directly.
 - Showing `self` inside `toString`, as in `"Money {self}"`, calls `toString` again without end and stops the program with a stack overflow. Show the fields instead.
 
