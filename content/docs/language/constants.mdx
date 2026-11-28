@@ -39,7 +39,8 @@ A constant's value must be known when compiling. It can be made of:
 - other constants, in any order
 - operators, including the wrapping `&+`, `&-` and `&*`
 - string interpolation of constants
-- records, enum cases, and lists and maps of those
+- records, enum cases, and lists, maps and sets of those (a set from a list literal, with its type written: `const vowels: Set<string> = ["a", "e"]`)
+- extension type values: `const admin = UserId(value: 1)`
 - `.len` of a constant string or collection, and fields of a constant record
 
 ```vex title="constvalues.vx"
@@ -190,7 +191,7 @@ error: can't change a constant list; change a copy made with .copy()
   at main (frozenalias.vx:10)
 ```
 
-For maps, the message is `can't change a constant map; change a copy made with .copy()`. Use `.copy()` to get a changeable list or map with the same contents:
+For maps and sets, the message is `can't change a constant map; change a copy made with .copy()`, or `constant set`. Use `.copy()` to get a changeable list or map with the same contents:
 
 ```vex title="constcopy.vx"
 const primes = [2, 3, 5, 7]

@@ -19,6 +19,9 @@ What you do need to know is which values are **shared** and which behave as **va
 | structs | a shared reference | yes: fields can always be changed |
 | lists `[T]` | a shared reference | yes |
 | maps `[K: V]` | a shared reference | yes |
+| sets `Set<T>` | a shared reference | yes |
+| `Bytes` | a shared reference | yes |
+| extension types | like the value they wrap | no: make a new one |
 | closures | a shared reference to the function and what it captured | captured `var`s can change |
 | interface values | a shared reference to the struct inside | through the struct's methods |
 
