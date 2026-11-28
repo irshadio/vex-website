@@ -5,16 +5,16 @@ import { Section } from './section';
 
 const topics = [
   ['Structs', 'language/structs', 'Fields with defaults, methods and constructors with named arguments.'],
-  ['Enums and match', 'language/enums', 'Cases with values, matched exhaustively.'],
+  ['Enums and match', 'language/enums', 'Cases with values or raw values, matched exhaustively.'],
   ['Optionals', 'language/optionals', 'Nil safety in the type system, with ?. and ??.'],
   ['Errors', 'language/errors', 'throws, try and catch, visible at every call.'],
   ['Generics', 'language/generics', 'Type parameters for functions, structs, enums and methods.'],
-  ['Interfaces', 'language/interfaces', 'Methods and properties a type promises to provide.'],
+  ['Interfaces', 'language/interfaces', 'Methods a type promises to provide; sealed ones match exhaustively.'],
   ['Closures', 'language/closures', 'Functions as values, with trailing blocks.'],
   ['Async', 'concurrency/async', 'async and await on an event loop, with cancellation and timeouts.'],
   ['Isolates', 'concurrency/isolates', 'Parallel code on other cores, with channels.'],
-  ['Extensions', 'language/extensions', 'New methods on existing types, built-in ones included.'],
-  ['Modules', 'projects/modules', 'Folders as modules, packages from git repositories.'],
+  ['Extensions', 'language/extensions', 'New methods on existing types, and distinct types at no cost.'],
+  ['Modules', 'projects/modules', 'Folders as modules, and packages from git with vex get.'],
   ['C functions', 'projects/c-interop', 'Call C and export Vex functions to C.'],
 ];
 

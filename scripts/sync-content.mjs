@@ -129,7 +129,7 @@ async function syncExamples() {
 }
 
 // Phases that belong to the Vex UI framework, which gets its own site; the backlog builds phases 3 to 5 in vex-ui.
-const uiPhases = new Set(['UI core', 'iOS backend', 'Android backend', 'App essentials']);
+const uiPhases = new Set(['UI core', 'iOS backend', 'Android backend', 'App essentials', 'Graphics and animation']);
 
 // Roadmap data for the language from the backlog.
 function syncRoadmap() {

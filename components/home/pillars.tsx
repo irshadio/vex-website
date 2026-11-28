@@ -9,7 +9,7 @@ const pillars = [
   },
   {
     title: 'Compiled ahead of time',
-    body: 'The compiler turns Vex into readable, portable C and builds it with the system C compiler. Memory is managed by a garbage collector built into every program, so there is nothing to free by hand.',
+    body: 'The compiler turns Vex into readable, portable C and builds it with a C compiler, which the SDK includes on Windows and Linux. A generational garbage collector built into every program scans objects by their exact layout and gives unused memory back to the system, so there is nothing to free by hand.',
     link: { label: 'How memory works', href: '/docs/internals/memory' },
   },
   {

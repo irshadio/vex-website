@@ -3,10 +3,10 @@ title: Overview
 description: What Vex is, what works today, how the compiler turns source into a native binary, and where to find everything in these docs.
 ---
 
-Vex is a compiled, statically typed programming language. You write `.vx` files, and the `vex` command turns them into native executables through C. It is a general-purpose language: today you can use it for command-line programs, tools and libraries on macOS and Linux.
+Vex is a compiled, statically typed programming language. You write `.vx` files, and the `vex` command turns them into native executables through C. It is a general-purpose language: today you can use it for command-line programs, tools and libraries on macOS, Linux and Windows.
 
 <Callout type="warn" title="Early development">
-Vex is at version 0.1 (`0.1.0-dev`). The core language, the compiler and a first standard library work on macOS and Linux. The package manager, more platforms and editor support are planned and not built yet. Expect breaking changes between versions.
+Vex is pre-release (`0.1.0-dev`). The core language is complete and the language for apps is nearly so (phase 2 of the [roadmap](/roadmap), 89 of 97 tasks, with the C interop steps next): the compiler, the standard library, packages and the tools work on macOS, Linux and Windows. Phone apps, editor support and a formatter are planned and not built yet. Expect breaking changes between versions.
 </Callout>
 
 ## A first look
@@ -67,27 +67,26 @@ Vex aims to be readable at first sight for anyone who knows Dart, Swift, Kotlin,
 
 ## Current status
 
-What exists today, as of version 0.1:
+What exists today:
 
 | Area | State |
 |---|---|
-| Platforms | macOS and Linux, on arm64 and x86-64 CPUs. Windows isn't supported yet. |
-| Compiler | Lexer, parser, type checker and C code generator, written in Go. Needs a C compiler (`clang` or `gcc`) on your machine. |
-| Language | Variables, constants, functions and local functions, closures and trailing blocks, structs with `let` fields, `init` and `copy`, enums, `match` and patterns, optionals, errors, generics, interfaces with static requirements, extensions of types and interfaces, records, lists, maps, ranges and slicing, `repeat`, named loops and `defer`, operator overloading, getters, setters and `didSet`, type aliases, multi-line and raw strings. |
+| Platforms | macOS and Linux, on arm64 and x86-64 CPUs, and Windows on x86-64. |
+| Compiler | Lexer, parser, type checker and C code generator, written in Go. Builds with a C compiler: the SDK includes one on Windows and Linux, and macOS uses the Xcode Command Line Tools. |
+| Language | Variables, constants, functions and local functions, closures and trailing blocks, structs with `let` fields, `init` and `copy`, enums with raw values, `match` and patterns, optionals and null-aware elements, errors, generics, interfaces with static requirements, sealed interfaces, extensions of types and interfaces, extension types, records, lists, maps, sets, `Bytes`, ranges and slicing, generators, `repeat`, named loops and `defer`, operator overloading, getters, setters and `didSet`, type aliases, multi-line and raw strings, interpolation format specs and Unicode-aware strings. |
 | Concurrency | `async`/`await` with a built-in event loop, and isolates (parallel threads with separate heaps) with channels. |
-| Projects | Folders as modules, `pub` visibility, `package.toml`, and building your own C and Objective-C code into a project. |
-| Standard library | `vex:math`, `vex:strings`, `vex:time`, `vex:os`, `vex:fs`, `vex:json` and `vex:isolate`. |
-| Memory | Automatic, with a tracing garbage collector built into every program. |
-| Tools | `vex run`, `build`, `check`, `emit-c`, `ast`, `tokens`, `version` and `help`. |
+| Projects | Folders as modules, `pub` visibility, `package.toml`, packages from git with `vex get` and `package.lock`, and building your own C and Objective-C code into a project. |
+| Standard library | `vex:math`, `vex:strings`, `vex:time`, `vex:datetime`, `vex:os`, `vex:fs`, `vex:json`, `vex:regex`, `vex:random`, `vex:crypto` and `vex:isolate`. |
+| Memory | Automatic, with a generational garbage collector built into every program that scans objects by their exact layout and gives unused memory back to the system. |
+| Tools | `vex run`, `build`, `check`, `test`, `get`, `doc`, `doctor`, `emit-c`, `ast`, `tokens`, `version` and `help`, and stack traces in runtime errors. |
 
 What is planned and not built:
 
 | Planned | Notes |
 |---|---|
-| More platforms | Cross-compiling the C output for iOS (`arm64-apple-ios`) and Android (the NDK). |
-| Package manager | `vex get`, `package:` imports and `package.lock`. See [Packages](/docs/projects/packages). |
-| Language features | Sealed interfaces, extension types, a bytes type, Unicode-aware `upper` and `lower`. |
-| Tools | Formatter, language server and editor extension, `vex new`, `vex doc`, stack traces in runtime errors, debugger line information. |
+| Phone apps | Cross-compiling the C output for iOS (`arm64-apple-ios`) and Android (the NDK), with native UI from the separate Vex UI framework. |
+| Package index | A searchable website of packages in public git repositories. See [Packages](/docs/projects/packages). |
+| Tools | Formatter (`vex fmt`), language server, debug adapter and debugger line information, VS Code and JetBrains plugins, `vex new`, `vex repl` and hot reload. |
 
 ## How it works
 
@@ -148,7 +147,7 @@ Read more in [The compiler](/docs/internals/compiler) and [Generated C](/docs/to
 
 <Cards>
   <Card title="Modules" href="/docs/projects/modules" description="Folders as modules, pub, imports and package.toml." />
-  <Card title="Packages" href="/docs/projects/packages" description="What works now and what the package manager will add." />
+  <Card title="Packages" href="/docs/projects/packages" description="Packages from git with vex get, package: imports and package.lock." />
   <Card title="C interop" href="/docs/projects/c-interop" description="Calling C, exporting Vex functions to C, and building C code into a project." />
 </Cards>
 
