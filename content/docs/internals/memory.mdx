@@ -1,9 +1,9 @@
 ---
 title: Memory management
-description: Why Vex uses a tracing garbage collector, how the current mark-and-sweep collector works, how to observe it, and what the next stages will change.
+description: Why Vex uses a tracing garbage collector, how its generational collector with precise object layouts and conservative stacks works, how it returns memory to the system, and how to observe it.
 ---
 
-Vex manages memory automatically with a tracing garbage collector that is compiled into every program. This page explains why Vex chose tracing collection over reference counting, how the current collector allocates and frees memory, and what is planned next. For what this means when you write Vex code, see [Memory](/docs/language/memory).
+Vex manages memory automatically with a tracing garbage collector that is compiled into every program. This page explains why Vex chose tracing collection over reference counting, how the collector allocates, finds and frees memory, and how it gives memory back to the system. For what this means when you write Vex code, see [Memory](/docs/language/memory).
 
 ## The decision: tracing, not reference counting
 
@@ -17,55 +17,83 @@ Vex uses a tracing collector, like Go, Dart and Kotlin/Native, rather than refer
 
 The trade-offs: memory isn't freed the moment it becomes unreachable, and a collection pauses the program briefly. Resources other than memory, such as files, need to be closed explicitly rather than relying on the collector.
 
-## Stage 1: mark and sweep
+## How the collector works
 
-The current collector is a conservative, non-moving mark-and-sweep collector. It lives entirely in the runtime (`compiler/codegen/runtime/vexrt.h`); the compiler's only part is starting it at the beginning of the C `main`.
+The collector is a non-moving mark-and-sweep collector with two generations. It reads heap objects precisely, by the layout the compiler records for each type, and the stacks conservatively. It lives in the runtime (`compiler/codegen/runtime/vexrt.h`); the compiler starts it at the beginning of the C `main` and emits a write barrier after each store of a pointer into an object.
 
 ### Allocation
 
 - **Small objects**, up to 2 KB, come from 64 KB pages. Each page holds objects of a single size class, and there are 24 classes: 16, 32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024, 1280, 1536, 1792 and 2048 bytes.
 - An allocation takes an object from its class's free list, or from the unused end of the page the class is filling. For objects of up to 128 bytes this fast path is inlined where the allocation happens, and for a constant size the class is a constant.
-- **Large objects** get their own allocation from the C library, with a small header.
-- **Atomic objects**, such as the text of strings and lists of plain numbers, are allocated separately and marked as holding no pointers, so the collector never scans their contents.
+- **Large objects** get their own allocation, with a small header: from `malloc` below 1 MB, and mapped from the system on their own from 1 MB up.
+- Pages are cut from 1 MB chunks taken from the system with `mmap`, or `VirtualAlloc` on Windows.
+
+### Object layouts
+
+Every allocation passes the layout of its words: a 64-bit mask with a bit for each 8-byte word that may hold a pointer, repeated for each element of an array.
+
+- The compiler emits one as a C constant for each struct, enum case, record, optional, closure environment, captured variable and task or generator argument block, built with `offsetof` so that the C compiler places the fields. Lists, maps, sets and futures get theirs from their element, key and value types.
+- String text, `Bytes`, and lists of numbers and bools have no pointers at all, so their contents are never scanned.
+- Pages are kept apart by layout as well as size class, so a page stores its layout once, in its header, and allocating writes nothing but the object. Each class has pages for objects with no pointers and for objects that are all pointers, the two common cases, whose inlined allocation costs no more than one without a layout. Every other layout gets pages of its own, found through a table of 256 per heap, at the cost of one comparison. A large object keeps its mask in its header.
+- Words that hold an `int` or a `float` are never read by the collector, so a number can't keep an object alive by looking like its address. A word that is a pointer in one enum case and a number in another is read only in objects of the first case.
+- An optional struct or enum is a pointer that is NULL for `nil`; other optionals carry a flag.
 
 ### Finding objects
 
-To decide whether a word might point into the heap, the collector first checks it against the lowest and highest heap addresses. Within that range, a hash table maps a page number to its page, so a candidate pointer is checked with a shift and one lookup; the page last found is cached, since nearby objects usually share a page. Large objects are found by binary search over their sorted addresses. Within a page, the object that contains a given byte is found with a multiplication rather than a division.
+To decide whether a word might point into the heap, the collector checks it against the lowest and highest heap addresses, then looks its page up in a hash table, with a shift and one lookup. Large objects are found by binary search over their sorted addresses. Within a page, the object that contains a given byte is found with a multiplication rather than a division, so pointers into the middle of an object count too.
 
 ### Marking
 
 Marking starts from the roots:
 
-- The C stack of the running code, and the CPU registers, which are spilled onto the stack with `setjmp` so they are scanned too.
-- The stacks of async tasks that aren't running.
-- The program's constants, closures handed to C as callback contexts (until C calls `vex_release`), and a few runtime tables.
+- The C stacks of the program and of its async tasks, and the CPU registers, spilled with `setjmp`. These are scanned **conservatively**: any word that points into an object keeps it alive.
+- Globals, constants and the runtime's own roots (timers, futures waiting for another isolate, closures handed to C until C calls `vex_release`), which are read **precisely**, by the layout of each global.
 
-Marking is **conservative**: any word that points into an object keeps it alive, including a pointer into the middle of an object. Marked objects are scanned the same way, using an explicit work list rather than recursion, so deeply linked structures can't overflow the stack.
+Marked objects are scanned by their layout, using an explicit work list rather than recursion, so deeply linked structures can't overflow the stack.
 
-Conservative marking can keep a dead object alive when an unrelated number happens to look like its address. It never frees a live object.
+### Why the stacks stay conservative
+
+A precise stack needs either stack maps, which Go and Dart get from their own code generators but a compiler that emits C can't produce, or a shadow stack: a chain of root slots each function links in and stores its pointers to. Measured on the generated C of the binary-trees benchmark, a shadow stack cost 13% to 27% more cycles, for no gain in a collector that never moves objects. So Vex scans stacks conservatively and objects precisely, as the collectors of WebKit and Mono do.
+
+A conservative stack can keep a dead object alive when an unrelated number on the stack looks like its address, or when a stack slot still holds a pointer the program no longer uses. It never frees a live object.
+
+### Generations
+
+Marks stay set after a collection, so the objects that survived are old.
+
+- A **minor** collection marks only from the roots and from old objects written since the last collection, and stops at anything already marked, so it doesn't trace long-lived data again.
+- A **major** collection clears every mark and traces everything.
+- The **write barrier**: after the compiled code or the runtime stores a pointer into an object (a field, a list element, a map entry, a captured variable), it records the object in the remembered set, which the next minor collection scans again. Plain local variables are roots and need no barrier, and neither do stores of numbers and bools.
 
 ### Sweeping
 
-Unmarked small objects go back onto the free lists of their class. A page with no live objects becomes empty and can be reused for any size class. Unmarked large objects are returned to the C library.
+Unmarked objects go back onto the free lists of their class. Pages with no live objects can be reused for any size class, pages whose objects are all live are skipped, and unmarked large objects are freed.
 
 ### Pacing
 
-A collection runs when the heap reaches twice the live size left by the previous collection, and never below 4 MB. This matches Go's default setting (`GOGC=100`): the collector does an amount of work proportional to the memory the program allocates.
+A minor collection runs once the young objects reach the size of the heap after the last collection, and never below 4 MB. A major one runs instead once the old objects have doubled since the last major collection, or after 16 minor ones in a row in which the old objects grew by less than a quarter, so that old objects that died are found even when the heap stops growing, as when a screen full of objects is closed.
+
+### Returning memory to the system
+
+At each collection the collector counts the pages it needs: those in use, and those the young objects may fill before the next collection. A major collection keeps as many as were needed at any collection since the last major one, and gives the memory of the other empty pages back to the system: with `madvise` (`MADV_FREE_REUSABLE` on Apple systems, which the iOS memory limit sees at once, `MADV_DONTNEED` on Linux), or by decommitting it with `VirtualFree` on Windows. The page keeps its addresses and is used again before any new memory is taken.
+
+Waiting for a major collection, and keeping the most pages needed since the last one, keeps a heap that grows and shrinks between major collections from giving pages back and faulting them in again. Large objects of 1 MB or more are unmapped as soon as they die.
 
 ### Isolates
 
-Each isolate is a thread with its own heap and its own collector. The heap's state is one thread-local struct, so an allocation looks up thread-local storage only once; on macOS that keeps the cost to about 4% in allocation-heavy code. Because no object is shared between heaps, collections never need locks and never stop other isolates. Messages between isolates are deep copies, and channels live outside the heaps.
+Each isolate is a thread with its own heap and its own collector. The heap's state is one thread-local struct, so an allocation looks up thread-local storage only once. Because no object is shared between heaps, collections never need locks and never stop other isolates. Messages between isolates are deep copies, and channels live outside the heaps.
 
 Constants are the exception: lists, maps and other constant values are built once on the main thread before `main` runs, kept alive for the whole program, and shared read-only with every isolate. The memory an isolate used is freed when it ends.
 
 ## Observing the collector
 
-Two environment variables control the collector in any Vex program, whether run with `vex run` or built with `vex build`:
+Three environment variables control the collector in any Vex program, whether run with `vex run` or built with `vex build`:
 
 | Variable | Effect |
 |---|---|
-| `VEX_GC_STATS=1` | At exit, prints the number of collections, the total bytes allocated, the peak heap and the live heap to standard error. |
-| `VEX_GC_STRESS=N` | Collects every `N` allocations; `1` collects on every allocation. The compiler's tests run every program this way to catch objects freed too early. |
+| `VEX_GC_STATS=1` | At exit, prints to standard error the number of collections, the total bytes allocated, the peak heap and the live heap, and the memory held from the system then, the most it held, and how much was given back. |
+| `VEX_GC_STRESS=N` | Collects every `N` allocations; `1` collects on every allocation, and every fourth collection is major. The compiler's tests run every program this way to catch objects freed too early. |
+| `VEX_GC_VERIFY=1` | Checks at each minor collection that every old object changed to point at a young one is in the remembered set, which would otherwise mean a missing write barrier. The tests set it along with `VEX_GC_STRESS`. |
 
 This program builds a million two-node cycles, each unreachable after its loop iteration:
 
@@ -92,7 +120,7 @@ VEX_GC_STATS=1 vex run cycles.vx
 ```
 
 ```text title="Output"
-gc: 7 collections, 31250 KB allocated, 4096 KB peak heap, 2578 KB live
+gc: 7 collections, 31250 KB allocated, 4096 KB peak heap, 2578 KB live, 4160 KB from the system, 4160 KB at most, 0 KB given back
 499999500000
 ```
 
@@ -111,16 +139,18 @@ On an Apple silicon Mac, best of several runs, compared with the same program wr
 
 Before the collector existed, the first program leaked all 387 MB it allocated.
 
+Binary trees of depth 18, about 67 million short-lived nodes beside one long-lived tree, take 0.26 s and 42 MB; Kotlin on the JVM takes 0.28 s and 438 MB, Dart 0.35 s and 78 MB, and Go 1.26 s and 45 MB. Minor collections make the difference: before them it took 0.45 s.
+
+Returning memory lowers the peak memory of the sorting benchmark from 143 MB to 120 MB, since its large lists are unmapped when they die. A program that builds 60 MB of objects, drops them and goes on allocating falls back to 18 MB, where before it stayed at 72 MB. Precise object layouts leave most benchmarks within 1%, and make those whose objects mix numbers with pointers faster: hash maps by about 6% and sorting by 4%, since the collector no longer reads those numbers.
+
 ## Next stages
 
 <Callout type="warn" title="Planned">
-The stages below are designed but not built. Today's collector is stage 1.
+These aren't built yet.
 </Callout>
 
-1. **Precise roots and object layouts.** The compiler will record where pointers live in each struct, enum and stack frame. Nothing will then be kept alive by a number that looks like a pointer, and scanning will skip plain numbers.
-2. **Generational collection.** Young objects will be collected often and cheaply, so most collections stay short and rarely touch old data.
-3. **Returning memory to the operating system**, and finalizers for native handles.
-4. **Threads with shared memory**, if Vex gets them: per-thread allocation caches and stopping threads for a collection. Isolates already run in parallel without this, since each has its own heap.
+1. **Finalizers** for native handles, once the UI framework's bridge to native widgets exists.
+2. **Threads with shared memory**, if Vex gets them: per-thread allocation caches and stopping threads for a collection. Isolates already run in parallel without this, since each has its own heap.
 
 ## See also
 

@@ -137,6 +137,8 @@ error: index 5 is out of range for a list of length 3
  --> crash.vx:5
 ```
 
+With `vex run`, a [stack trace](/docs/tools/runtime-errors#stack-traces) follows the message, ending at the function or closure the isolate was started with.
+
 ### Async work on another isolate
 
 `isolate.run` and `isolate.spawn` also take async closures and the names of async functions. The function runs as a task on the new isolate's own event loop, so it can await timers and start tasks there:
@@ -488,7 +490,7 @@ main ends
 
 ## How it works
 
-- Each isolate is an operating system thread with an 8 MB stack. Its heap, collector, timers and tasks belong to that thread alone, so none of them need locks.
+- Each isolate is an operating system thread with an 8 MB stack: a POSIX thread on macOS and Linux, a Win32 thread on Windows, where channels use Win32 locks. Its heap, collector, timers and tasks belong to that thread alone, so none of them need locks.
 - Values cross as messages. The sender encodes the value into bytes, following references and remembering the objects it has already written so sharing and cycles are kept. The receiver decodes the bytes into new objects in its own heap.
 - A channel lives outside every heap, guarded by a lock. Its messages wait in it in encoded form until a receiver takes them.
 - The result of `isolate.run` is posted to the inbox of the isolate that started it. Its event loop picks it up and completes the future.

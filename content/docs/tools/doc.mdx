@@ -1,0 +1,143 @@
+---
+title: API docs
+description: How to write /// doc comments in Vex, the Markdown and [Name] references they support, and how vex doc turns them into HTML pages or terminal output for pub declarations.
+---
+
+Vex documents code with `///` comments, as Dart and Swift do. `vex doc` reads them and writes HTML pages for the project, or prints a declaration's signature and comment in the terminal, like `go doc`. The standard library is documented the same way, so `vex doc vex:json Json` works without a browser.
+
+## Writing doc comments
+
+A `///` comment on the lines right above a declaration documents it: a type, enum case, field, method, property, function, constant, type alias or extension. A `///` comment at the top of a file, before the imports and set apart from the first declaration by a blank line, documents the module.
+
+````vex title="shapes/main.vx"
+/// Flat shapes and their areas.
+
+/// A circle. Its [area] grows with the square of [radius].
+///
+/// ```
+/// let c = Circle(radius: 2.0)
+/// ```
+pub struct Circle {
+    /// The distance from the centre to the edge.
+    pub radius: float
+
+    /// Returns the area, in square units.
+    pub fn area() -> float => 3.14159 * radius * radius
+}
+
+/// The most shapes a drawing holds.
+pub const limit = 10
+
+/// Returns the total area of [shapes].
+pub fn total(shapes: [Circle]) -> float => shapes.reduce(0.0, fn(sum, c) => sum + c.area())
+````
+
+Doc comments are Markdown: paragraphs, lists, `code`, fenced code blocks, **bold**, *italic*, [links](https://example.com), and references in square brackets, which become links.
+
+The usual style, which the standard library follows:
+
+- The first sentence is a short summary; it is what the module overview shows. Add more paragraphs only when they say something the signature doesn't.
+- Functions and methods start with a third-person verb: `/// Returns the area.` Types, fields and constants start with a noun phrase: `/// A circle.`
+- Plain `//` comments are for notes inside the code and never appear in the docs.
+
+### References
+
+| Write | Links to |
+|---|---|
+| `[Circle]` | A declaration of the same module |
+| `[Circle.area]` | A member of a type |
+| `[area]`, inside a type | A member of that type |
+| `[shapes]`, in a function's comment | A parameter of the function, shown as code |
+| `[models.User]` | A declaration of another module of the project |
+
+A reference that names nothing is shown as code, and `vex doc` warns about it with the file and line:
+
+```text
+main.vx:20: warning: [Square] in the doc of total doesn't name a declaration
+```
+
+## Writing the pages
+
+```sh
+vex doc                      # HTML pages in doc/, one per module, and an index
+vex doc shapes -o site       # the project in shapes/, written to site/
+```
+
+```text title="Output"
+Wrote the documentation of 1 module to doc/index.html
+```
+
+- `vex doc` documents the `pub` declarations of the project's modules: what other modules can use. A root module without any `pub` declaration, such as a program of one file, has all its declarations documented.
+- Signatures are shown without bodies, and constants with their values: `fn total(shapes: [Circle]) -> float`, `const limit = 10`. Sealed interfaces, raw values of enums and extension types are shown as declared.
+- The pages are plain HTML and CSS, with no scripts and nothing loaded from elsewhere, so they can be opened from disk or served from any static host. They follow the system's light or dark appearance.
+
+## Reading docs in the terminal
+
+`--text` prints an overview of each module instead of writing HTML:
+
+```sh
+vex doc --text shapes
+```
+
+```text
+module shapes
+
+    Flat shapes and their areas.
+
+Types:
+    struct Circle
+
+Functions:
+    fn total(shapes: [Circle]) -> float
+
+Constants and variables:
+    const limit = 10
+```
+
+A name after the target prints one declaration, with its doc comment and, for a type, its members:
+
+```sh
+vex doc shapes Circle
+```
+
+```text
+struct Circle
+
+    A circle. Its [area] grows with the square of [radius].
+
+    ```
+    let c = Circle(radius: 2.0)
+    ```
+
+    radius: float
+        The distance from the centre to the edge.
+
+    fn area() -> float
+        Returns the area, in square units.
+```
+
+`Circle.area` names a member, and `models.User` a declaration of another module. With no target, the project in the current folder is used, so `vex doc Circle` works inside it. A name that matches nothing exits with status 1: `vex doc: no public declaration called 'Nope' in .`
+
+## The standard library
+
+Every standard module is documented with the same comments, so the terminal is a quick reference:
+
+```sh
+vex doc --text vex:random      # the module's overview
+vex doc vex:random nextInt
+```
+
+```text
+fn nextInt(range: Range) -> int
+
+    Returns one of the values of [range], each equally likely:
+    `random.nextInt(1..=6)` rolls a die. The range must not be empty.
+```
+
+`vex doc vex:json -o api` writes the HTML pages of one module. The [Standard library](/docs/stdlib) section of this site covers the same API with longer examples.
+
+## See also
+
+- [The vex command: vex doc](/docs/tools/cli#vex-doc)
+- [Modules and projects](/docs/projects/modules)
+- [Standard library](/docs/stdlib)

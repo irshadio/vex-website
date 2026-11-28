@@ -62,10 +62,12 @@ User(name: "Ann", age: 30, tags: [], email: nil, role: Role.admin)
 `Codable` is a built-in constraint, like `Equatable` and `Hashable`. A type is Codable when it is one of these:
 
 - `int`, `float`, `bool` and `string`
-- a list `[T]` of a Codable type
+- [`Bytes`](/docs/stdlib/built-ins#bytes), written as a base64 string
+- a list `[T]` or a set `Set<T>` of a Codable type; a set is written as a JSON list
 - a map `[string: T]` with `string` keys and a Codable value type
 - an optional `T?` of a Codable type
 - a struct or enum that lists `Codable` after its name
+- an [extension type](/docs/language/extensions) that lists `Codable`, written as the plain value it wraps
 - [`Json`](#json) itself
 
 A struct or enum opts in by listing `Codable`, like any interface. Every field of a Codable struct, and every value a case of a Codable enum carries, must be Codable too. The compiler checks this at the declaration, and names what to change:
@@ -109,6 +111,40 @@ error: encode needs T to be Codable, but Point isn't
    |             ^^^^^^^^^^^ list Codable on Point
 
 3 errors
+```
+
+An enum with raw values is written as its raw value rather than its case name:
+
+```vex title="kinds.vx"
+import "vex:json"
+
+extension type Email(value: string): Codable
+
+enum Level: int, Codable {
+    low = 1
+    high = 5
+}
+
+struct Upload: Codable {
+    name: string
+    data: Bytes
+    tags: Set<string>
+    owner: Email
+    level = Level.high
+}
+
+fn main() throws {
+    let u = Upload(name: "a.bin", data: Bytes([1, 2, 255]), tags: ["x", "y"], owner: Email(value: "ann@example.com"))
+    let text = json.encode(u)
+    println(text)
+    let back: Upload = try json.decode(text)
+    println(back.data == u.data, back.tags == u.tags, back.owner.value, back.level)
+}
+```
+
+```text title="Output"
+{"name":"a.bin","data":"AQL/","tags":["x","y"],"owner":"ann@example.com","level":5}
+true true ann@example.com Level.high
 ```
 
 Functions, records, ranges, futures, channels and interface values are never Codable. A type that writes its own conversion, as in [Custom conversion](#custom-conversion), can hold them anyway.

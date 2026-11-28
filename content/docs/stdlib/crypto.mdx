@@ -1,0 +1,377 @@
+---
+title: vex:crypto
+description: API reference for vex:crypto, which hashes, authenticates, derives keys, encrypts with seal and open, and signs, using Monocypher and each system's own provider, with key types that never print their secrets.
+---
+
+`vex:crypto` hashes, authenticates, encrypts and signs [`Bytes`](/docs/stdlib/built-ins#bytes). It never implements a primitive of its own: every algorithm comes from audited code built into the program or from the operating system's own provider. Keys have their own types, so a key can't be passed where data is expected, the wrong kind of key can't be used, and printing one never shows a secret. Text becomes bytes with `s.toBytes()`.
+
+```vex title="secrets.vx"
+import "vex:crypto"
+
+fn main() throws {
+    println(crypto.sha256("abc".toBytes()).toHex())
+
+    // Encrypting: any change to the box makes open throw.
+    let key = crypto.SecretKey.generate()
+    let box = crypto.seal("attack at dawn".toBytes(), key)
+    let text = try crypto.open(box, key)
+    println(text.decodeUtf8() ?? "", key)
+
+    // Passwords: store the salt and the hash, then compare with equal.
+    let salt = crypto.randomBytes(16)
+    let hash = crypto.argon2id("hunter2".toBytes(), salt: salt)
+    println(crypto.equal(hash, crypto.argon2id("hunter2".toBytes(), salt: salt)))
+
+    // Signatures.
+    let signer = crypto.SigningKey.generate()
+    let sig = signer.sign("release 1.0".toBytes())
+    println(signer.verifyKey.verify("release 1.0".toBytes(), signature: sig))
+}
+```
+
+```text title="Output"
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+attack at dawn SecretKey(32 bytes)
+true
+true
+```
+
+## Which one to use
+
+| To | Use |
+|---|---|
+| Encrypt data with a key | [`seal`](#seal-and-open) and [`open`](#seal-and-open) |
+| Store a password | [`argon2id`](#argon2id) with a random salt, compared with [`equal`](#equal) |
+| Check that data wasn't changed | [`sha256`](#hashes), or [`hmacSha256`](#hmac) when an attacker could change the hash too |
+| Prove who wrote a message | [`SigningKey`](#signingkey-and-verifykey) and [`VerifyKey`](#signingkey-and-verifykey) |
+| Agree on a key with someone over a network | [`ExchangeKey`](#exchangekey-and-exchangepublickey), then [`hkdf`](#hkdf) |
+| Make a key, salt or token | [`randomBytes`](#randombytes) or [`SecretKey.generate()`](#secretkey) |
+| Make a unique id | [`uuid`](#uuid) |
+| Talk to a system that needs AES, PBKDF2 or P-256 | [`aesGcmSeal`](#aes-gcm), [`pbkdf2Sha256`](#pbkdf2sha256), [`P256SigningKey`](#p-256) |
+
+## Where the algorithms come from
+
+| Algorithms | Provider |
+|---|---|
+| XChaCha20-Poly1305, BLAKE2b, SHA-512, HMAC-SHA-512, HKDF-SHA-512, Argon2id, X25519, Ed25519 | [Monocypher](https://monocypher.org) 4.0.3, compiled into the program on every system |
+| SHA-256, HMAC-SHA-256, HKDF-SHA-256, PBKDF2, AES-256-GCM, P-256, MD5, SHA-1, secure random bytes | The system: CommonCrypto, CryptoKit and the Security framework on macOS and iOS; CNG (`bcrypt.dll`) on Windows; OpenSSL 3's libcrypto on Linux |
+
+Every primitive is tested in CI against the test vectors of its RFC or NIST standard and against the [Wycheproof](https://github.com/C2SP/wycheproof) vectors that Google started.
+
+What building a program that imports `vex:crypto` needs:
+
+- **macOS:** `swiftc` from the Xcode Command Line Tools (`xcode-select --install`), since AES-GCM and HKDF come from CryptoKit through a small Swift file.
+- **Windows:** nothing; CNG ships with the system.
+- **Linux:** nothing with the Vex SDK, whose toolchain links a static libcrypto. With your own compiler, OpenSSL 3's development files: `apt install libssl-dev` or `dnf install openssl-devel`.
+
+## Hashes
+
+```vex
+pub fn sha256(data: Bytes) -> Bytes
+pub fn sha512(data: Bytes) -> Bytes
+pub fn blake2b(data: Bytes, size: int = 32, key: Bytes = Bytes()) -> Bytes
+```
+
+Return a fixed-size fingerprint of `data`: 32 bytes for SHA-256, 64 for SHA-512, and `size` bytes, from 1 to 64, for BLAKE2b. With a `key` of up to 64 bytes, `blake2b` is a message authentication code.
+
+`crypto.legacy.md5(data)` and `crypto.legacy.sha1(data)` exist for old formats and protocols only. Both are broken: never use them for passwords, signatures or integrity checks.
+
+```vex title="hashes.vx"
+import "vex:crypto"
+
+fn main() {
+    let data = "abc".toBytes()
+    println(crypto.sha256(data).toHex())
+    println(crypto.sha512(data).toHex()[0..16], crypto.blake2b(data).len, crypto.blake2b(data, size: 16).toHex())
+    println(crypto.hmacSha256("key".toBytes(), "The quick brown fox jumps over the lazy dog".toBytes()).toHex())
+    println(crypto.legacy.md5(data).toHex(), crypto.legacy.sha1(data).toHex())
+}
+```
+
+```text title="Output"
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+ddaf35a193617aba 32 cf4ab791c62b8d2b2109c90275287816
+f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8
+900150983cd24fb0d6963f7d28e17f72 a9993e364706816aba3e25717850c26c9cd0d89d
+```
+
+## HMAC
+
+```vex
+pub fn hmacSha256(key: Bytes, data: Bytes) -> Bytes
+pub fn hmacSha512(key: Bytes, data: Bytes) -> Bytes
+```
+
+Return a message authentication code of `data` under `key`, 32 or 64 bytes: proof that the data came from someone holding the key and wasn't changed. Check one with [`equal`](#equal), never `==`.
+
+## Random values
+
+### randomBytes
+
+```vex
+pub fn randomBytes(n: int) -> Bytes
+```
+
+Returns `n` bytes from the operating system's secure random source, for keys, salts, nonces and tokens.
+
+### uuid
+
+```vex
+pub fn uuid() -> string
+```
+
+Returns a random version 4 UUID as text, such as `"3b241101-e2bb-4255-8caf-4136c566a962"`.
+
+### equal
+
+```vex
+pub fn equal(a: Bytes, b: Bytes) -> bool
+```
+
+Reports whether `a` and `b` hold the same bytes, taking the same time whichever byte differs. Use it to compare tags, hashes and tokens: `==` stops at the first difference, which tells an attacker timing it how many leading bytes were right. Only the lengths may show through the time taken.
+
+```vex title="tokens.vx"
+import "vex:crypto"
+
+fn main() {
+    let token = crypto.randomBytes(32)
+    let id = crypto.uuid()
+    println(token.len, id.len, id[14..15], token == crypto.randomBytes(32))
+    let digest = crypto.sha256("abc".toBytes())
+    println(crypto.equal(digest, crypto.sha256("abc".toBytes())), crypto.equal(token, digest))
+}
+```
+
+```text title="Output"
+32 36 4 false
+true false
+```
+
+## Encryption
+
+### SecretKey
+
+```vex
+pub extension type SecretKey(bytes: Bytes) {
+    pub static fn generate() -> SecretKey
+    pub static fn fromBytes(bytes: Bytes) throws -> SecretKey
+}
+```
+
+A 32-byte key for `seal` and `open`, and for `aesGcmSeal` and `aesGcmOpen`. `generate()` makes a new random key. `fromBytes` takes a key you stored, or one made by `hkdf` or `argon2id`, and throws unless it is 32 bytes long. It prints as `SecretKey(32 bytes)`.
+
+### seal and open
+
+```vex
+pub fn seal(data: Bytes, key: SecretKey, associatedData: Bytes = Bytes()) -> Bytes
+pub fn open(box: Bytes, key: SecretKey, associatedData: Bytes = Bytes()) throws -> Bytes
+```
+
+`seal` encrypts and authenticates `data` with XChaCha20-Poly1305. The box it returns holds a random 24-byte nonce, the ciphertext and a 16-byte tag, so it is 40 bytes longer than the data. `open` gives the data back.
+
+- `associatedData` is authenticated but not encrypted, such as a header or a record id that must stay readable but must not be swapped. `open` needs the same.
+- `open` throws `can't open the data: the data was changed or the key is wrong` when the box was changed or cut short, or was sealed with another key or other associated data. It never returns data that was tampered with.
+- `seal` chooses the nonce itself. Its random 24-byte nonces never repeat in practice, so one key can seal any number of messages.
+
+```vex title="seal.vx"
+import "vex:crypto"
+
+fn main() throws {
+    let key = crypto.SecretKey.generate()
+    let box = crypto.seal("attack at dawn".toBytes(), key)
+    println(box.len, (try crypto.open(box, key)).decodeUtf8() ?? "")
+
+    box[30] = box[30] ^ 1
+    try crypto.open(box, key) catch e {
+        println(e.message)
+    }
+
+    let header = "v1".toBytes()
+    let tagged = crypto.seal("hi".toBytes(), key, associatedData: header)
+    println(try? crypto.open(tagged, crypto.SecretKey.generate()), try? crypto.open(tagged, key))
+    println((try crypto.open(tagged, key, associatedData: header)).decodeUtf8() ?? "")
+
+    try crypto.SecretKey.fromBytes(crypto.randomBytes(16)) catch e {
+        println(e.message)
+    }
+}
+```
+
+```text title="Output"
+54 attack at dawn
+can't open the data: the data was changed or the key is wrong
+nil nil
+hi
+a SecretKey needs 32 bytes, found 16
+```
+
+### AES-GCM
+
+```vex
+pub fn aesGcmSeal(data: Bytes, key: SecretKey, associatedData: Bytes = Bytes()) -> Bytes
+pub fn aesGcmOpen(box: Bytes, key: SecretKey, associatedData: Bytes = Bytes()) throws -> Bytes
+```
+
+The same as `seal` and `open` with AES-256-GCM and a random 12-byte nonce, for systems and formats that need AES. Prefer `seal`: random 12-byte nonces are safe only for a few billion messages under one key.
+
+## Keys from secrets and passwords
+
+### hkdf
+
+```vex
+pub fn hkdf(secret: Bytes, salt: Bytes = Bytes(), info: Bytes = Bytes(), size: int = 32) -> Bytes
+pub fn hkdfSha512(secret: Bytes, salt: Bytes = Bytes(), info: Bytes = Bytes(), size: int = 64) -> Bytes
+```
+
+Return `size` bytes of key material derived from `secret` by HKDF (RFC 5869), with SHA-256 or SHA-512. The secret must already be random, such as a shared secret from [`sharedSecret`](#exchangekey-and-exchangepublickey); use `argon2id` for passwords. Different `info` gives independent keys from one secret.
+
+### argon2id
+
+```vex
+pub fn argon2id(password: Bytes, salt: Bytes, size: int = 32, memoryKiB: int = 65536, iterations: int = 3, lanes: int = 4) -> Bytes
+```
+
+Returns a `size`-byte key or password hash derived by Argon2id (RFC 9106), slow on purpose so that guessing passwords is slow too. The defaults are the RFC's second recommendation: 64 MiB of memory, 3 passes and 4 lanes. The salt needs 8 bytes or more; use 16 random bytes for each password, and store it next to the hash.
+
+### pbkdf2Sha256
+
+```vex
+pub fn pbkdf2Sha256(password: Bytes, salt: Bytes, iterations: int = 600000, size: int = 32) -> Bytes
+```
+
+Returns a key derived by PBKDF2 with HMAC-SHA-256, for systems that need it. Prefer `argon2id`, which resists guessing on graphics cards far better.
+
+```vex title="derive.vx"
+import "vex:crypto"
+
+fn main() {
+    let salt = crypto.randomBytes(16)
+    let hash = crypto.argon2id("hunter2".toBytes(), salt: salt)
+    let again = crypto.argon2id("hunter2".toBytes(), salt: salt)
+    let wrong = crypto.argon2id("hunter3".toBytes(), salt: salt)
+    println(hash.len, crypto.equal(hash, again), crypto.equal(hash, wrong))
+
+    println(crypto.pbkdf2Sha256("password".toBytes(), salt: "salt".toBytes(), iterations: 1).toHex())
+    let ikm = Bytes.fromHex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b") ?? Bytes()
+    let rfcSalt = Bytes.fromHex("000102030405060708090a0b0c") ?? Bytes()
+    let info = Bytes.fromHex("f0f1f2f3f4f5f6f7f8f9") ?? Bytes()
+    println(crypto.hkdf(ikm, salt: rfcSalt, info: info, size: 42).toHex())
+}
+```
+
+```text title="Output"
+32 true false
+120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b
+3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865
+```
+
+The last line is the first test case of RFC 5869.
+
+## Signatures and key exchange
+
+### SigningKey and VerifyKey
+
+```vex
+pub extension type SigningKey(bytes: Bytes) {
+    pub static fn generate() -> SigningKey
+    pub static fn fromSeed(seed: Bytes) throws -> SigningKey
+    pub get seed -> Bytes
+    pub get verifyKey -> VerifyKey
+    pub fn sign(message: Bytes) -> Bytes
+}
+
+pub extension type VerifyKey(bytes: Bytes) {
+    pub static fn fromBytes(bytes: Bytes) throws -> VerifyKey
+    pub fn verify(message: Bytes, signature: Bytes) -> bool
+}
+```
+
+Ed25519 signatures (RFC 8032). A `SigningKey` signs messages with `sign`, giving 64 bytes; keep it secret, and store its 32-byte `seed`, which `fromSeed` turns back into the key. Its `verifyKey` is the public half, 32 bytes in `bytes`, to give to others; `verify` reports whether a signature is that key's signature of the message. Signatures are checked strictly, as RFC 8032 says, so a signature has one accepted form.
+
+### ExchangeKey and ExchangePublicKey
+
+```vex
+pub extension type ExchangeKey(bytes: Bytes) {
+    pub static fn generate() -> ExchangeKey
+    pub static fn fromBytes(bytes: Bytes) throws -> ExchangeKey
+    pub get publicKey -> ExchangePublicKey
+    pub fn sharedSecret(peer: ExchangePublicKey) throws -> Bytes
+}
+
+pub extension type ExchangePublicKey(bytes: Bytes) {
+    pub static fn fromBytes(bytes: Bytes) throws -> ExchangePublicKey
+}
+```
+
+X25519 key agreement (RFC 7748). Two parties each make an `ExchangeKey`, send each other its `publicKey`, and get the same 32-byte secret from `sharedSecret`. `sharedSecret` throws for a weak public key that would give a secret anyone can know.
+
+A shared secret isn't a key yet: pass it through `hkdf`, with both public keys in `info`, and make a `SecretKey` from the result.
+
+```vex title="sign.vx"
+import "vex:crypto"
+
+fn main() throws {
+    let signer = crypto.SigningKey.generate()
+    let message = "release 1.0".toBytes()
+    let sig = signer.sign(message)
+    println(sig.len, signer.verifyKey.verify(message, signature: sig), signer.verifyKey.verify("release 1.1".toBytes(), signature: sig))
+
+    let seed = Bytes.fromHex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60") ?? Bytes()
+    let fixed = try crypto.SigningKey.fromSeed(seed)
+    println(fixed, fixed.verifyKey)
+    let stored = try crypto.VerifyKey.fromBytes(fixed.verifyKey.bytes)
+    println(stored.verify(Bytes(), signature: fixed.sign(Bytes())), fixed.seed == seed)
+
+    let ann = crypto.ExchangeKey.generate()
+    let bob = crypto.ExchangeKey.generate()
+    let secret = try ann.sharedSecret(bob.publicKey)
+    println(secret == (try bob.sharedSecret(ann.publicKey)), secret.len, ann)
+    var info = ann.publicKey.bytes.copy()
+    info.append(bob.publicKey.bytes)
+    let key = try crypto.SecretKey.fromBytes(crypto.hkdf(secret, info: info))
+    println(key)
+}
+```
+
+```text title="Output"
+64 true false
+SigningKey(Ed25519) VerifyKey(d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a)
+true true
+true 32 ExchangeKey(X25519)
+SecretKey(32 bytes)
+```
+
+The seed is the first test key of RFC 8032. Private keys print only their kind; public keys print their bytes in hex.
+
+### P-256
+
+```vex
+pub extension type P256SigningKey(bytes: Bytes) {
+    pub static fn generate() -> P256SigningKey
+    pub static fn fromBytes(bytes: Bytes) throws -> P256SigningKey
+    pub get publicKey -> Bytes
+    pub fn sign(message: Bytes) -> Bytes
+}
+
+pub fn verifyP256(message: Bytes, signature: Bytes, publicKey: Bytes) -> bool
+pub fn isP256PublicKey(publicKey: Bytes) -> bool
+```
+
+ECDSA signatures on the P-256 curve with SHA-256, as ES256 in JSON Web Tokens uses, for services that need it. A `P256SigningKey` holds 97 bytes, `04‖X‖Y‖d`, the form Apple's Security framework uses; its `publicKey` is the 65 bytes `04‖X‖Y`. `sign` gives a DER-encoded signature, and `verifyP256` checks one, accepting strict DER only; an invalid key gives `false`. `isP256PublicKey` checks that 65 bytes are a point on the curve.
+
+## Mistakes and errors
+
+- Wrong sizes and arguments in your own code, such as `blake2b(data, size: 100)` or a salt of 4 bytes, stop the program, as an index out of range does.
+- Data from outside that may be wrong, such as a box, a stored key or a signature, gives an error to catch, or `false` from `verify`.
+- Wrapping bytes directly, as in `SecretKey(bytes: b)`, skips the size check until the key is used. Prefer `fromBytes`.
+
+## Limits
+
+Keys live in `Bytes`, which the garbage collector manages. Copies made when bytes are sliced, copied or grown, and the memory of keys no longer used, are not wiped, and may stay in memory until it is reused; temporary buffers inside the runtime are wiped. For high-value keys, keep them in the platform's keychain or keystore, which a later version will reach.
+
+## See also
+
+- [Bytes](/docs/stdlib/built-ins#bytes)
+- [vex:random](/docs/stdlib/random), for random numbers that aren't secret
+- [Extension types](/docs/language/extensions)
+- [Standard library overview](/docs/stdlib)

@@ -1,141 +1,155 @@
 ---
 title: Packages
-description: What you can use from outside your project today, and the planned package system with vex get, package imports and package.lock.
+description: Use code from other projects with vex get, package imports, package.toml dependencies and package.lock, how versions are chosen, how downloads are cached and checked, and how to publish a package.
 ---
 
-A package is code written by someone else that your project uses. Vex has a design for packages, but the package manager isn't built yet. This page says exactly what works today and what is planned, so you can tell the two apart.
+A package is code written by someone else that your project uses. A Vex package is a git repository with version tags: there is no upload step and no central storage. `vex get` downloads a package straight from its repository, records it in `package.toml`, and locks the exact version, commit and content hash of everything it depends on in `package.lock`.
 
-## What works today
+## Adding a package
 
-| Feature | Status |
-|---|---|
-| Standard library imports, `import "vex:math"` | Works |
-| Folders of your own project, `import "models"` | Works |
-| `package.toml` with `[package]` and `[c]` | Works |
-| C libraries through the `[c]` section | Works |
-| C code for one system through `[c.macos]`, `[c.linux]` and `[c.windows]` | Works |
-| `[dependencies]` and `[dev-dependencies]` sections | Accepted and skipped |
-| `import "package:name"` | Planned; a compile error today |
-| `vex get` | Planned; not a command yet |
-| `package.lock` | Planned; never read or written |
-| `vex doc`, `vex new`, the package website | Planned |
+Inside a project, a folder with a [`package.toml`](/docs/projects/modules), run `vex get` with the repository:
 
-### Using code from outside your project today
-
-There are three ways to bring in code that isn't yours:
-
-- **The standard library.** `vex:fs`, `vex:isolate`, `vex:math`, `vex:os`, `vex:strings` and `vex:time` come with the compiler. See the [standard library](/docs/stdlib).
-- **A copy inside your project.** Put the other code's folder inside your project and import it by its relative path, like any of your own modules. An import can't reach outside the project folder, so the code has to live inside it.
-- **A C library.** Link it through the `[c]` section of `package.toml` and declare its functions with `extern fn`. See [C interop](/docs/projects/c-interop).
-
-### What happens if you try a package import
-
-```vex
-import "package:charts"
+```sh
+vex get https://github.com/ann/charts
 ```
 
 ```text
-error: package imports aren't supported yet
+Downloading https://github.com/ann/charts 0.3.1
+Added charts 0.3.1
+Locked 1 package in package.lock
+```
+
+Then import it with a `package:` path and use it through its name, like any other module:
+
+```vex title="main.vx"
+import "package:charts"
+import "package:charts/line"
+
+fn main() {
+    println(charts.title("Sales"))
+    println(line.draw([1, 4, 2]))
+}
+```
+
+```text title="Output"
+== Sales ==
+# #### ##
+```
+
+| Import | Reaches |
+|---|---|
+| `package:charts` | The top folder of the package |
+| `package:charts/line` | The folder `line` inside it |
+
+Only the package's `pub` declarations are visible, as with your own modules. A `package:` import that `package.toml` doesn't list is a compile error that says what to run:
+
+```text
+error: no package 'charts' in package.toml
  --> main.vx:1:8
   |
 1 | import "package:charts"
-  |        ^^^^^^^^^^^^^^^^ packages arrive with vex get; for now, import folders of this project
+  |        ^^^^^^^^^^^^^^^^ add it with: vex get <repository URL>
 ```
 
-And `vex get` is not a known command:
-
-```text
-vex: unknown command "get"
-Run 'vex help' for a list of commands.
-```
-
-The exit code is 2, the code for usage errors.
-
-### The dependency sections today
-
-`package.toml` accepts `[dependencies]` and `[dev-dependencies]`, so a project file written for the planned design is not rejected. The compiler skips every line in these sections without checking it, and nothing is downloaded.
-
-```toml
-[package]
-name = "report"
-
-[dependencies]
-charts = { git = "https://github.com/ann/charts", version = "0.3.1" }
-```
-
-This file is accepted today, but `import "package:charts"` still fails.
-
-## The planned design
-
-<Callout type="warn" title="Planned">
-Everything below this point describes the package manager as designed. None of it is built yet: there is no `vex get`, no `package:` import, no `package.lock` and no package website. The design may change before it is built.
-</Callout>
-
-### Packages are git repositories
-
-A Vex package will be a public git repository with version tags. There is no upload step and no central storage: `vex get` downloads straight from the repository, and a website lists the packages it knows about.
-
-Code imports a package by its name, and `package.toml` says where that name comes from, as in Dart. Moving a repository then changes one line in the project file, never the imports.
-
-### Imports
-
-| Form | Imports | Example |
-|---|---|---|
-| `vex:name` | The standard library, built in | `import "vex:math"` |
-| `package:name` | A package listed in `package.toml` | `import "package:charts"` |
-| `package:name/folder` | A folder inside a package | `import "package:charts/line"` |
-| `"folder"` | A folder of the current project | `import "models"` |
-
-### Adding a package
+## Choosing a version
 
 ```sh
 vex get https://github.com/ann/charts           # the newest tag
-vex get https://github.com/ann/charts@0.3.1     # a tagged version
+vex get https://github.com/ann/charts@0.3.1     # that version
+vex get https://github.com/ann/charts@0.3       # the newest 0.3.x
+vex get --path camera https://github.com/vex-lang/packages   # a folder of a repository, tagged camera/v0.2.0
+vex get                                         # download what package.toml lists and lock it again
 ```
 
-`vex get` will add the dependency to `package.toml` under the package's name and record its exact content hash in `package.lock`. `vex run` and `vex build` will fetch whatever is missing, so a fresh clone builds with no extra step.
+Versions are git tags in semantic versioning, `v1.4.2` being major.minor.patch. `vex get` writes the exact version it chose to `package.toml`. Running it again for a package already listed moves it to the version asked for.
 
-```toml
+## package.toml
+
+`vex get` adds a line under `[dependencies]`:
+
+```toml title="package.toml"
 [package]
 name = "report"
-vex = "0.2"
 
 [dependencies]
 charts = { git = "https://github.com/ann/charts", version = "0.3.1" }
+camera = { git = "https://github.com/vex-lang/packages", path = "camera", version = "0.2" }
 ```
 
-- The key is the name used in `import "package:..."`. It is usually the package's own name, and can be changed to resolve a clash between two packages with the same name.
+- The key is the name used after `package:`. It is the name the package gives itself in its own `package.toml`; change it to use two packages with the same name.
+- `git` is a URL, an address such as `git@github.com:ann/charts`, or a local repository, given as a `file://` URL or a path relative to the project.
 - `path` names a folder inside the repository, for repositories that hold several packages.
+- `version` is the oldest version accepted, and may be partial: `"0.3"` means 0.3.0 or newer. A different major version is never accepted.
 
-### The lock file
+## package.lock
 
-| File | Written by | Purpose |
-|---|---|---|
-| `package.toml` | You, and `vex get` | Package name, Vex version, dependencies |
-| `package.lock` | `vex get`, never by hand | Exact version and content hash of every dependency, including indirect ones |
+```toml title="package.lock"
+# Written by vex get; don't edit it by hand. Commit it with the project.
 
-The lock file is meant to be committed, so a build that works today builds the same way later, and a dependency whose content changed under the same tag is rejected. Downloads go into one shared cache, `~/.vex/pkg/<repository>@<version>`, not a folder inside each project.
+[[package]]
+name = "charts"
+git = "https://github.com/ann/charts"
+version = "0.3.1"
+commit = "83694d72f6265bbe5645c338c3b17ccb436a7945"
+hash = "sha256:fe6e1d62fa9da0a399867fd1b103fb1c5f7abeed21286575a229cf238c60a3d7"
+```
 
-### Choosing versions
+The lock file lists every package the build uses, including the ones your packages use, with the exact version, the commit its tag pointed to, and a SHA-256 hash of its files. Commit it with the project:
 
-Versions follow semantic versioning. When two packages need different versions of a third, Vex will pick the lowest version that satisfies all of them (minimal version selection, as in Go). A build never picks up a newer release by itself; versions change only when someone runs `vex get`. A build holds one version of each package, so packages that need different major versions of the same dependency can't be used together.
+- `vex run`, `vex build`, `vex test` and `vex check` use exactly the versions it lists, so a build that works today builds the same way later, on any machine.
+- A package missing from the cache is downloaded on the first build, so a fresh clone builds with no extra step.
+- A dependency in `package.toml` that the lock file lacks stops the build and asks for `vex get`: `vex: package.toml lists dependencies, but there is no package.lock yet; run 'vex get' to download them`.
 
-### Publishing
+### Hash checks
 
-1. Put the code in a public git repository with a `package.toml` at its root (or at its `path`).
-2. Tag a release: `git tag v0.3.1 && git push --tags`. In a repository with several packages, tags carry the folder: `camera/v0.2.0`.
+Every build checks each package's files against its hash. A package whose files changed stops the build, whether a cached copy was edited or the tag was moved to other code:
 
-### Later
+```text
+vex: https://github.com/ann/charts 0.3.1 doesn't match package.lock:
+  locked hash: sha256:dec5ca3e1212fe3813333befef0032819c9efb89fbbd3482992b488e8fa8de4d
+  found hash:  sha256:4180234bd43381eba19196a989f59fdca29aec1de8a500e8fa61cb2f9da58bef
+Either the files in ~/.vex/pkg/github.com/ann/charts@0.3.1 were changed, or tag v0.3.1 now points to other code.
+Delete that folder to download it again. If the tag really changed, check the new code, then remove its entry from package.lock and run 'vex get'.
+```
 
-- A package website that indexes repositories, shows their README, versions and API docs (from `vex doc`), and stores no code.
-- A cache that keeps a copy of every published version, and a public checksum log of every version's hash. Both optional: `vex get` can always fall back to git.
+The hash covers every file of the package folder, by path and contents, without git's own files.
+
+## How versions are chosen
+
+When packages ask for different versions of the same package, Vex uses the oldest version that meets every request: minimal version selection, as in Go. If your project asks for `charts` 0.3 and another package asks for 0.3.2, the build uses 0.3.2, even when 0.3.5 exists.
+
+- A build never picks up a newer release by itself. Versions change only when someone runs `vex get`.
+- A build holds one version of each package. Needing `1.x` and `2.x` of the same package together is an error.
+- Only your project's `package.lock` is used. The lock files of packages are ignored, as in Go and Dart.
+
+## The download cache
+
+Downloads are kept in one cache shared by every project: `~/.vex/pkg/<repository>@<version>`, such as `~/.vex/pkg/github.com/ann/charts@0.3.1`. On Windows it is `%USERPROFILE%\.vex\pkg`. Set `VEX_CACHE` to use another folder: `export VEX_CACHE=/data/vex-pkg`, or `$env:VEX_CACHE = "D:\vex-pkg"` in PowerShell. A project whose packages are all cached builds offline.
+
+`vex get` runs the system `git`, fetching tags with a shallow clone, so `git` must be installed and able to reach the repository. Private repositories work with whatever credentials your `git` already uses. [`vex doctor`](/docs/tools/cli#vex-doctor) checks that `git` is there.
+
+## Writing a package
+
+A package is a project like any other:
+
+1. Put the code in a git repository with a `package.toml` at its root, or at its `path` for a repository with several packages. The `name` in `[package]` is the name others import.
+2. Mark the declarations other projects may use with `pub`, and document them with `///` comments, which [`vex doc`](/docs/tools/doc) turns into pages.
+3. Tag a release and push it: `git tag v0.3.1 && git push --tags`. In a repository with several packages, tags carry the folder: `camera/v0.2.0`.
+
+Inside a package, `package:` imports name the packages in its own `package.toml`, and folder imports stay within the package. A package's tests and its own `package.lock` aren't used by projects that depend on it. Bump the major version when a release can break code that uses the package.
+
+### Not yet supported
+
+- `[dev-dependencies]` is accepted and skipped.
+- The `[c]` section of a package isn't built: a package's own C code isn't compiled into the programs that use it yet. A project's own `[c]` section works as described in [C interop](/docs/projects/c-interop).
+- There is no package website yet. A searchable index that stores no code, with READMEs, versions and API docs, is planned, along with an optional cache and a public checksum log; `vex get` will keep working straight from git.
 
 For the reasoning behind these choices, see [the package system design](/docs/internals/packages).
 
 ## See also
 
 - [Modules and projects](/docs/projects/modules)
+- [The vex command: vex get](/docs/tools/cli#vex-get)
 - [C interop](/docs/projects/c-interop)
-- [The vex command](/docs/tools/cli)
 - [Package system design](/docs/internals/packages)
 - [Standard library](/docs/stdlib)

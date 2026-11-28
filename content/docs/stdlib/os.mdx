@@ -1,9 +1,9 @@
 ---
 title: vex:os
-description: API reference for vex:os, which reads command-line arguments and environment variables, finds the working folder, exits, runs shell commands, and names the system the program is built for.
+description: API reference for vex:os, which reads command-line arguments and environment variables, finds the working folder, exits, runs shell commands, writes to standard output and error, and names the system the program is built for.
 ---
 
-`vex:os` gives a program access to its surroundings: the arguments it was started with, environment variables, the folder it runs in, its exit status, other programs it can start through the shell, and the system it is built for.
+`vex:os` gives a program access to its surroundings: the arguments it was started with, environment variables, the folder it runs in, its exit status, other programs it can start through the shell, its standard output and error streams, and the system it is built for.
 
 ```vex title="greet.vx"
 import "vex:os"
@@ -40,6 +40,8 @@ Hi, Ann
 | | [`exit(code)`](#exit) | Ends the program with an exit status |
 | Commands | [`run(command)`](#run) | Runs a shell command; returns its exit status; throws |
 | | [`output(command)`](#output) | Runs a shell command; returns what it printed; throws |
+| Streams | [`stdout`](#stdout-and-stderr) | Standard output, an `os.Writer` |
+| | [`stderr`](#stdout-and-stderr) | Standard error, an `os.Writer` |
 | System | [`target`](#target) | The operating system the program is built for, an `os.Target` |
 | | [`arch`](#arch) | The processor architecture the program is built for, an `os.Arch` |
 
@@ -204,7 +206,7 @@ A `fn main() throws` that lets an error escape exits with status 1 instead, afte
 ## Commands
 
 <Callout type="warn" title="Shell injection">
-`run` and `output` pass the command to `/bin/sh` exactly as written. Never build a command from text a user typed or a file provided: a value such as `x; rm -rf ~` would run as a second command.
+`run` and `output` pass the command to the shell exactly as written: `/bin/sh` on macOS and Linux, `cmd` on Windows. Never build a command from text a user typed or a file provided: a value such as `x; rm -rf ~` would run as a second command.
 </Callout>
 
 ### run
@@ -265,6 +267,62 @@ nil
 ```
 
 Use `lines()` or `trim()` on the result of `output` to drop the final line ending, as in `try os.output("git rev-parse HEAD").trim()`.
+
+On Windows the commands run with `cmd` rather than `sh`, so shell syntax differs, and `output` gives its lines ending in `\n` rather than `\r\n`. Arguments, environment variables, file names and console output are UTF-8 on Windows too. Setting a variable to `""` with `setEnv` keeps it, empty, for the program and the commands it runs.
+
+## Streams
+
+### stdout and stderr
+
+```vex
+pub struct Writer {
+    pub fn write(text: string)
+    pub fn writeln(text: string = "")
+    pub fn flush()
+}
+
+pub let stdout: Writer
+pub let stderr: Writer
+```
+
+The program's standard output and standard error, as values that can be stored and passed around.
+
+- `write(text)` writes the text as it is; `writeln(text)` adds a line break, and with no argument writes only the line break.
+- `flush()` sends text waiting in a buffer on to the terminal or file. Standard output is buffered and flushed at the latest when the program ends; standard error isn't buffered.
+- **Errors:** None.
+
+`os.stdout.write` writes where `print` does, and `os.stderr.write` where [`eprint`](/docs/stdlib/built-ins#eprint-and-eprintln) does. Writing to standard error flushes standard output first, so the two keep their order in a terminal. Messages about problems belong on standard error: a user who sends the output to a file or another program still sees them, and the output stays clean.
+
+```vex title="streams.vx"
+import "vex:os"
+
+fn report(out: os.Writer, done: int, total: int) {
+    out.write("{done} of {total}")
+    out.writeln(" files copied")
+}
+
+fn main() {
+    os.stdout.write("copying... ")
+    os.stdout.flush()
+    report(os.stdout, 3, 4)
+    os.stderr.writeln("warning: skipped notes.tmp")
+}
+```
+
+```text title="Output"
+copying... 3 of 4 files copied
+warning: skipped notes.tmp
+```
+
+```sh
+vex run streams.vx 2> errors.txt
+```
+
+```text
+copying... 3 of 4 files copied
+```
+
+With standard error sent to a file, only the regular output reaches the terminal, and `errors.txt` holds the warning.
 
 ## System
 

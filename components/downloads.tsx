@@ -1,5 +1,5 @@
 'use client';
-import { Apple, Check, Download, Info, Terminal } from 'lucide-react';
+import { Apple, Check, Download, Info, Monitor, Terminal } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/cn';
 import {
@@ -103,7 +103,7 @@ export function Downloads() {
             {platforms.map((p) => {
               const asset = release.assets[p.id];
               const isMine = p.id === mine;
-              const Icon = p.os === 'macos' ? Apple : Terminal;
+              const Icon = p.os === 'macos' ? Apple : p.os === 'windows' ? Monitor : Terminal;
               return (
                 <div
                   key={p.id}

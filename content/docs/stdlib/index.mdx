@@ -1,11 +1,11 @@
 ---
 title: Standard library
-description: What comes with every Vex program, from built-in functions, number parsing and members to the seven vex modules, and how to import them.
+description: What comes with every Vex program, from built-in functions, number parsing and members to the eleven vex modules, and how to import them.
 ---
 
-Vex ships with two layers of library code. Built-ins, such as `println`, `int(...)`, `int.parse` and the members of strings, lists and maps, are part of the language and need no import. Standard modules, such as `vex:math` and `vex:fs`, come with the compiler and are imported by name.
+Vex ships with two layers of library code. Built-ins, such as `println`, `int(...)`, `int.parse` and the members of strings, lists, maps, sets and `Bytes`, are part of the language and need no import. Standard modules, such as `vex:math` and `vex:fs`, come with the compiler and are imported by name.
 
-The standard library is small on purpose at version 0.1. It covers printing, conversion and parsing, text, collections, math, files, JSON, the clock, the process environment and parallel work. Anything else, such as networking, isn't there yet; you can reach C libraries through [C interop](/docs/projects/c-interop) in the meantime.
+The standard library is small on purpose at version 0.1. It covers printing, conversion and parsing, text, collections, binary data, math, files, JSON, dates and times, regular expressions, random numbers, cryptography, the clock, the process environment and parallel work. Anything else, such as networking, isn't there yet; you can reach C libraries through [C interop](/docs/projects/c-interop), or use a [package](/docs/projects/packages), in the meantime.
 
 ## Built-ins
 
@@ -13,14 +13,16 @@ Built-ins are available in every file without an import.
 
 | Kind | Names |
 |---|---|
-| Functions | `print`, `println`, `input`, `str`, `int`, `float`, `int.parse`, `float.parse`, `panic`, `assert` |
+| Functions | `print`, `println`, `eprint`, `eprintln`, `input`, `str`, `int`, `float`, `int.parse`, `float.parse`, `panic`, `assert` |
 | Async functions | `run`, `all`, `any` |
-| Types | `int`, `float`, `bool`, `string`, `Range`, `Error`, `Future<T>`, `Channel<T>` |
+| Types | `int`, `float`, `bool`, `string`, `Set<T>`, `Bytes`, `Range`, `Error`, `Future<T>`, `Channel<T>` |
 | Constraints | `Equatable`, `Comparable`, `Hashable`, [`Codable`](/docs/stdlib/json#codable) |
-| String members | `len`, `upper`, `lower`, `contains`, `split`, `replace`, `trim`, `trimStart`, `trimEnd`, `startsWith`, `endsWith`, `indexOf`, `substring`, `chars`, `lines` |
+| String members | `len`, `isEmpty`, `graphemeCount`, `upper`, `lower`, `capitalize`, `contains`, `split`, `replace`, `trim`, `trimStart`, `trimEnd`, `padStart`, `padEnd`, `repeat`, `reversed`, `startsWith`, `endsWith`, `indexOf`, `lastIndexOf`, `count`, `substring`, `chars`, `graphemes`, `lines`, `toBytes` |
 | Number members | `int.max`, `int.min`, `float.infinity`, `float.nan`, `isNaN`, `isFinite`, `toFixed` |
-| List members | `len`, `isEmpty`, `first`, `last`, `push`, `pop`, `insert`, `remove`, `removeWhere`, `clear`, `sort`, `sorted`, `reversed`, `contains`, `indexOf`, `find`, `any`, `all`, `filter`, `map`, `flatMap`, `reduce`, `min`, `max`, `sum`, `join`, `slice`, `copy` |
-| Map members | `len`, `keys`, `values`, `contains`, `remove`, `copy` |
+| List members | `len`, `isEmpty`, `first`, `last`, `push`, `pop`, `insert`, `remove`, `removeWhere`, `clear`, `sort`, `sorted`, `reversed`, `contains`, `indexOf`, `find`, `any`, `all`, `filter`, `map`, `flatMap`, `reduce`, `min`, `max`, `sum`, `join`, `slice`, `copy`, `cast` |
+| Map members | `len`, `isEmpty`, `keys`, `values`, `entries`, `contains`, `remove`, `getOrPut`, `update`, `filter`, `mapValues`, `copy` |
+| Set members | `len`, `isEmpty`, `contains`, `insert`, `remove`, `union`, `intersection`, `subtracting`, `isSubset`, `toList`, `copy` |
+| Bytes members | `len`, `isEmpty`, `push`, `append`, `copy`, `toList`, `toHex`, `decodeUtf8`, `Bytes.fromHex` |
 | Range members | `len`, `isEmpty`, `start`, `end`, `contains`, `toList`, `step`, `reversed` |
 | Channel members | `send`, `receive`, `receiveSync`, `close` |
 
@@ -35,10 +37,14 @@ The full reference, with every signature and edge case, is on [Built-ins](/docs/
 | `vex:math` | Integer helpers (`abs`, `min`, `max`, `clamp`, `pow`, `gcd`) and float functions from the C math library | [math](/docs/stdlib/math) |
 | `vex:strings` | Building and padding strings: `repeat`, `join`, `padLeft`, `padRight` | [strings](/docs/stdlib/strings) |
 | `vex:time` | Reading the clock, sleeping and timeouts in async code: `nanos`, `unix`, `sleep`, `timeout` | [time](/docs/stdlib/time) |
-| `vex:os` | Arguments, environment variables, the working folder, exit status, shell commands, and the system the program is built for | [os](/docs/stdlib/os) |
-| `vex:fs` | Reading, writing and listing files and folders | [fs](/docs/stdlib/fs) |
+| `vex:datetime` | Dates and times in UTC or local time, durations, calendar fields and ISO 8601: `now`, `utc`, `parse`, `DateTime`, `Duration` | [datetime](/docs/stdlib/datetime) |
+| `vex:random` | Random numbers, picks and shuffles, and seeded generators: `nextInt`, `nextFloat`, `pick`, `shuffle`, `Random` | [random](/docs/stdlib/random) |
+| `vex:regex` | Finding, replacing and splitting text by pattern: `compile`, `Regex`, `Match` | [regex](/docs/stdlib/regex) |
+| `vex:os` | Arguments, environment variables, the working folder, exit status, shell commands, standard output and error, and the system the program is built for | [os](/docs/stdlib/os) |
+| `vex:fs` | Reading, writing and listing files and folders, as text or `Bytes` | [fs](/docs/stdlib/fs) |
 | `vex:json` | Writing Codable structs and enums as JSON and reading them back, and reading JSON of any shape: `encode`, `decode`, `parse`, `write` | [json](/docs/stdlib/json) |
 | `vex:isolate` | Running work in parallel on other cores: `run`, `spawn`, `cores` | [isolate](/docs/stdlib/isolate) |
+| `vex:crypto` | Hashes, HMAC, key derivation, secure random bytes and UUIDs, encryption with `seal` and `open`, and signatures | [crypto](/docs/stdlib/crypto) |
 
 ## Importing a module
 
@@ -69,7 +75,7 @@ error: unknown module 'vex:maths'
  --> badmod.vx:1:8
   |
 1 | import "vex:maths"
-  |        ^^^^^^^^^^^ the standard library has vex:fs, vex:isolate, vex:json, vex:math, vex:os, vex:strings, vex:time
+  |        ^^^^^^^^^^^ the standard library has vex:crypto, vex:datetime, vex:fs, vex:isolate, vex:json, vex:math, vex:os, vex:random, vex:regex, vex:strings, vex:time
 ```
 
 Using a module without importing it tells you the line to add:
@@ -84,20 +90,27 @@ error: unknown name 'math'
 
 ## How the modules are written
 
-Each standard module is an ordinary Vex module stored inside the compiler, under `compiler/modules/std/<name>/<name>.vx` in the [language repository](https://github.com/vex-language/vex-lang). Many functions are thin wrappers around C: `math.sqrt` is declared as `pub extern fn sqrt(x: float) -> float` and calls the C library's `sqrt` directly, and the file and process functions call small helpers in the Vex runtime. Reading those files is a good way to see `extern fn`, `throws` and `guard let` used in real code.
+Each standard module is an ordinary Vex module stored inside the compiler, under `compiler/modules/std/<name>/<name>.vx` in the [language repository](https://github.com/vex-language/vex-lang). Many functions are thin wrappers around C: `math.sqrt` is declared as `pub extern fn sqrt(x: float) -> float` and calls the C library's `sqrt` directly, and the file and process functions call small helpers in the Vex runtime. Others are pure Vex: `vex:random`, `vex:datetime` and the matching engine of `vex:regex` are written in the language itself. `vex:crypto` also carries C files, Monocypher and the glue to each system's provider, which are compiled into a program that imports it. Reading those files is a good way to see `extern fn`, `throws` and `guard let` used in real code.
+
+Every module documents itself with `///` comments, so [`vex doc`](/docs/tools/doc) shows its API in the terminal:
+
+```sh
+vex doc --text vex:random     # an overview of the module
+vex doc vex:random nextInt    # one declaration
+```
 
 Because the modules are Vex code, their runtime errors point into them. For example, `math.pow(2, -1)` fails an `assert` inside the module:
 
 ```text
 error: assertion failed: pow needs an exponent of 0 or more
  --> vex:math/math.vx:40
+  at pow (vex:math/math.vx:40)
+  at main (pow.vx:4)
 ```
 
-## Planned
+## Packages
 
-<Callout type="warn" title="Planned">
-Third-party packages imported with `package:` paths, and a package manager to fetch them (`vex get`), are designed but not implemented. Today a program can import only `vex:` modules and folders of its own project. See [Packages](/docs/projects/packages).
-</Callout>
+Code beyond the standard library comes from packages: git repositories that `vex get` adds to the project and that a file imports with a `package:` path, such as `import "package:charts"`. See [Packages](/docs/projects/packages).
 
 ## See also
 

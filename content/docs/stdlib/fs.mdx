@@ -1,9 +1,9 @@
 ---
 title: vex:fs
-description: API reference for vex:fs, which reads, writes, appends, lists, creates and removes files and folders.
+description: API reference for vex:fs, which reads, writes and appends files as text or as Bytes, and lists, creates and removes folders.
 ---
 
-`vex:fs` reads and writes files and folders. Files are read and written as text, as a whole. Functions that can fail throw an `Error` whose message names the path and the reason the system gave, such as `can't read notes.txt: No such file or directory`.
+`vex:fs` reads and writes files and folders. Files are read and written as a whole, as text or as [`Bytes`](/docs/stdlib/built-ins#bytes) for binary data. Functions that can fail throw an `Error` whose message names the path and the reason the system gave, such as `can't read notes.txt: No such file or directory`.
 
 ```vex title="notes.vx"
 import "vex:fs"
@@ -35,6 +35,9 @@ Relative paths are resolved against the folder the program runs in, which [`os.c
 | Files | [`read(path)`](#read) | The file's contents | yes |
 | | [`write(path, text)`](#write) | Replaces the file's contents | yes |
 | | [`append(path, text)`](#append) | Adds to the end of the file | yes |
+| Binary files | [`readBytes(path)`](#readbytes) | The file's contents as `Bytes` | yes |
+| | [`writeBytes(path, data)`](#writebytes) | Replaces the file's contents with bytes | yes |
+| | [`appendBytes(path, data)`](#appendbytes) | Adds bytes to the end of the file | yes |
 | Checking | [`exists(path)`](#exists) | Whether something is at the path | no |
 | | [`isDir(path)`](#isdir) | Whether the path is a folder | no |
 | | [`size(path)`](#size) | The size in bytes | yes |
@@ -56,7 +59,7 @@ Returns the contents of the file at `path`.
 - **Returns:** The whole file as a string, line endings included. An empty file gives `""`.
 - **Errors:** Throws `can't read <path>: <reason>` when the file can't be opened or read, for example `No such file or directory`, `Permission denied` or `Is a directory`.
 
-The bytes are taken as they are, without checking that they are valid UTF-8. Use `lines()` to split the text into lines, which also drops `\r` from Windows line endings.
+The bytes are taken as they are, without checking that they are valid UTF-8; read a file that may not be text with [`readBytes`](#readbytes). Use `lines()` to split the text into lines, which also drops `\r` from Windows line endings.
 
 ### write
 
@@ -116,6 +119,78 @@ can't read out/missing.txt: No such file or directory
 can't write out/no/such/file.txt: No such file or directory
 default
 ```
+
+## Binary files
+
+These three work like `read`, `write` and `append`, with [`Bytes`](/docs/stdlib/built-ins#bytes) instead of a string, for images, archives and other data that isn't text.
+
+### readBytes
+
+```vex
+pub fn readBytes(path: string) throws -> Bytes
+```
+
+Returns the contents of the file at `path` as bytes.
+
+- **Parameters:** `path`, the file to read.
+- **Returns:** A new `Bytes` holding every byte of the file. An empty file gives empty `Bytes`.
+- **Errors:** Throws `can't read <path>: <reason>`, as `read` does.
+
+### writeBytes
+
+```vex
+pub fn writeBytes(path: string, data: Bytes) throws
+```
+
+Writes `data` to the file at `path`, replacing what it held, and creates the file if it doesn't exist.
+
+- **Parameters:** `path`, the file to write; `data`, its new contents.
+- **Returns:** nothing.
+- **Errors:** Throws `can't write <path>: <reason>`, as `write` does.
+
+### appendBytes
+
+```vex
+pub fn appendBytes(path: string, data: Bytes) throws
+```
+
+Adds `data` to the end of the file at `path`, creating the file if needed.
+
+- **Parameters:** `path`, the file; `data`, the bytes to add.
+- **Returns:** nothing.
+- **Errors:** Throws `can't write <path>: <reason>`.
+
+```vex title="bytes.vx"
+import "vex:fs"
+
+fn main() throws {
+    let header = Bytes([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    try fs.writeBytes("logo.bin", header)
+    try fs.appendBytes("logo.bin", Bytes([0x00, 0xff]))
+    let data = try fs.readBytes("logo.bin")
+    println(data.len, data[0..4] == header[0..4], try fs.size("logo.bin"))
+    println(data)
+    println(data.toHex())
+
+    try fs.write("hello.txt", "héllo")
+    let raw = try fs.readBytes("hello.txt")
+    println(raw.len, raw.decodeUtf8() ?? "not text")
+
+    try fs.readBytes("missing.bin") catch e {
+        println(e.message)
+    }
+}
+```
+
+```text title="Output"
+10 true 10
+Bytes(10 bytes: 89 50 4e 47 0d 0a 1a 0a 00 ff)
+89504e470d0a1a0a00ff
+6 héllo
+can't read missing.bin: No such file or directory
+```
+
+`héllo` is 5 characters but 6 bytes, since `é` takes two in UTF-8. `decodeUtf8()` turns bytes back into a string, or gives `nil` when they aren't valid UTF-8.
 
 ## Checking
 
@@ -281,7 +356,6 @@ can't remove tmp/cache: Directory not empty
 ## Limits
 
 - Files are read and written whole. There are no file handles, streaming reads or seeking yet.
-- There is no binary data type: `read` returns a `string`, so use it for text.
 - There is no rename, copy, file metadata other than size, or path joining. Build paths with interpolation, as in `"{dir}/{name}"`, and use [`os.run`](/docs/stdlib/os#run) for the rest.
 
 ## See also

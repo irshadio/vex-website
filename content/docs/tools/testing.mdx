@@ -77,6 +77,7 @@ vex test
 ✗ reads past the end
 error: index 5 is out of range for a list of length 3
  --> main_test.vx:18
+  at test "reads past the end" (main_test.vx:18)
 
 5 tests: 2 passed, 3 failed
 ```
@@ -333,7 +334,7 @@ File names in the output are shown as they are reached from the target, so runni
 | `no tests` | The program has no tests. Exit status 0 |
 | `no tests match 'text'` | `-filter` matched no test. Exit status 1 |
 
-A runtime error in a test, such as an index out of range, a failed `assert` or a `panic`, prints the test's `✗` line, then the usual runtime error message on standard error, in the format of [Runtime errors](/docs/tools/runtime-errors).
+A runtime error in a test, such as an index out of range, a failed `assert` or a `panic`, prints the test's `✗` line, then the usual runtime error message on standard error, in the format of [Runtime errors](/docs/tools/runtime-errors), with a [stack trace](/docs/tools/runtime-errors#stack-traces) that ends at the test, shown as `test "name"`.
 
 Compile errors and [warnings](/docs/tools/compile-errors#warnings) are printed before anything runs, as for `vex run`. With compile errors, no test runs.
 
@@ -382,6 +383,7 @@ vex test isolation.vx
 ✗ divides by zero
 error: division by zero
  --> isolation.vx:19
+  at test "divides by zero" (isolation.vx:19)
 ✗ exits
   stopped with exit status 3
 ✗ aborts in C

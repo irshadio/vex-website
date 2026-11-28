@@ -31,8 +31,9 @@ Each stage either succeeds or returns a list of diagnostics, and the `vex` comma
 
 - A folder is one module: all `.vx` files in it share their names.
 - `import "vex:name"` loads a standard library module. The standard library is embedded in the `vex` binary with Go's `embed`, so it needs no installation.
+- `import "package:name"` loads a package that `vex get` downloaded, from the shared cache, after checking its files against the hash in `package.lock`. `compiler/packages` reads the lock file, chooses versions and runs `git`.
 - Any other import names a folder relative to the importing file.
-- The project file parser accepts `[package]`, `[c]`, `[dependencies]` and `[dev-dependencies]`. It reads `name`, `version` and `vex` in `[package]`, and `sources`, `libs`, `frameworks` and `flags` in `[c]`. Dependencies are accepted and ignored until the package manager exists. C flags are checked against an allow list, so a project file can't make the C compiler load plugins or write files.
+- The project file parser accepts `[package]`, `[c]`, `[dependencies]` and `[dev-dependencies]`. It reads `name`, `version` and `vex` in `[package]`, and `sources`, `libs`, `frameworks` and `flags` in `[c]`. `[dependencies]` lists packages; `[dev-dependencies]` is accepted and skipped. C flags are checked against an allow list, so a project file can't make the C compiler load plugins or write files.
 
 ### Lexing
 
@@ -153,13 +154,13 @@ The generated C uses GNU statement expressions, which is why it needs `clang` or
 
 ### Building
 
-`compiler/cc` runs the C compiler. It uses `$CC` if set, otherwise the first of `clang`, `cc` and `gcc` on the `PATH`, with these flags:
+`compiler/cc` runs the C compiler. It uses `$CC` if set, otherwise the clang bundled with the [Vex SDK](/docs/install) in `toolchain/bin` next to the folder of the real `vex` binary, otherwise the first of `clang`, `cc` and `gcc` on the `PATH`, with these flags:
 
 ```text
 -std=gnu11 -fwrapv -w -pthread -O3
 ```
 
-Flags in the `VEX_CFLAGS` environment variable come next, so they can override the defaults (for example `-g` to debug a program, or sanitizer flags). Then come the `[c]` flags, sources, libraries and frameworks from `package.toml`, and finally `-lm`.
+Flags in the `VEX_CFLAGS` environment variable come next, so they can override the defaults (for example `-g` to debug a program, or sanitizer flags). Then come the `[c]` flags, sources, libraries and frameworks from `package.toml`, and finally `-lm`. A program that imports a standard module with C files, such as `vex:crypto`, also gets those files compiled in: Monocypher and the glue to the system's provider, plus a small Swift file built with `swiftc` on Apple systems. On Windows the output is a `.exe`.
 
 ## Diagnostics
 
@@ -169,15 +170,16 @@ See [Compile errors](/docs/tools/compile-errors) for how to read them.
 
 ## The runtime
 
-The runtime is about 2,600 lines of C in a single header. It is compiled into every program, so a Vex binary has no dependencies beyond the C library. It contains:
+The runtime is about 7,500 lines of C in a few headers. It is compiled into every program, so a Vex binary has no dependencies beyond the C library. It contains:
 
 - The garbage collector and allocator (see [Memory management](/docs/internals/memory)).
 - Strings, lists and insertion-ordered hash maps.
 - Printing of every value, including cycle detection for structs that refer to themselves.
-- Runtime errors that print the Vex file and line and exit with code 1, and a stack overflow handler that turns a crash into `error: stack overflow`.
-- The async event loop, with a small stack per task switched by assembly routines for arm64 and x86-64.
-- Isolates: threads with their own heap, collector and event loop, and the channels between them.
-- C helpers behind `vex:fs`, `vex:os` and `vex:time`.
+- Runtime errors that print the Vex file and line and exit with code 1, the call records behind [stack traces](/docs/tools/runtime-errors#stack-traces) when traces are on, and a stack overflow handler that turns a crash into `error: stack overflow`.
+- The async event loop, with a small stack per task switched by assembly routines for arm64 and x86-64, following the Windows x64 calling convention on Windows.
+- Isolates: threads with their own heap, collector and event loop, and the channels between them; POSIX threads on macOS and Linux, Win32 threads on Windows.
+- Unicode 15.0 tables for case mapping and grapheme clusters.
+- C helpers behind `vex:fs`, `vex:os`, `vex:time`, `vex:random` seeds, `vex:datetime` local offsets, `vex:regex` matching and `vex:crypto`.
 
 ## Source layout
 
@@ -192,6 +194,8 @@ The runtime is about 2,600 lines of C in a single header. It is compiled into ev
 | `compiler/codegen` | C code generation; the runtime in `runtime/vexrt.h` | about 3,900 |
 | `compiler/diag` | Diagnostics and their formatting | about 200 |
 | `compiler/cc` | Running the C compiler | about 100 |
+| `compiler/packages` | `vex get`, `package.lock`, version selection, hashes and the download cache | |
+| `compiler/doc` | `vex doc`: HTML pages and terminal output from `///` comments | |
 | `compiler/modules/std` | The standard library, written in Vex | (Vex) |
 | `examples` | Sample programs with expected output | |
 | `tests` | Golden tests, error tests, fuzzers, random program generators | |
@@ -233,7 +237,7 @@ After an intended change to a program's output, refresh the `.out` files with:
 go test ./tests -update
 ```
 
-Deeper checks, which CI runs on every pull request on Linux with both clang and gcc:
+Deeper checks, which CI runs on every pull request on Linux with both clang and gcc (CI also runs the suite on Windows with LLVM-MinGW):
 
 ```sh
 # Random programs: the compiler must report errors, never crash.
@@ -259,9 +263,8 @@ CI also runs the async and isolate tests under ThreadSanitizer, and checks forma
 None of these exist yet:
 
 - `#line` directives in the generated C, so debuggers such as lldb show `.vx` lines.
-- Stack traces in runtime errors.
 - Cross-compiling the C output for iOS (`arm64-apple-ios`) and Android (the NDK).
-- `vex fmt`, a language server, `vex doc`, `vex new` and `vex repl`.
+- `vex fmt`, a language server, `vex new` and `vex repl`.
 - Longer term: rewriting the compiler in Vex, and an LLVM or custom backend instead of C.
 </Callout>
 

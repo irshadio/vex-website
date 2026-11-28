@@ -1,0 +1,271 @@
+---
+title: vex:regex
+description: API reference for vex:regex, which compiles regular expressions and finds, replaces and splits text with them, with named groups, $<name> replacements and matching in linear time.
+---
+
+`vex:regex` finds, replaces and splits text by pattern. [`compile`](#compile) checks a pattern once and gives a [`Regex`](#regex) to use as often as you like. Write patterns as raw strings, `r"..."`, so that `\` and `{` reach the pattern as written instead of starting an escape or an interpolation.
+
+```vex title="dates.vx"
+import "vex:regex"
+
+fn main() throws {
+    let date = try regex.compile(r"(?<year>\d{4})-(?<month>\d\d)-(\d\d)")
+    println(date.matches("2024-03-15"), date.hasMatch("on 2024-03-15"), date.matches("on 2024-03-15"))
+
+    if let m = date.find("due 2024-03-15, paid 2024-04-01") {
+        println(m.text, m.start, m.end, m)
+        println(m.groups, m.group("year"), m.group("day"))
+    }
+    println(date.findAll("2024-03-15 and 2024-04-01").map(fn(m) => m.text))
+    println(date.replace("on 2024-03-15", with: "$3/$<month>/$1"))
+    println(date.pattern, date.groupCount)
+}
+```
+
+```text title="Output"
+true true false
+2024-03-15 4 14 Match("2024-03-15", 4..14)
+["2024", "03", "15"] 2024 nil
+["2024-03-15", "2024-04-01"]
+on 15/03/2024
+(?<year>\d{4})-(?<month>\d\d)-(\d\d) 3
+```
+
+The module has its own matching engine, written for Vex, rather than the C library's, whose patterns differ between systems. It works on Unicode characters, and its time grows with the pattern's size times the text's length, never exponentially.
+
+## Summary
+
+| Function or member | Result |
+|---|---|
+| [`compile(pattern)`](#compile) | A `Regex`; throws when the pattern isn't valid |
+| [`escape(text)`](#escape) | `text` with every character that has a meaning in patterns escaped |
+| [`r.matches(text)`](#matches-and-hasmatch) | Whether the whole text matches |
+| [`r.hasMatch(text)`](#matches-and-hasmatch) | Whether some part of the text matches |
+| [`r.find(text)`](#find-and-findall) | The first `Match`, or `nil` |
+| [`r.findAll(text)`](#find-and-findall) | Every `Match`, in order |
+| [`r.replace(text, with:)`](#replace-and-replacefirst) | The text with every match replaced |
+| [`r.replaceFirst(text, with:)`](#replace-and-replacefirst) | The text with the first match replaced |
+| [`r.split(text)`](#split) | The pieces between matches |
+
+## compile
+
+```vex
+pub fn compile(pattern: string) throws -> Regex
+```
+
+Returns `pattern` compiled into a [`Regex`](#regex).
+
+- **Parameters:** `pattern`, in the [syntax](#pattern-syntax) below.
+- **Returns:** A `Regex`, which can be kept in a variable, a field or a constant and used from many places.
+- **Errors:** Throws an `Error` saying what is wrong and at which character, counting from 0.
+
+```vex title="badpatterns.vx"
+import "vex:regex"
+
+fn main() {
+    for p in ["(a", r"a{2,1}", "[z-a]", r"\p{L}", "a**", "(?=x)"] {
+        let r = try regex.compile(p) catch e {
+            println(e.message)
+            continue
+        }
+        println(r)
+    }
+}
+```
+
+```text title="Output"
+can't compile the pattern '(a': missing ) to close the group at character 0
+can't compile the pattern 'a{2,1}': the repeat count {2,1} has its largest first at character 1
+can't compile the pattern '[z-a]': the range ends before it starts at character 2
+can't compile the pattern '\p{L}': unknown escape \p at character 0
+can't compile the pattern 'a**': a repeat can't follow another; put the first in (?:...) at character 2
+can't compile the pattern '(?=x)': unknown group kind; use (?:...) or (?<name>...) at character 1
+```
+
+A pattern written in the source is known in advance, so a mistake in it shows on the first run. Compile it once, where `main` or the function holding it can throw, and keep the `Regex`.
+
+## escape
+
+```vex
+pub fn escape(text: string) -> string
+```
+
+Returns `text` with a `\` before each character that has a meaning in patterns, so that the result matches `text` as written. Use it to put text a user typed into a pattern.
+
+- **Parameters:** `text`, any text.
+- **Returns:** The escaped text.
+- **Errors:** None.
+
+## Regex
+
+```vex
+pub struct Regex {
+    pub let pattern: string
+    pub let groupCount: int
+}
+```
+
+A compiled regular expression, made by [`compile`](#compile). `pattern` is the pattern as written, which is also what printing shows, and `groupCount` the number of groups in parentheses that capture.
+
+### matches and hasMatch
+
+```vex
+pub fn matches(text: string) -> bool
+pub fn hasMatch(text: string) -> bool
+```
+
+`matches` reports whether the whole of `text` matches, and `hasMatch` whether some part of it does. Neither needs `^` and `$`.
+
+### find and findAll
+
+```vex
+pub fn find(text: string) -> Match?
+pub fn findAll(text: string) -> [Match]
+```
+
+`find` returns the first [`Match`](#match) in `text`, or `nil` when there is none. `findAll` returns every match from the start, each beginning where the one before ended; after an empty match the search moves on by one character.
+
+### replace and replaceFirst
+
+```vex
+pub fn replace(text: string, with: string) -> string
+pub fn replaceFirst(text: string, with: string) -> string
+```
+
+Return `text` with every match, or only the first, replaced by `with`. In `with`:
+
+| Write | For |
+|---|---|
+| `$0` | The whole match |
+| `$1` to `$9` | Groups 1 to 9 |
+| `$<12>` | A group by number, for 10 and above |
+| `$<name>` | A named group |
+| `$$` | A `$` |
+
+A group that took no part in the match gives an empty string, and a reference to a group that doesn't exist stays as written.
+
+### split
+
+```vex
+pub fn split(text: string) -> [string]
+```
+
+Returns the pieces of `text` between matches. An empty match at either end of the text, or right where the last piece ended, doesn't split, so `compile("")` splits text into its characters.
+
+```vex title="replace.vx"
+import "vex:regex"
+
+fn main() throws {
+    let comma = try regex.compile(r",\s*")
+    println(comma.split("a, b,c"), comma.replace("a, b,c", with: ";"), comma.replaceFirst("a, b,c", with: " & "))
+    println(try regex.compile("").split("abc"))
+    let word = try regex.compile(r"\b\w+\b")
+    println(word.findAll("Hi there, Vex!").map(fn(m) => m.text))
+    let greeting = try regex.compile(r"(?i)hello")
+    println(greeting.hasMatch("HeLLo world"))
+    let lazy = try regex.compile(r"<.+?>")
+    println(lazy.findAll("<a><b>").map(fn(m) => m.text), try regex.compile(r"<.+>").find("<a><b>")?.text)
+    println(regex.escape("1+1=2?"), try regex.compile(regex.escape("1+1")).matches("1+1"))
+    let either = try regex.compile(r"(a)|(b)")
+    println(either.find("b")?.groups, either.replace("ab", with: "[$1$2$$]"), either.replace("a", with: "$9"))
+}
+```
+
+```text title="Output"
+["a", "b", "c"] a;b;c a & b,c
+["a", "b", "c"]
+["Hi", "there", "Vex"]
+true
+["<a>", "<b>"] <a><b>
+1\+1=2\? true
+[nil, "b"] [a$][b$] $9
+```
+
+## Match
+
+```vex
+pub struct Match {
+    pub let text: string
+    pub let start: int
+    pub let end: int
+    pub let groups: [string?]
+    pub get range -> Range
+    pub fn group(name: string) -> string?
+}
+```
+
+A part of a text that a `Regex` matched.
+
+- `text` is the text matched. `start` and `end` are where it starts and ends in the text searched, counted in characters as string indexes are, and `range` is `start..end`, so `s[m.range]` is `m.text`.
+- `groups` holds the text of each group in parentheses, from the first, with `nil` for a group that took no part in the match.
+- `group(name)` returns a named group, or `nil` when it took no part or the pattern has no such group.
+- A match prints as `Match("2024-03-15", 4..14)`.
+
+```vex title="unicode.vx"
+import "vex:regex"
+
+fn main() throws {
+    let s = "naïve café"
+    if let m = try regex.compile(r"caf.").find(s) {
+        println(m.start, m.end, s[m.range])
+    }
+}
+```
+
+```text title="Output"
+6 10 café
+```
+
+## Pattern syntax
+
+Patterns follow the common Perl style: the first alternative that leads to a match wins, and repeats take as much as they can unless a `?` after them makes them lazy.
+
+| Pattern | Matches |
+|---|---|
+| `a`, `é`, `\.`, `\\` | That character. A `\` before any ASCII punctuation makes it plain |
+| `\n`, `\t`, `\r`, `\f`, `\v`, `\0` | A line feed, tab, carriage return, form feed, vertical tab, NUL |
+| `.` | Any character except a line feed |
+| `[abc]`, `[a-z]`, `[^abc]` | One character in the set, or with `^` not in it. `]` first and `-` first or last are plain; `\` escapes work inside |
+| `\d`, `\w`, `\s` | An ASCII digit; an ASCII letter, digit or `_`; a space, tab, line break, carriage return, form feed or vertical tab. `\D`, `\W`, `\S` are the opposites. They work inside `[...]` too |
+| `^`, `$` | The start and the end of the text |
+| `\b`, `\B` | A boundary between a `\w` character and another, or not one |
+| `x*`, `x+`, `x?` | 0 or more, 1 or more, 0 or 1 of `x`, as many as can be |
+| `x{n}`, `x{n,}`, `x{n,m}` | Exactly `n`, at least `n`, from `n` to `m`; counts are at most 1000 |
+| `x*?`, `x+?`, `x??`, `x{n,m}?` | The same, as few as can be |
+| `a\|b` | `a`, or else `b` |
+| `(x)` | A group that captures, numbered from 1 by its `(` |
+| `(?<name>x)` | A group that captures, with a name |
+| `(?:x)` | A group that doesn't capture |
+| `(?i)` at the start | Ignores the case of ASCII letters |
+
+- Patterns work on characters, not bytes, so `.` matches `é` and `[à-ï]` is a range of code points. The classes `\d`, `\w`, `\s` and `\b`, and ignoring case, cover ASCII only.
+- `^` and `$` match only at the ends of the whole text, not at each line.
+- Backreferences, lookahead, lookbehind and possessive repeats aren't supported, and a plain `{` must be written `\{`.
+
+## Performance
+
+Matching remembers what it has already tried at each position, so its time grows with the pattern's size times the text's length. Patterns such as `(a*)*b`, which take exponential time in backtracking engines, finish at once:
+
+```vex title="linear.vx"
+import "vex:regex"
+import "vex:time"
+
+fn main() throws {
+    let nested = try regex.compile(r"(a*)*b")
+    let start = time.nanos()
+    let text = "a".repeat(5000)
+    println(nested.hasMatch(text), (time.nanos() - start) / 1000000 < 1000)
+}
+```
+
+```text title="Output"
+false true
+```
+
+Compile a pattern once and keep the `Regex`, rather than compiling it again inside a loop.
+
+## See also
+
+- [String members](/docs/stdlib/built-ins#string-members), for searching and splitting by plain text
+- [Strings: raw strings](/docs/language/strings)
+- [Standard library overview](/docs/stdlib)
