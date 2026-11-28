@@ -263,7 +263,7 @@
     "number": 2,
     "title": "Language for apps",
     "version": "v0.2",
-    "goal": "the language features real apps need before any UI work.",
+    "goal": "wrapping a large C library is mostly generated, not written by hand, and the native packages for the UI framework (Firebase, payments, maps) can be built on it. New syntax in these tasks is approved before it is built.",
     "sections": [
       {
         "title": "Done",
@@ -551,19 +551,19 @@
           {
             "id": "V-144",
             "text": "Sealed interfaces: a closed set of structs that `match` checks exhaustively, with type patterns",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
             "id": "V-145",
             "text": "Null-aware elements in collections and `?[ ]` indexing",
-            "status": "todo",
+            "status": "done",
             "size": "S"
           },
           {
             "id": "V-146",
             "text": "Extension types: zero-cost wrappers that make `UserId` and `int` different types",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
@@ -599,13 +599,13 @@
           {
             "id": "V-165",
             "text": "Iteration: an `Iterable<T>` interface that `for in` accepts, and generators with `yield`; shares machinery with V-148",
-            "status": "todo",
+            "status": "done",
             "size": "L"
           },
           {
             "id": "V-166",
             "text": "Enum reflection: `Type.cases`, `.name`, raw values `enum C: int { red = 1 }` with `C(rawValue:)` returning an optional, `==` on enums with data, operators on enums",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
@@ -629,7 +629,7 @@
           {
             "id": "V-170",
             "text": "List conversion between element types: `[B]` passed as `[A]` for a fresh copy, and `cast<A>()`",
-            "status": "todo",
+            "status": "done",
             "size": "S"
           }
         ]
@@ -640,31 +640,31 @@
           {
             "id": "V-121",
             "text": "Package manager: `vex get` from public git repos, `package.lock` with hashes",
-            "status": "todo",
+            "status": "done",
             "size": "L"
           },
           {
             "id": "V-122",
             "text": "`vex doc`: API docs from `///` comments",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
             "id": "V-124",
             "text": "Benchmark suite in the repo (`bench/`): Vex programs with Go equivalents and a script that compares them",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
             "id": "V-123",
             "text": "Stack traces: runtime errors list the chain of calls with their lines",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
             "id": "V-128",
             "text": "Modules, next steps: warn about unused imports, `pub` names whose types are private, and errors sorted with the root module first",
-            "status": "todo",
+            "status": "done",
             "size": "S"
           },
           {
@@ -705,31 +705,31 @@
           {
             "id": "V-132",
             "text": "Bytes: a type for binary data, and reading and writing binary files",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
             "id": "V-115",
             "text": "Print values through one growing buffer; deeply nested values print in quadratic time today",
-            "status": "todo",
+            "status": "done",
             "size": "S"
           },
           {
             "id": "V-116",
             "text": "Unicode-aware strings: `upper`/`lower` beyond A–Z, and counting visible characters (grapheme clusters)",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
             "id": "V-111",
             "text": "GC stage 2: precise roots and object layouts",
-            "status": "todo",
+            "status": "done",
             "size": "L"
           },
           {
             "id": "V-112",
             "text": "GC stage 3: generational collection (done), returning memory to the OS",
-            "status": "todo",
+            "status": "done",
             "size": "XL"
           },
           {
@@ -741,32 +741,144 @@
           {
             "id": "V-171",
             "text": "`Set<T>` of Hashable values, with literals, `insert`, `remove`, `contains`, `union`, `intersection` and `subtracting`",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
             "id": "V-172",
             "text": "Map helpers: `isEmpty`, `getOrPut`, `update`, `filter`, `mapValues`, `entries`",
-            "status": "todo",
+            "status": "done",
             "size": "S"
           },
           {
             "id": "V-173",
             "text": "String helpers: `isEmpty`, `lastIndexOf`, `count`, a `split` limit, `padStart`/`padEnd`, `reversed`, `capitalize`, and `vex:strings` functions as methods",
-            "status": "todo",
+            "status": "done",
             "size": "S"
           },
           {
             "id": "V-174",
             "text": "Format specs in interpolation: `\"{x:.2}\"`, `\"{n:04}\"`, `\"{n:x}\"`",
-            "status": "todo",
+            "status": "done",
             "size": "M"
           },
           {
             "id": "V-175",
             "text": "Standard library: `vex:random`, `vex:datetime` (`now`, `Duration`, ISO 8601, calendar fields), `eprintln` and `os.stderr`, and `vex:regex`",
+            "status": "done",
+            "size": "L"
+          },
+          {
+            "id": "V-176",
+            "text": "`vex:crypto`: SHA-2, HMAC, HKDF, secure random bytes, UUID v4, constant-time compare, Argon2id and PBKDF2, `seal`/`open` with ChaCha20-Poly1305 or AES-256-GCM, Ed25519 and P-256 signatures. Only audited code (Monocypher) or each system's provider (CryptoKit, Conscrypt, CNG, libcrypto), never our own primitives; keys are their own types; MD5 and SHA-1 only under `legacy`; RFC and Wycheproof test vectors in CI on every system",
+            "status": "done",
+            "size": "L"
+          }
+        ]
+      },
+      {
+        "title": "Windows",
+        "tasks": [
+          {
+            "id": "V-180",
+            "text": "`vex` on Windows: paths, temporary folders, finding clang, `.exe` outputs, `run`, `build`, `test`, `doc` and `get`, and CRLF source files",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-181",
+            "text": "Runtime threads on Windows: isolates, channels and thread-local storage on Win32",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-182",
+            "text": "Async tasks and generators on Windows: switching stacks allocated with `VirtualAlloc`, with guard pages",
+            "status": "done",
+            "size": "L"
+          },
+          {
+            "id": "V-183",
+            "text": "Collector on Windows: heap memory from `VirtualAlloc`, thread stack bounds and saved registers for root scanning",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-184",
+            "text": "Standard library on Windows: `vex:fs`, `vex:os` (arguments, environment, exit codes, console UTF-8), time, `vex:datetime` local offsets, and `BCryptGenRandom` for random seeds",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-185",
+            "text": "Windows CI: every PR runs the suite and the sanitizer-free battery on `windows-latest`",
+            "status": "done",
+            "size": "S"
+          },
+          {
+            "id": "V-186",
+            "text": "SDK archives for Windows, Linux and macOS: `vex`, the standard library, runtime, docs and the C toolchain wherever its license allows (LLVM-MinGW on Windows, clang with a musl sysroot on Linux; macOS uses the Xcode Command Line Tools). The layout is relocatable, finding everything next to the `vex` binary, so the UI framework's archive can embed it as Flutter's embeds Dart. Release CI builds, signs and checksums them, and tests each archive on a clean machine; a `winget` package points at the Windows one",
+            "status": "done",
+            "size": "M"
+          },
+          {
+            "id": "V-187",
+            "text": "`vex doctor`: checks the toolchain and, for app builds, Xcode and Android Studio with its SDK and NDK, saying what is missing and how to install it; it never installs those itself",
+            "status": "done",
+            "size": "S"
+          }
+        ]
+      },
+      {
+        "title": "C interop, next steps",
+        "tasks": [
+          {
+            "id": "V-188",
+            "text": "`extern struct`: C structs passed and returned by value in extern calls, with C field layout, nested structs and fixed-size arrays",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-189",
+            "text": "C memory: a pointer type for C-owned buffers with typed reads and writes, `Bytes` passed to C as a pointer and length without a copy, and C strings borrowed or adopted without a copy",
             "status": "todo",
             "size": "L"
+          },
+          {
+            "id": "V-190",
+            "text": "Releasing C resources: an `extern type` can name its release function, so the collector frees unreachable handles, alongside explicit `close()` with `defer`",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-191",
+            "text": "C enums, unions, bitfields and `#define` constants",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-192",
+            "text": "Variadic C functions such as `printf` and `open`, using C's default argument promotions",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-193",
+            "text": "Callbacks, next steps: struct, `Bytes` and pointer parameters, and callbacks that C calls from its own threads, queued onto the isolate that owns them",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-194",
+            "text": "`vex bind c`: generates Vex declarations from C headers through clang's AST, filtered by name prefix, and a `bind` entry in the `[c]` section of `package.toml` that regenerates them on build",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-195",
+            "text": "C interop guide with worked SQLite and libcurl wrappers, built and run in CI",
+            "status": "todo",
+            "size": "S"
           }
         ]
       }
@@ -776,10 +888,10 @@
     "number": 6,
     "title": "Developer experience",
     "version": "v0.6",
-    "goal": null,
+    "goal": "editor support and a debugger on par with Flutter's. Tools that inspect running UI apps, such as DevTools, belong to the UI framework in the `vex-ui` repo.",
     "sections": [
       {
-        "title": null,
+        "title": "Language tools (this repo)",
         "tasks": [
           {
             "id": "V-500",
@@ -789,7 +901,7 @@
           },
           {
             "id": "V-501",
-            "text": "VS Code extension: syntax highlighting, then an LSP (errors, go-to-definition, autocomplete)",
+            "text": "Language server, `vex lsp`: errors as you type, hover, go-to-definition, find references, rename, autocomplete, signature help and quick fixes from the compiler's hints, for every editor",
             "status": "todo",
             "size": "L"
           },
@@ -814,6 +926,125 @@
           {
             "id": "V-504",
             "text": "Debugging: line info in the generated C (`#line`) so lldb shows `.vx` lines",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-506",
+            "text": "Debug adapter, `vex dap`: breakpoints, stepping, call stacks and variables shown as Vex values over lldb, for any editor that speaks the Debug Adapter Protocol",
+            "status": "todo",
+            "size": "L"
+          }
+        ]
+      },
+      {
+        "title": "Editor plugins",
+        "tasks": [
+          {
+            "id": "V-510",
+            "text": "VS Code extension: highlighting, snippets, the language server, formatting on save, run and debug buttons, tasks for `vex build`, `run` and `test`, and a test explorer",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-511",
+            "text": "JetBrains plugin for IntelliJ IDEA, Android Studio, CLion and the other JetBrains IDEs: highlighting, live templates, the language server, run configurations, the debugger and a test runner",
+            "status": "todo",
+            "size": "XL"
+          },
+          {
+            "id": "V-512",
+            "text": "Snippets shared by both plugins: `struct`, `enum`, `interface`, `match`, `test`, `async fn` and the like",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-513",
+            "text": "Device picker in both plugins: choose the Mac, a simulator, an emulator or a phone, then run and hot reload from the editor",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-514",
+            "text": "Publish the plugins to the VS Code Marketplace, Open VSX and the JetBrains Marketplace",
+            "status": "todo",
+            "size": "S"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "number": 9,
+    "title": "Devices and IoT",
+    "version": "v0.9",
+    "goal": "Vex programs on single-board computers such as the Raspberry Pi, talking to sensors and networks, then a first program on a microcontroller. Builds on the C interop steps (V-188 to V-195). New syntax in these tasks is approved before it is built.",
+    "sections": [
+      {
+        "title": "Linux boards",
+        "tasks": [
+          {
+            "id": "V-800",
+            "text": "Cross builds: `vex build --target linux-arm64` and `linux-armv7` from any host, using the SDK's clang and musl",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-801",
+            "text": "Async tasks and generators on 32-bit ARM: the stack switch for armv7, with the collector's register scan",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-802",
+            "text": "SDK archive for Linux arm64, tested on a Raspberry Pi in CI",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-803",
+            "text": "`vex:gpio`: digital pins, edge events as streams, and PWM through the Linux character device",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-804",
+            "text": "I²C, SPI and serial ports in the standard library or first-party packages",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-805",
+            "text": "MQTT client package with TLS, reconnects and a stream of messages",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-806",
+            "text": "`vex deploy`: copy a build to a board over SSH and run it, streaming its output",
+            "status": "todo",
+            "size": "S"
+          }
+        ]
+      },
+      {
+        "title": "Microcontrollers",
+        "tasks": [
+          {
+            "id": "V-810",
+            "text": "Spike: a freestanding runtime (no OS, no threads, a fixed heap set at build time) that blinks an LED and reads a sensor on an RP2040 or ESP32-C3; measures flash and RAM use and decides the next tasks",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-811",
+            "text": "Memory-mapped registers and interrupt handlers, if the spike shows the runtime fits",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-812",
+            "text": "`vex flash` and a serial monitor for supported boards",
             "status": "todo",
             "size": "M"
           }
