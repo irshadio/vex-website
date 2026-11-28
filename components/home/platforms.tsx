@@ -5,6 +5,7 @@ import { Section } from './section';
 const platforms = [
   { name: 'macOS', detail: 'Apple silicon and Intel', status: 'Available' },
   { name: 'Linux', detail: 'x64 and ARM64', status: 'Available' },
+  { name: 'Windows', detail: 'x64, with no Visual Studio needed', status: 'Available' },
   { name: 'iOS and Android', detail: 'Cross-compiled native code', status: 'Planned' },
 ];
 
@@ -60,12 +61,12 @@ export function Platforms() {
           <div className="overflow-hidden rounded-xl border border-slate-800 bg-code">
             <div className="flex items-center justify-between border-b border-slate-800 bg-[#0f172a] px-5 py-3">
               <span className="font-mono text-[13px] text-slate-300">lines.vx</span>
-              <span className="text-[11px] font-semibold tracking-[0.12em] text-slate-500 uppercase">macOS · Linux</span>
+              <span className="text-[11px] font-semibold tracking-[0.12em] text-slate-500 uppercase">macOS · Linux · Windows</span>
             </div>
             <Code code={sample} className="px-5 py-4 text-[13px] leading-[23px]" />
           </div>
           <p className="mt-3 text-sm text-fd-muted-foreground">
-            Counts the lines of the files you pass in. <code className="font-mono text-[13px]">vex build lines.vx</code> turns it into a 54 KB standalone executable.
+            Counts the lines of the files you pass in. <code className="font-mono text-[13px]">vex build lines.vx</code> turns it into an 86 KB standalone executable.
           </p>
         </Reveal>
       </div>

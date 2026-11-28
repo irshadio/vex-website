@@ -1,0 +1,104 @@
+{
+  "date": "2026-11-28",
+  "machine": {"cpu": "Apple M3", "cores": 8, "memory_bytes": 17179869184, "os": "macOS 26.4 (arm64)"},
+  "method": "Median wall time of 5 runs after one warm-up run, timed with hyperfine 2.0.0.",
+  "tools": {"vex": "vex 0.1.0-dev+11b0009", "go": "go1.23.2", "c_compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)"},
+  "benchmarks": [
+    {
+      "id": "binary-trees",
+      "title": "Binary trees",
+      "detail": "Allocation and garbage collection: builds and walks binary trees up to depth 17",
+      "checksum": "binary-trees(17) = 29185376",
+      "vex": {"median_ms": 125.2, "min_ms": 124.0, "stddev_ms": 1.2, "binary_bytes": 88128, "peak_rss_bytes": 21020672},
+      "go": {"median_ms": 536.2, "min_ms": 534.1, "stddev_ms": 3.0, "binary_bytes": 2260034, "peak_rss_bytes": 25149440}
+    },
+    {
+      "id": "fannkuch",
+      "title": "Fannkuch-redux",
+      "detail": "Swapping list elements in place: flips prefixes of every permutation of 10 items",
+      "checksum": "fannkuch(10) = 38",
+      "vex": {"median_ms": 161.2, "min_ms": 160.9, "stddev_ms": 0.3, "binary_bytes": 88992, "peak_rss_bytes": 1572864},
+      "go": {"median_ms": 143.8, "min_ms": 143.6, "stddev_ms": 0.1, "binary_bytes": 2260002, "peak_rss_bytes": 3702784}
+    },
+    {
+      "id": "fib",
+      "title": "Fibonacci",
+      "detail": "Function calls and int arithmetic: recursive Fibonacci of 40",
+      "checksum": "fib(40) = 102334155",
+      "vex": {"median_ms": 335.3, "min_ms": 332.4, "stddev_ms": 7.7, "binary_bytes": 71544, "peak_rss_bytes": 1523712},
+      "go": {"median_ms": 300.6, "min_ms": 294.7, "stddev_ms": 4.7, "binary_bytes": 2259954, "peak_rss_bytes": 3670016}
+    },
+    {
+      "id": "generators",
+      "title": "Generators",
+      "detail": "Generators and lazy filter, map and take: sums 10 million values from an endless generator",
+      "checksum": "generators(10000000) = 1000000 3392361862445149184",
+      "vex": {"median_ms": 567.8, "min_ms": 564.0, "stddev_ms": 2.3, "binary_bytes": 90768, "peak_rss_bytes": 1703936},
+      "go": {"median_ms": 90.5, "min_ms": 89.3, "stddev_ms": 1.9, "binary_bytes": 2277234, "peak_rss_bytes": 3833856}
+    },
+    {
+      "id": "json",
+      "title": "JSON",
+      "detail": "vex:json against encoding/json: encodes 1000 records and decodes them, 200 times",
+      "checksum": "json(200) = 17519400 119041800",
+      "vex": {"median_ms": 256.5, "min_ms": 254.1, "stddev_ms": 1.7, "binary_bytes": 107432, "peak_rss_bytes": 28082176},
+      "go": {"median_ms": 186.4, "min_ms": 185.8, "stddev_ms": 0.4, "binary_bytes": 2788194, "peak_rss_bytes": 9879552}
+    },
+    {
+      "id": "mandelbrot",
+      "title": "Mandelbrot",
+      "detail": "Tight float loops: the Mandelbrot set on a 3000 x 3000 grid",
+      "checksum": "mandelbrot(3000) = 3576308 -8391779996996769839",
+      "vex": {"median_ms": 312.3, "min_ms": 312.2, "stddev_ms": 2.2, "binary_bytes": 88048, "peak_rss_bytes": 1556480},
+      "go": {"median_ms": 378.2, "min_ms": 377.9, "stddev_ms": 0.2, "binary_bytes": 2259922, "peak_rss_bytes": 3686400}
+    },
+    {
+      "id": "maps",
+      "title": "Hash maps",
+      "detail": "Hash maps with int and string keys: 2 million inserts, 4 million lookups, 1 million removals, then word counts",
+      "checksum": "maps(2000000) = 2000000 1999999000000 1000000 5000 400",
+      "vex": {"median_ms": 374.4, "min_ms": 355.1, "stddev_ms": 9.9, "binary_bytes": 88472, "peak_rss_bytes": 195543040},
+      "go": {"median_ms": 453.6, "min_ms": 453.1, "stddev_ms": 2.2, "binary_bytes": 2260050, "peak_rss_bytes": 164151296}
+    },
+    {
+      "id": "nbody",
+      "title": "N-body",
+      "detail": "Float math on struct fields: 10 million steps of the Jovian planets",
+      "checksum": "nbody(10000000) = -0.169075164 -0.169077842",
+      "vex": {"median_ms": 354.7, "min_ms": 353.8, "stddev_ms": 0.7, "binary_bytes": 88008, "peak_rss_bytes": 1589248},
+      "go": {"median_ms": 390.0, "min_ms": 384.3, "stddev_ms": 5.4, "binary_bytes": 2261330, "peak_rss_bytes": 3817472}
+    },
+    {
+      "id": "sort",
+      "title": "Sorting",
+      "detail": "Sorting lists: 3 million ints and 750,000 strings",
+      "checksum": "sort(3000000) = -1073741780 1073741799 k-1 k99999 -4397943528569773817",
+      "vex": {"median_ms": 467.1, "min_ms": 464.2, "stddev_ms": 7.0, "binary_bytes": 88232, "peak_rss_bytes": 125501440},
+      "go": {"median_ms": 347.4, "min_ms": 344.3, "stddev_ms": 2.9, "binary_bytes": 2296130, "peak_rss_bytes": 64602112}
+    },
+    {
+      "id": "spectral-norm",
+      "title": "Spectral norm",
+      "detail": "Float math and list indexing: the spectral norm of a 3000 x 3000 matrix",
+      "checksum": "spectral-norm(3000) = 1.274224153",
+      "vex": {"median_ms": 371.2, "min_ms": 369.9, "stddev_ms": 1.2, "binary_bytes": 88464, "peak_rss_bytes": 1933312},
+      "go": {"median_ms": 381.4, "min_ms": 381.0, "stddev_ms": 0.3, "binary_bytes": 2259954, "peak_rss_bytes": 3768320}
+    },
+    {
+      "id": "strings",
+      "title": "Strings",
+      "detail": "Interpolation and string methods: builds, joins, splits, replaces and searches strings, 3000 rounds",
+      "checksum": "strings(3000) = 76017000",
+      "vex": {"median_ms": 413.5, "min_ms": 408.3, "stddev_ms": 3.3, "binary_bytes": 88088, "peak_rss_bytes": 9109504},
+      "go": {"median_ms": 351.3, "min_ms": 349.8, "stddev_ms": 0.7, "binary_bytes": 2277154, "peak_rss_bytes": 10043392}
+    },
+    {
+      "id": "tasks",
+      "title": "Async tasks",
+      "detail": "Starting and awaiting tasks against goroutines on one thread: a tree of 2 million tasks",
+      "checksum": "tasks(20) = 2097151",
+      "vex": {"median_ms": 110.7, "min_ms": 110.4, "stddev_ms": 0.4, "binary_bytes": 88792, "peak_rss_bytes": 7585792},
+      "go": {"median_ms": 387.6, "min_ms": 382.1, "stddev_ms": 3.1, "binary_bytes": 2260034, "peak_rss_bytes": 136413184}
+    }
+  ]
+}

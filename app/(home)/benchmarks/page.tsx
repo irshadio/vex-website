@@ -3,13 +3,14 @@ import path from 'node:path';
 import type { Metadata } from 'next';
 import { pageMetadata } from '@/lib/metadata';
 import { codeToHtml } from 'shiki';
-import { getBenchmarks } from '@/lib/data';
+import { getBenchmarks, getSuite } from '@/lib/data';
 import { formatBytes, formatTime } from '@/lib/format';
 import { highlight } from '@/lib/highlight';
 import vexTheme from '@/lib/vex/theme.json';
 import { PageHeader } from '@/components/pages/page-header';
 import { SourceTabs } from '@/components/pages/source-tabs';
 import { Footer } from '@/components/home/footer';
+import { SuiteSection } from '@/components/pages/suite-section';
 
 export const metadata: Metadata = pageMetadata({
   title: 'Benchmarks',
@@ -31,6 +32,7 @@ const sources: Record<string, { file: string; lang: string }> = {
 
 export default async function BenchmarksPage() {
   const data = getBenchmarks();
+  const suite = getSuite();
   if (!data) {
     return (
       <PageHeader eyebrow="Performance" title="Benchmarks">
@@ -70,7 +72,7 @@ export default async function BenchmarksPage() {
               ['Machine', data.machine.cpu],
               ['System', `${data.machine.os}, ${data.machine.memory} memory`],
               ['Measured', data.date],
-              ['Runs', '10 timed runs after 2 warm-ups'],
+              ['Runs', '20 timed runs after 2 warm-ups'],
             ].map(([k, v]) => (
               <div key={k} className="py-2 lg:pr-6">
                 <p className="text-xs font-semibold tracking-[0.12em] text-fd-muted-foreground uppercase">{k}</p>
@@ -137,6 +139,8 @@ export default async function BenchmarksPage() {
             </div>
           </section>
         ))}
+
+        {suite && <SuiteSection data={suite} />}
 
         <section className="py-16">
           <div className="mx-auto grid max-w-6xl gap-10 px-4 md:px-6 lg:grid-cols-2">

@@ -28,6 +28,24 @@ export interface BenchmarkData {
   results: { benchmark: string; language: string; mean: number; min: number; stddev: number; runs: number; memory: number; size: number | null }[];
 }
 
+/// One side of a suite result: Vex or Go.
+export interface SuiteSide {
+  median_ms: number;
+  min_ms: number;
+  stddev_ms: number;
+  binary_bytes: number;
+  peak_rss_bytes: number;
+}
+
+/// Vex and Go results for the compiler's benchmark suite, written by `npm run bench:suite`.
+export interface SuiteData {
+  date: string;
+  machine: { cpu: string; cores: number; memory_bytes: number; os: string };
+  method: string;
+  tools: { vex: string; go: string; c_compiler: string };
+  benchmarks: { id: string; title: string; detail: string; checksum: string; vex: SuiteSide; go: SuiteSide }[];
+}
+
 const generated = path.join(process.cwd(), 'lib', 'generated');
 
 function readJson<T>(name: string): T | null {
@@ -43,6 +61,11 @@ export function getRoadmap(): Phase[] {
 /// Returns the benchmark results, or null before the first run.
 export function getBenchmarks(): BenchmarkData | null {
   return readJson<BenchmarkData>('benchmarks.json');
+}
+
+/// Returns the Vex and Go suite results, or null before the first run.
+export function getSuite(): SuiteData | null {
+  return readJson<SuiteData>('suite.json');
 }
 
 /// Counts done and total tasks in a phase.

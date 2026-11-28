@@ -238,6 +238,34 @@ Usage: vex <command>
 
 `len` and all string indexes count Unicode code points, not bytes. `indexOf` returns an optional `int?`, which is `nil` when the text isn't found. `+` joins only strings with strings; for anything else, use interpolation.
 
+**Format specs.** An interpolated value can take a format spec after a `:`, as in Python and Rust: digits after the point, a width, zero padding, alignment with a fill character, thousands separators and other bases. The spec is checked when compiling. `upper` and `lower` follow Unicode for every script, and `graphemeCount` counts the characters a reader sees.
+
+```vex title="format.vx"
+fn main() {
+    let price = 9.987
+    let n = 42
+    println("{price:.2} {n:04} [{n:6}] {n:x} {n:#b} {1234567:,}")
+
+    let rows = [("pen", 3), ("notebook", 12), ("ruler", 105)]
+    for (item, cost) in rows {
+        println("{item:.<10}{cost:>5}")
+    }
+    let label = "total"
+    println("{label:*^12}")
+
+    println("straße".upper(), "👍🏽".len, "👍🏽".graphemeCount, "7".padStart(3, with: "0"))
+}
+```
+
+```text title="Output"
+9.99 0042 [    42] 2a 0b101010 1,234,567
+pen.......    3
+notebook..   12
+ruler.....  105
+***total****
+STRASSE 2 1 007
+```
+
 More: [Strings](/docs/language/strings), [Built-ins](/docs/stdlib/built-ins).
 
 ## Control flow
@@ -539,7 +567,113 @@ cat 40
 
 Lists and maps are shared references: assigning one to another name doesn't copy it. Use `.copy()` for a separate collection.
 
+**Null-aware elements and map helpers.** `?x` in a literal adds an optional only when it isn't `nil`, and `?` before a map value leaves the entry out when the value is `nil`. `xs?[i]` indexes a list or map that may itself be `nil`. `getOrPut` and `update` change an entry without spelling out the missing-key case.
+
+```vex title="nullaware.vx"
+struct User {
+    name: string
+    nickname: string? = nil
+}
+
+fn main() {
+    let user = User(name: "Ann")
+    let page: string? = "2"
+    let lang: string? = nil
+
+    let tags = ["member", ?user.nickname, ?lang]
+    let query = ["q": "vex", "lang": ?lang, "page": ?page]
+    println(tags, query)
+
+    let recent: [string]? = ["a.vx", "b.vx"]
+    println(recent?[0] ?? "none")
+
+    var groups: [string: [string]] = [:]
+    for w in ["apple", "avocado", "banana"] {
+        groups.getOrPut(w.substring(0, 1)) { [] }.push(w)
+    }
+    var stock = ["apple": 3, "pear": 0]
+    stock.update("apple") { it - 1 }
+    println(groups, stock, stock.filter { name, n in n > 0 })
+}
+```
+
+```text title="Output"
+["member"] ["q": "vex", "page": "2"]
+a.vx
+["a": ["apple", "avocado"], "b": ["banana"]] ["apple": 2, "pear": 0] ["apple": 2]
+```
+
+The element type is the type inside the optional, so `tags` is a `[string]`. `update` never adds a key: on a missing one it does nothing and gives `nil`.
+
 More: [Lists](/docs/language/lists), [Maps](/docs/language/maps).
+
+## Sets
+
+A `Set<T>` holds values without repeats, as in Swift. A list literal makes a set wherever a set is expected, and sets keep the order items were first added, so loops and printing are predictable.
+
+```vex title="sets.vx"
+fn main() {
+    let primes: Set<int> = [2, 3, 5, 7]
+    var seen = Set<string>()
+    for name in ["ann", "bo", "ann"] {
+        if seen.insert(name) {
+            println("first visit: {name}")
+        }
+    }
+    println(seen, seen.len, primes.contains(4))
+
+    let odd = Set([1, 3, 5, 7, 9])
+    println(primes.intersection(odd), primes.union(odd), primes.subtracting([2]))
+    println(primes.isSubset(of: [1, 2, 3, 5, 7]), primes == [7, 5, 3, 2])
+}
+```
+
+```text title="Output"
+first visit: ann
+first visit: bo
+["ann", "bo"] 2 false
+[3, 5, 7] [2, 3, 5, 7, 1, 9] [3, 5, 7]
+true true
+```
+
+`insert` and `remove` give whether the set changed. Two sets are `==` when they hold the same items, whatever their order. Items can be any type a map key can be.
+
+More: [Maps](/docs/language/maps).
+
+## Bytes
+
+`Bytes` holds binary data, such as file contents or network packets, like Swift's `Data` or Dart's `Uint8List`. Each byte reads as an `int` from 0 to 255, and slices, loops and `==` work as they do for lists.
+
+```vex title="bytes.vx"
+fn main() {
+    var header = Bytes([0x89, 0x50, 0x4e, 0x47])
+    header.push(0x0d)
+    println(header.len, header[1], header[1..3])
+
+    let text = "Hello".toBytes()
+    println(text.toHex(), text.decodeUtf8() ?? "binary")
+    println(text)
+
+    let key = Bytes.fromHex("48690aff")
+    println(key?.toList(), Bytes.fromHex("xyz"))
+
+    var sum = 0
+    for b in text { sum += b }
+    println(sum)
+}
+```
+
+```text title="Output"
+5 80 Bytes(2 bytes: 50 4e)
+48656c6c6f Hello
+Bytes(5 bytes: 48 65 6c 6c 6f)
+[72, 105, 10, 255] nil
+500
+```
+
+Storing a value outside 0 to 255 stops the program, as an index out of range does. `vex:fs` reads and writes files as `Bytes` with `readBytes` and `writeBytes`, and JSON holds them as base64.
+
+More: [Types](/docs/language/types), [vex:fs](/docs/stdlib/fs).
 
 ## Ranges and slicing
 
@@ -893,6 +1027,42 @@ error: match doesn't handle 'yellow'
   |                                      ^^^^^ add yellow => ..., or _ => ...
 ```
 
+**Raw values.** An enum whose cases carry no values can give each case a fixed `int` or `string`, as in Swift. An `int` counts up from the case before, and a `string` defaults to the case's name. `Type(rawValue:)` finds a case, `allCases` lists them, and every enum value has its case's `.name`. A Codable enum with raw values is written to JSON as its raw value.
+
+```vex title="rawvalues.vx"
+import "vex:json"
+
+enum Status: int {
+    ok = 200
+    created
+    notFound = 404
+}
+
+enum Level: string, Codable {
+    low = "L"
+    high = "H"
+    unknown
+}
+
+fn main() {
+    println(Status.created.rawValue, Status(rawValue: 404)?.name, Status(rawValue: 500))
+    for level in Level.allCases {
+        println(level.name, level.rawValue)
+    }
+    println(json.encode([Level.high, Level.unknown]))
+}
+```
+
+```text title="Output"
+201 notFound nil
+low L
+high H
+unknown unknown
+["H","unknown"]
+```
+
+`Status(rawValue: 500)` is `nil`, since no case has that value. Enums can also define operators, as structs do.
+
 More: [Enums](/docs/language/enums).
 
 ## Patterns
@@ -1118,9 +1288,12 @@ bad port: port 99999 out of range
 8080 3000 nil
 missing notes.txt
 error: port 0 out of range
+ --> errors.vx:4
+  at parsePort (errors.vx:4)
+  at main (errors.vx:34)
 ```
 
-When an error reaches the top of `fn main() throws`, the program prints it and exits with code 1. Errors are returned like values rather than unwinding the stack, so code that doesn't throw pays nothing.
+When an error reaches the top of `fn main() throws`, the program prints it, with where it was thrown and the calls that led there, and exits with code 1. Errors are returned like values rather than unwinding the stack, so code that doesn't throw pays nothing.
 
 More: [Errors](/docs/language/errors).
 
@@ -1281,7 +1454,7 @@ error: Square doesn't implement 'area' from Shape
   |        ^^^^^^ add fn area() -> float
 ```
 
-**Type tests.** `x is T` asks whether an interface value holds a `T`. After the test, `x` has type `T` in the code it guards, so its fields can be used directly. `x as? T` gives the value as a `T`, or `nil`. In a `match`, `r: Rect` matches a `Rect` and binds it as one; a match on an interface always needs a `_` arm.
+**Type tests.** `x is T` asks whether an interface value holds a `T`. After the test, `x` has type `T` in the code it guards, so its fields can be used directly. `x as? T` gives the value as a `T`, or `nil`. In a `match`, `r: Rect` matches a `Rect` and binds it as one; interfaces are open, so a match on one needs a `_` arm unless the interface is sealed.
 
 ```vex title="typetests.vx"
 interface Shape {
@@ -1325,6 +1498,45 @@ circle, radius 1.0
 square, side 2.0
 rect, 2.0 by 3.0
 2.0
+```
+
+**Sealed interfaces.** `sealed interface` closes an interface: only types in the same module can implement it, so the compiler knows every type a value can be, as with Kotlin's and Dart's sealed types. A `match` on it needs no `_` once every type has an arm.
+
+```vex title="sealed.vx"
+sealed interface Result {}
+
+struct Ok: Result { value: int }
+struct Failed: Result { message: string }
+struct Loading: Result {}
+
+fn show(r: Result) -> string => match r {
+    Ok(:value) => "got {value}"
+    f: Failed => "failed: {f.message}"
+    Loading() => "loading"
+}
+
+fn main() {
+    let results: [Result] = [Ok(value: 7), Failed(message: "timeout"), Loading()]
+    for r in results {
+        println(show(r))
+    }
+}
+```
+
+```text title="Output"
+got 7
+failed: timeout
+loading
+```
+
+Leaving out a type is a compile error that names it, as for enum cases:
+
+```text
+error: match doesn't handle 'Loading'
+ --> sealed.vx:7:33
+  |
+7 | fn show(r: Result) -> string => match r {
+  |                                 ^^^^^ add l: Loading => ..., or _ => ...
 ```
 
 **Static requirements and interface extensions.** An interface can require a `static fn`, and `Self` in a requirement stands for the type that implements it. Generic code calls a static requirement through its type parameter, as in `T.parse(text: t)`. Such an interface can only be a constraint, not the type of a value. `extension Shape { ... }` adds methods to every type that implements `Shape`, usable on interface values, in generic code and on the types themselves.
@@ -1425,6 +1637,41 @@ HI! true 9 true
 
 Extensions can't add fields or replace existing members.
 
+**Extension types.** `extension type` makes a new, distinct type from an existing one, as in Dart 3. It wraps one value and costs nothing at run time: a `UserId` is compiled as a plain `int`. An `int` can't be passed where a `UserId` is expected, or the other way round, and only the members written for it are available. Listing `Equatable`, `Hashable`, `Comparable` or `Codable` takes them from the wrapped value.
+
+```vex title="exttypes.vx"
+extension type UserId(value: int): Hashable {
+    fn isAdmin() -> bool => value < 100
+}
+
+extension type Email(value: string)
+
+fn load(id: UserId) -> string => "user {id.value}"
+
+fn main() {
+    let id = UserId(value: 42)
+    println(id, id.isAdmin(), load(id))
+    var names = [id: "Ann"]
+    names[UserId(value: 7)] = "Bo"
+    println(names[UserId(value: 42)] ?? "?", Email(value: "ann@vex.dev").value)
+}
+```
+
+```text title="Output"
+UserId(value: 42) true user 42
+Ann ann@vex.dev
+```
+
+Passing a plain `int` is a compile error with the fix:
+
+```text
+error: argument 'id': expected UserId, found int
+ --> exttype_err.vx:6:18
+  |
+6 |     println(load(42))
+  |                  ^^ wrap it: UserId(value: 42)
+```
+
 More: [Extensions](/docs/language/extensions).
 
 ## Type aliases
@@ -1446,6 +1693,8 @@ fn main() {
 ```text title="Output"
 (1, 2) true
 ```
+
+Because an alias is the same type, `typedef UserId = int` still accepts any `int`. For a distinct type, use an [extension type](#extensions).
 
 More: [Types](/docs/language/types).
 
@@ -1701,7 +1950,31 @@ total: 20, clamped: 15
 
 `printTotals` lives in `totals.vx`, in the same root folder as `main.vx`, so it needs no import. `as fmt` renames an import.
 
-More: [Modules](/docs/projects/modules), [Standard library](/docs/stdlib).
+**Packages.** A package is a git repository with version tags such as `v0.3.1`. `vex get` adds one to `package.toml` and writes the exact version, commit and content hash of every package to `package.lock`. Code imports it with `package:`.
+
+```sh
+vex get https://github.com/ann/charts           # the newest tag
+vex get https://github.com/ann/charts@0.3       # the newest 0.3.x
+vex get                                         # download what package.toml lists
+```
+
+```toml title="package.toml"
+[dependencies]
+charts = { git = "https://github.com/ann/charts", version = "0.3.1" }
+```
+
+```vex title="main.vx"
+import "package:charts"
+import "package:charts/line"
+
+fn main() {
+    println(charts.title("Sales"), line.draw([1, 4, 2]))
+}
+```
+
+Commit `package.lock`: builds use exactly the versions it lists, and stop when a package's files don't match their hash. Downloads are cached in `~/.vex/pkg`, so a project whose packages are cached builds offline.
+
+More: [Modules](/docs/projects/modules), [Packages](/docs/projects/packages), [Standard library](/docs/stdlib).
 
 ## JSON
 
@@ -1750,6 +2023,56 @@ vex
 `decode` throws a `JsonError` that says where the JSON didn't fit, such as `[0].age`, or where the text stopped being JSON. Its type comes from where the result goes, or is written after the name, as in `decode<[User]>`.
 
 More: [vex:json](/docs/stdlib/json).
+
+## Dates, random numbers, patterns and crypto
+
+The standard library has modules for the everyday work of programs: `vex:datetime` for moments and durations, `vex:random` for random numbers, `vex:regex` for regular expressions and `vex:crypto` for hashing, encryption and signatures.
+
+```vex title="stdlib.vx"
+import "vex:random"
+import "vex:datetime"
+import "vex:regex"
+import "vex:crypto"
+
+fn main() throws {
+    let rng = random.Random(seed: 42)
+    println(rng.nextInt(1..=6), rng.pick(["red", "green", "blue"]) ?? "none")
+
+    let launch = datetime.utc(2024, 3, 15, hour: 9, minute: 30)
+    let meeting = launch + 1.hours + 30.minutes
+    println(meeting, meeting - launch, meeting.weekday)
+    let parsed = try datetime.parse("2024-03-15T15:00:00+05:30")
+    println(parsed == launch, parsed)
+
+    let date = try regex.compile(r"(?<year>\d{4})-(\d\d)-(\d\d)")
+    if let m = date.find("due 2024-03-15") {
+        println(m.text, m.group("year") ?? "")
+    }
+    println(date.replace("on 2024-03-15", with: "$3/$2/$<year>"))
+
+    println(crypto.sha256("abc".toBytes()).toHex().substring(0, 16))
+    let key = crypto.SecretKey.generate()
+    let box = crypto.seal("attack at dawn".toBytes(), key)
+    println(try crypto.open(box, key).decodeUtf8() ?? "")
+}
+```
+
+```text title="Output"
+1 red
+2024-03-15T11:00:00Z 1h30m0s 5
+true 2024-03-15T09:30:00Z
+2024-03-15 2024
+on 15/03/2024
+ba7816bf8f01cfea
+attack at dawn
+```
+
+- `random.nextInt(1..=6)` and the other functions use a generator seeded by the system. `Random(seed: 42)` gives the same values on every run, for tests; neither is for keys or passwords.
+- A `DateTime` is shown in UTC or in local time, and `1.hours` makes a `Duration` in a file that imports `vex:datetime`. Moments compare by the instant, so `parsed == launch` even though one was written with an offset.
+- Patterns are best written as raw strings. Matching takes time in proportion to the pattern times the text, so no pattern can take exponential time.
+- `vex:crypto` never implements a primitive of its own: it uses Monocypher, built into the program, and each system's provider. Keys have their own types, and `seal` encrypts and authenticates in one step.
+
+More: [Standard library](/docs/stdlib).
 
 ## C interop
 
@@ -1858,7 +2181,7 @@ fn main() {
 499999500000
 ```
 
-Each pass through the loop creates a two-node cycle that becomes unreachable at the end of the iteration. The collector reclaims them as the program runs, so its memory stays small.
+Each pass through the loop creates a two-node cycle that becomes unreachable at the end of the iteration. The collector reclaims them as the program runs, so its memory stays small. It is generational, reads heap objects by their exact layout, so a number never keeps an object alive, and gives empty pages back to the system when the heap shrinks.
 
 More: [Memory](/docs/language/memory), [Memory management](/docs/internals/memory).
 
@@ -1903,6 +2226,66 @@ Integer division rounds down, so the second `expect` fails; its message and both
 
 More: [Testing](/docs/tools/testing).
 
+## Documentation and tools
+
+A `///` comment above a declaration documents it, and a `///` comment at the top of a file, set apart by a blank line, documents the module. Doc comments are Markdown, and names in square brackets become links. `vex doc` turns them into HTML pages, or prints one declaration in the terminal, like `go doc`.
+
+```vex title="shapes.vx"
+/// Flat shapes and their areas.
+
+/// A circle. Its [area] grows with the square of [radius].
+pub struct Circle {
+    /// The distance from the centre to the edge.
+    pub radius: float
+
+    /// Returns the area, in square units.
+    pub fn area() -> float => 3.14159 * radius * radius
+}
+
+fn main() {
+    println(Circle(radius: 2).area())
+}
+```
+
+```text title="vex doc shapes.vx Circle"
+struct Circle
+
+    A circle. Its [area] grows with the square of [radius].
+
+    radius: float
+        The distance from the centre to the edge.
+
+    fn area() -> float
+        Returns the area, in square units.
+```
+
+Plain `vex doc` writes HTML pages to `doc/`, and `vex doc vex:json Json` shows the standard library the same way.
+
+`vex doctor` checks the tools Vex builds with: the C compiler, git for `vex get`, and, for phone apps, Xcode and the Android SDK, NDK and JDK. It says what is missing and how to install it, and never installs anything itself.
+
+```text title="vex doctor"
+Doctor summary (to see all details, run vex doctor -v):
+[✓] Vex (0.1.0-dev)
+[✓] C toolchain - builds Vex programs (Apple clang 21.0.0)
+[✓] git - downloads packages for vex get (git 2.50.1)
+[✓] Xcode - builds iOS apps (Xcode 26.4)
+```
+
+Vex runs on macOS, Linux and Windows. The SDK archive for each system holds `vex`, the standard library and, on Windows and Linux, the C toolchain, so nothing else is needed to build programs. On Windows, `vex build hello.vx` writes `hello.exe`, and no Visual Studio is needed.
+
+When a program stops with a runtime error under `vex run` or `vex test`, or when it was built with `vex build --traces`, the error lists the calls that led to it, innermost first:
+
+```text
+error: index 5 is out of range for a list of length 3
+ --> app.vx:4
+  at Store.get (app.vx:4)
+  at closure in total (app.vx:9)
+  at total (app.vx:11)
+  at main (app.vx:15)
+```
+
+More: [The vex command](/docs/tools/cli), [Install](/docs/install), [Runtime errors](/docs/tools/runtime-errors).
+
 ## Built-in functions
 
 These are always available, with no import:
@@ -1910,6 +2293,7 @@ These are always available, with no import:
 | Function | What it does |
 |---|---|
 | `print(a, b, ...)`, `println(...)` | Print values separated by spaces; `println` adds a new line. |
+| `eprint(...)`, `eprintln(...)` | Print the same way to standard error, for warnings and problems. |
 | `input(prompt)` | Read a line from standard input; the prompt is optional. |
 | `int(x)`, `float(x)`, `str(x)` | Convert between types. `int` and `float` of text that isn't a number stop the program. |
 | `panic(msg)` | Stop the program with a message. |
