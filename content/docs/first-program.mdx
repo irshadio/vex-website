@@ -144,7 +144,7 @@ vex build greet.vx
 Built greet
 ```
 
-This writes an executable called `greet` in the current folder, named after the source file. Run it like any other program:
+This writes an executable called `greet` in the current folder, named after the source file, or `greet.exe` on Windows. Run it like any other program:
 
 ```sh
 ./greet
@@ -415,7 +415,7 @@ error: index 3 is out of range for a list of length 3
  --> oops.vx:3
 ```
 
-The program exits with code 1. See [Runtime errors](/docs/tools/runtime-errors) for every kind.
+The program exits with code 1. When the error happens inside a function that `main` called, the message is followed by a stack trace: the calls that led to it, each with its line. See [Runtime errors](/docs/tools/runtime-errors) for every kind.
 
 ## Where to go next
 

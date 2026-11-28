@@ -1,93 +1,133 @@
 ---
 title: Install
-description: Install the Vex compiler on macOS or Linux, from a download or from source, set up your PATH, and check that everything works.
+description: Install the Vex SDK on macOS, Linux or Windows, or build it from source, add it to your PATH, and check your tools with vex doctor.
 ---
 
 import { Downloads } from '@/components/downloads';
 
-Installing Vex takes two pieces: the `vex` command itself, and a C compiler that `vex` uses to turn its generated C into native code. This page covers both, on macOS and Linux.
+Vex comes as one download, the **Vex SDK**: the `vex` command with its standard library and runtime, the documentation, and on Windows and Linux the C toolchain `vex` builds programs with. Unpack it anywhere and add its `bin` folder to your `PATH`; nothing is installed elsewhere and nothing needs administrator rights.
 
 <Callout type="info" title="Supported systems">
-Vex runs on macOS and Linux, on arm64 (Apple silicon, ARM64) and x86-64 (Intel, AMD) CPUs. Windows isn't supported yet.
+Vex runs on macOS (Apple silicon and Intel), Linux (x86-64) and Windows (x86-64). Vex is pre-release, and no version has been tagged yet: until the first release, [build from source](#build-from-source).
 </Callout>
-
-## Requirements
-
-Every Vex program is compiled to C and then built by your system's C compiler, so you need one installed even when you download a prebuilt `vex`. The generated C uses GNU extensions, so the compiler must be `clang` or `gcc`.
-
-<Tabs items={['macOS', 'Linux']}>
-  <Tab value="macOS">
-    Install Apple's Command Line Tools, which include `clang`:
-
-    ```sh
-    xcode-select --install
-    ```
-
-    If they are already installed, the command says so. A full Xcode install also works. Check with:
-
-    ```sh
-    clang --version
-    ```
-  </Tab>
-  <Tab value="Linux">
-    Install `gcc` or `clang` from your distribution's packages:
-
-    ```sh
-    # Debian, Ubuntu
-    sudo apt install build-essential
-
-    # Fedora
-    sudo dnf install gcc
-
-    # Arch
-    sudo pacman -S base-devel
-    ```
-
-    Check with `gcc --version` or `clang --version`.
-  </Tab>
-</Tabs>
-
-`vex` looks for a C compiler in this order: the command in the `CC` environment variable if it is set, then `clang`, then `cc`, then `gcc` on your `PATH`.
-
-To build `vex` from source you also need Go 1.23 or newer. You don't need Go to use a downloaded `vex`.
 
 ## Download
 
-Prebuilt compilers come in two channels. **Stable** is for everyday use; **Beta** previews the next release.
+SDK archives are published on the [GitHub Releases](https://github.com/vex-language/vex-lang/releases) page of the language repository when a version is tagged. **Stable** is for everyday use; **Beta** previews the next release.
 
 <Downloads />
 
-If no release is listed for your system yet, [build from source](#build-from-source).
+| System | Archive | What it holds |
+|---|---|---|
+| Windows (x64) | `vex-sdk-<version>-windows-x64.zip` | `vex.exe` and [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw): clang, lld and the Windows headers and libraries. No Visual Studio is needed |
+| Linux (x64) | `vex-sdk-<version>-linux-x64.tar.xz` | `vex`, clang and lld, a [musl](https://musl.libc.org) sysroot and a static OpenSSL libcrypto. Programs are static executables that run on any x86-64 Linux |
+| macOS (Apple silicon) | `vex-sdk-<version>-macos-arm64.tar.xz` | `vex`; programs are built with Apple's Command Line Tools |
+| macOS (Intel) | `vex-sdk-<version>-macos-x64.tar.xz` | The same, for Intel Macs |
 
-Archives are named `vex-<version>-<os>-<arch>.tar.gz`, for example `vex-0.2.0-macos-arm64.tar.gz`. To install one:
-
-1. Unpack it somewhere permanent, such as `~/vex`:
-
-   ```sh
-   mkdir -p ~/vex
-   tar -xzf ~/Downloads/vex-*-macos-arm64.tar.gz -C ~/vex
-   ```
-
-2. Find the folder that contains the `vex` binary:
-
-   ```sh
-   find ~/vex -name vex -type f
-   ```
-
-3. Add that folder to your `PATH`, as described in [Add vex to your PATH](#add-vex-to-your-path).
-
-If the release has a `SHA256SUMS` file, you can check the download before unpacking it:
+On macOS the C compiler, the system headers and `swiftc` come from Apple's Command Line Tools, whose license doesn't allow passing them on. Install them once:
 
 ```sh
-shasum -a 256 vex-*.tar.gz     # macOS
-sha256sum vex-*.tar.gz         # Linux
+xcode-select --install
 ```
 
-Compare the result with the line for your file in `SHA256SUMS`.
+Each release lists the archives' SHA-256 sums in `SHA256SUMS`. To check a download before unpacking it:
+
+```sh
+shasum -a 256 vex-sdk-*.tar.xz     # macOS
+sha256sum vex-sdk-*.tar.xz         # Linux
+```
+
+```powershell
+Get-FileHash vex-sdk-*.zip         # Windows
+```
+
+## Unpack and add vex to your PATH
+
+<Tabs items={['macOS', 'Linux', 'Windows']}>
+  <Tab value="macOS">
+    ```sh
+    mkdir -p ~/sdk
+    tar -xJf ~/Downloads/vex-sdk-*-macos-arm64.tar.xz -C ~/sdk
+    echo 'export PATH="$HOME/sdk/vex-sdk/bin:$PATH"' >> ~/.zshrc
+    source ~/.zshrc
+    ```
+
+    zsh is the default shell on macOS; with bash, use `~/.bash_profile` instead of `~/.zshrc`.
+  </Tab>
+  <Tab value="Linux">
+    ```sh
+    mkdir -p ~/sdk
+    tar -xJf ~/Downloads/vex-sdk-*-linux-x64.tar.xz -C ~/sdk
+    echo 'export PATH="$HOME/sdk/vex-sdk/bin:$PATH"' >> ~/.bashrc
+    source ~/.bashrc
+    ```
+
+    The bundled clang needs glibc 2.35 or newer on the machine that builds programs: Ubuntu 22.04, Debian 12, Fedora 36 or newer. The programs it builds run on any x86-64 Linux.
+  </Tab>
+  <Tab value="Windows">
+    Unzip the archive, for example to `C:\sdk`, so that `C:\sdk\vex-sdk\bin\vex.exe` exists. Then add that `bin` folder to your user `PATH` in PowerShell:
+
+    ```powershell
+    Expand-Archive "$HOME\Downloads\vex-sdk-*-windows-x64.zip" C:\sdk
+    [Environment]::SetEnvironmentVariable("Path", "C:\sdk\vex-sdk\bin;" + [Environment]::GetEnvironmentVariable("Path", "User"), "User")
+    ```
+
+    Open a new terminal for the change to take effect.
+  </Tab>
+</Tabs>
+
+The folder can live anywhere, even in a path with spaces or on another drive: `vex` finds the toolchain next to itself, after following symbolic links, so a link to `vex` from `/usr/local/bin` works too.
+
+### What's in the SDK
+
+```text
+vex-sdk/
+  bin/vex[.exe]           the command, with the standard library and runtime built in
+  toolchain/              the C toolchain (Windows and Linux only)
+  docs/                   the language guide and the standard library's API docs
+  version                 what this SDK is, as JSON
+  LICENSE-APACHE, LICENSE-MIT, LICENSE-RUNTIME-EXCEPTION
+  THIRD_PARTY_LICENSES    the notices of everything bundled
+```
+
+The standard library, the runtime and the C half of `vex:crypto` are embedded in the `vex` binary, so there is no `lib` folder.
+
+## Check the tools with vex doctor
+
+```sh
+vex doctor
+```
+
+```text
+Doctor summary (to see all details, run vex doctor -v):
+[✓] Vex (0.1.0-dev+11b0009)
+[✓] C toolchain - builds Vex programs (Apple clang 21.0.0)
+[✓] git - downloads packages for vex get (git 2.50.1)
+[✓] Xcode - builds iOS apps (Xcode 26.4)
+[!] Android toolchain - builds Android apps (NDK 29.0.13113456)
+    ! Java 11.0.26 is too old; Android builds need JDK 17 or newer
+      Set $JAVA_HOME to Android Studio's JDK
+
+! Doctor found issues in 1 category.
+```
+
+`vex doctor` checks the C toolchain, `git` for [`vex get`](/docs/projects/packages), and, for phone apps, Xcode and the Android SDK, NDK and JDK. It says what is missing and how to install it, and never installs anything itself. Only a missing C toolchain stops Vex from building programs; the rest are warnings. `vex doctor -v` shows where each tool was found, including whether the C compiler is the one bundled with the SDK. See [vex doctor](/docs/tools/cli#vex-doctor).
+
+`vex` looks for the C compiler in this order: the command in `CC` if it is set, which may be a full path with spaces; then `toolchain/bin/clang` of the SDK `vex` belongs to; then `clang`, `cc` or `gcc` on your `PATH`.
+
+## Windows
+
+Vex works on Windows with no Visual Studio and no WSL. Programs are built with the SDK's clang from LLVM-MinGW.
+
+- `vex build hello.vx` writes `hello.exe`.
+- Arguments, environment variables, file names and console output are UTF-8, so text in any script prints correctly in Windows Terminal and PowerShell.
+- Source files may use Windows (CRLF) line endings.
+- [`os.run`](/docs/stdlib/os#run) and [`os.output`](/docs/stdlib/os#output) run commands with `cmd` instead of `sh`.
+- `vex:crypto` takes its system algorithms from CNG, which ships with Windows, so nothing extra is needed.
 
 ## Build from source
 
-Clone the language repository and run its build script:
+Building `vex` needs Go 1.23 or newer, and building programs needs a C compiler: `clang` or `gcc` on macOS and Linux, and clang from LLVM-MinGW on Windows (`winget install MartinStorsjo.LLVM-MinGW.UCRT`).
 
 ```sh
 git clone https://github.com/vex-language/vex-lang.git
@@ -101,38 +141,20 @@ The script runs `go build` and writes the compiler to `bin/vex`, then prints its
 Built bin/vex (vex 0.1.0-dev+3a88a7e)
 ```
 
-The part after `+` is the git commit the compiler was built from, with `-dirty` added when the working tree had uncommitted changes. Building needs no network access beyond the clone, because the compiler has no Go dependencies outside the standard library.
-
-The standard library and the runtime are embedded in the `vex` binary, so `bin/vex` works on its own: you can copy it anywhere.
-
-## Add vex to your PATH
-
-To run `vex` from any folder, add the folder that holds it to your `PATH`. Replace `/path/to/folder` with that folder: for example `$HOME/vex-lang/bin` after building from source.
-
-<Tabs items={['zsh', 'bash']}>
-  <Tab value="zsh">
-    zsh is the default shell on macOS.
-
-    ```sh
-    echo 'export PATH="/path/to/folder:$PATH"' >> ~/.zshrc
-    source ~/.zshrc
-    ```
-  </Tab>
-  <Tab value="bash">
-    bash is the default shell on most Linux distributions. Use `~/.bashrc` on Linux, and `~/.bash_profile` if you use bash on macOS.
-
-    ```sh
-    echo 'export PATH="/path/to/folder:$PATH"' >> ~/.bashrc
-    source ~/.bashrc
-    ```
-  </Tab>
-</Tabs>
-
-If you are in the folder that holds `vex` (for example `vex-lang/bin`), you can write `$PWD` instead of the path, and the shell fills it in:
+The part after `+` is the git commit the compiler was built from, with `-dirty` added when the working tree had uncommitted changes. The compiler has no Go dependencies outside the standard library, and the standard library and runtime are embedded in `bin/vex`, so it works on its own: you can copy it anywhere. Add its folder to your `PATH`:
 
 ```sh
-echo 'export PATH="'"$PWD"':$PATH"' >> ~/.zshrc
+echo 'export PATH="'"$PWD"'/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
 ```
+
+On Windows, run `./build.sh` from Git Bash, or build from PowerShell or `cmd`:
+
+```bat
+go build -o bin\vex.exe .\cmd\vex
+```
+
+Without the SDK's toolchain, a few extra packages are needed for `vex:crypto`: on macOS, `swiftc` from the Command Line Tools, which `xcode-select --install` provides; on Linux, OpenSSL 3's development files (`sudo apt install libssl-dev` or `sudo dnf install openssl-devel`). On Linux, install a C compiler with `sudo apt install build-essential`, `sudo dnf install gcc` or `sudo pacman -S base-devel`.
 
 ## Verify the installation
 
@@ -174,7 +196,7 @@ Until then, Swift syntax highlighting is a reasonable stand-in, since the two la
 
 <Tabs items={['Download', 'From source']}>
   <Tab value="Download">
-    Download the new archive and unpack it over the old one, into the same folder. Your `PATH` stays the same.
+    Download the new archive, delete the old `vex-sdk` folder and unpack the new one in its place. Your `PATH` stays the same.
   </Tab>
   <Tab value="From source">
     Pull the latest code and build again:
@@ -191,10 +213,11 @@ Run `vex version` to confirm the new version. Vex is in early development, so a 
 
 ## Uninstall
 
-Vex keeps nothing outside its own folder: no caches and no configuration files. Programs you built with `vex build` don't depend on it.
+Vex keeps nothing outside its own folder except the package cache, `~/.vex/pkg`, which `vex get` fills. Programs you built with `vex build` don't depend on it.
 
-1. Delete the folder that holds `vex` (the unpacked archive, or your `vex-lang` clone).
-2. Remove the `export PATH=...` line you added from `~/.zshrc`, `~/.bashrc` or `~/.bash_profile`.
+1. Delete the `vex-sdk` folder, or your `vex-lang` clone.
+2. Delete `~/.vex` if you used packages.
+3. Remove the folder from your `PATH`: the `export PATH=...` line in `~/.zshrc`, `~/.bashrc` or `~/.bash_profile`, or the entry in your user `Path` on Windows.
 
 ## Troubleshooting
 
@@ -208,7 +231,7 @@ Your shell can't find `vex` on the `PATH`. Check that the folder you added reall
 vex: no C compiler found; install clang (on macOS: xcode-select --install) or set $CC
 ```
 
-`vex check` works without a C compiler, but `vex run` and `vex build` need one. Install one as shown in [Requirements](#requirements), or point `CC` at a compiler you have:
+`vex check` works without a C compiler, but `vex run` and `vex build` need one. On Windows and Linux the SDK brings its own; check that `toolchain/` is still next to `bin/`. On macOS run `xcode-select --install`. Or point `CC` at a compiler you have:
 
 ```sh
 export CC=gcc
@@ -220,7 +243,7 @@ export CC=gcc
 vex: running the C compiler (nosuchcc): exec: "nosuchcc": executable file not found in $PATH
 ```
 
-The `CC` environment variable is set to a command that doesn't exist. Fix it, or remove it with `unset CC` so that `vex` finds `clang` or `gcc` by itself.
+The `CC` environment variable is set to a command that doesn't exist. Fix it, or remove it with `unset CC` so that `vex` finds its compiler by itself. `vex doctor -v` shows which compiler it chose.
 
 ### The C compiler fails on generated code
 
@@ -228,7 +251,11 @@ The `CC` environment variable is set to a command that doesn't exist. Fix it, or
 vex: the C compiler (/usr/bin/clang) failed on generated code; this is a bug in vex
 ```
 
-Vex checks your program before it writes any C, so C that doesn't compile is a bug in the compiler, not in your code. This can also happen with a C compiler that isn't `clang` or `gcc`, since the generated C needs their extensions. Please report it with the program that triggers it at [github.com/vex-language/vex-lang](https://github.com/vex-language/vex-lang).
+Vex checks your program before it writes any C, so C that doesn't compile is a bug in the compiler, not in your code. This can also happen with a C compiler that isn't `clang` or `gcc`, since the generated C needs their extensions.
+
+### `vex:crypto` doesn't build
+
+On macOS, a program that imports `vex:crypto` needs `swiftc`: run `xcode-select --install`. On Linux with your own compiler instead of the SDK's, install OpenSSL 3's development files: `sudo apt install libssl-dev` or `sudo dnf install openssl-devel`. `vex doctor -v` reports whether `swiftc` was found. Please report it with the program that triggers it at [github.com/vex-language/vex-lang](https://github.com/vex-language/vex-lang).
 
 ### `no package.toml`
 
