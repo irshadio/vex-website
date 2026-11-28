@@ -1,0 +1,150 @@
+---
+title: Vex on Windows
+description: Install the Vex SDK on Windows 10 or 11, build .exe programs with the bundled LLVM-MinGW clang and no Visual Studio, and what differs from macOS and Linux.
+---
+
+Vex runs on Windows 10 and 11 on x86-64. The SDK brings its own C compiler, clang from [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw), so you need no Visual Studio, no WSL and no other tools to build programs. Every change to the language is tested on Windows in CI, with the same test suite as macOS and Linux.
+
+## Install the SDK
+
+<Callout type="info" title="No release yet">
+Vex is pre-release, and no version has been tagged yet. SDK archives will be published on the [GitHub Releases](https://github.com/vex-language/vex-lang/releases) page; until then, [build from source](#build-from-source).
+</Callout>
+
+The Windows SDK is one zip, `vex-sdk-<version>-windows-x64.zip`. It holds `vex.exe` with the standard library and runtime built in, the documentation, and the LLVM-MinGW toolchain: clang, lld and the Windows headers and libraries, using the UCRT C runtime.
+
+1. Unzip it anywhere, for example to `C:\sdk`, so that `C:\sdk\vex-sdk\bin\vex.exe` exists. Nothing needs administrator rights, and the folder can be on any drive or in a path with spaces.
+2. Add the `bin` folder to your user `PATH`.
+
+<Tabs items={['PowerShell', 'Settings']}>
+  <Tab value="PowerShell">
+    ```powershell
+    Expand-Archive "$HOME\Downloads\vex-sdk-*-windows-x64.zip" C:\sdk
+    [Environment]::SetEnvironmentVariable("Path", "C:\sdk\vex-sdk\bin;" + [Environment]::GetEnvironmentVariable("Path", "User"), "User")
+    ```
+
+    This changes the user `PATH` only, so it needs no administrator rights.
+  </Tab>
+  <Tab value="Settings">
+    1. Open **Start**, search for **environment variables**, and choose **Edit environment variables for your account**.
+    2. Under **User variables**, select **Path** and choose **Edit**.
+    3. Choose **New**, enter `C:\sdk\vex-sdk\bin`, and choose **OK** in both windows.
+  </Tab>
+</Tabs>
+
+3. Open a **new** terminal, since one that was already open keeps the old `PATH`, and check:
+
+```powershell
+vex version
+vex doctor
+```
+
+To check the download first, compare `Get-FileHash vex-sdk-*.zip` with the line for the file in the release's `SHA256SUMS`.
+
+## vex doctor
+
+`vex doctor` checks the tools Vex builds with and says how to fix what is missing. On Windows it checks:
+
+- **The C toolchain.** With the SDK this is its own clang, which `vex doctor -v` marks as bundled with the Vex SDK. Without the SDK, it suggests `winget install -e --id MartinStorsjo.LLVM-MinGW.UCRT`.
+- **git**, which [`vex get`](/docs/projects/packages) uses to download packages. When it is missing, it suggests `winget install -e --id Git.Git`.
+- **The Android toolchain**, for building Android apps later: Android Studio, the SDK in `%LOCALAPPDATA%\Android\Sdk` or `ANDROID_HOME`, the NDK, and JDK 17 or newer.
+
+There is no Xcode check on Windows. Only a C toolchain that can't build programs is an error; the rest are warnings.
+
+## Building programs
+
+```powershell
+vex run hello.vx
+vex build hello.vx
+.\hello.exe
+```
+
+- `vex build` writes `.exe` files: `hello.vx` builds `hello.exe`, and `-o tool` writes `tool.exe`, adding `.exe` when it is missing. With `--debug`, the C is kept as `hello.c`.
+- Programs link only system DLLs. The runtime uses Win32 threads, locks and condition variables rather than a pthreads library, so a built `.exe` can be copied to another Windows x64 machine and run there without Vex.
+- The main thread gets an 8 MB stack, as on macOS and Linux.
+- `vex` finds the C compiler as on other systems: `CC` if it is set, which may be a full path with spaces such as `C:\Program Files\LLVM\bin\clang.exe`; then the SDK's `toolchain\bin\clang.exe`; then `clang`, `cc` or `gcc` on the `PATH`.
+
+Set environment variables for one session with `$env:`, as in `$env:VEX_CFLAGS = "-march=native"` or `$env:VEX_GC_STATS = "1"`. Remove one with `Remove-Item Env:VEX_GC_STATS`.
+
+## Text, files and the console
+
+- **UTF-8 everywhere.** Arguments, environment variables, file and folder names, and console output are UTF-8, so `println("héllo 👋")` prints correctly in Windows Terminal and PowerShell. The program switches the console to UTF-8 while it runs and restores it when it ends. `input()` reads the console as Unicode too.
+- **Line endings.** Source files may use Windows (CRLF) line endings, and a multi-line string written in such a file holds `\n`. Programs write `\n` as it is: standard output is binary, so `println` ends lines with `\n`, not `\r\n`. [`lines()`](/docs/stdlib/built-ins#slicing-and-splitting) drops a `\r` before each `\n` when reading text from Windows files.
+- **Files.** [`vex:fs`](/docs/stdlib/fs) reads and writes files byte for byte, accepts both `/` and `\` as separators, and takes drive paths such as `C:/data/notes.txt`. Writing paths with `/` keeps a program portable.
+
+## Differences from macOS and Linux
+
+| Area | On Windows |
+|---|---|
+| Executables | `.exe` files |
+| `os.target` | `.windows`, so `if os.target == .windows { ... }` compiles only that branch; see [Platform conditionals](/docs/stdlib/os#platform-conditionals) |
+| `os.run`, `os.output` | Run the command with `cmd` instead of `sh`, so shell syntax differs; `os.output` gives lines ending in `\n` |
+| `os.setEnv(name, "")` | Keeps the variable, set to the empty string, for the program and the commands it runs |
+| C code for one system | The [`[c.windows]`](/docs/projects/c-interop#c-code-for-one-system) section of `package.toml`; `frameworks` work only on macOS |
+| `vex:crypto` | SHA-2, HMAC, PBKDF2, HKDF, AES-GCM, P-256 and random bytes come from CNG (`bcrypt.dll`), which ships with Windows, so nothing needs installing. The rest come from Monocypher, as everywhere |
+| Random seeds | From `BCryptGenRandom` |
+| Crashes | A program that crashes, which means a bug in Vex or in C code it calls, is reported by its exception: `vex: the program crashed (access violation); this is a bug in vex`. Under `vex test`, a crashed test shows `crashed with exception 0xC0000005` |
+| `vex test` | Starts the program again for each test instead of forking, with the same results: each test runs in its own process |
+
+```vex title="paths.vx"
+import "vex:os"
+
+fn main() throws {
+    let listing = if os.target == .windows { "dir /b" } else { "ls" }
+    print(try os.output(listing))
+}
+```
+
+`os.target` is a constant, so only the branch for the system the program is built for is compiled.
+
+### Stack traces and runtime errors
+
+Runtime errors, [stack traces](/docs/tools/runtime-errors#stack-traces) and stack overflows work as on other systems: `vex run` and `vex test` show the calls that led to an error, `vex build --traces` keeps them in a release build, and recursion that never stops ends with `error: stack overflow` rather than a crash, on the main thread, in async tasks and in isolates.
+
+### Limits
+
+- The SDK is built for x86-64 only.
+- Sanitizer builds (`--sanitize`) and the fuzzing runs are tested in CI on Linux only, not on Windows.
+- Vex doesn't add the `\\?\` prefix to paths, so paths longer than 260 characters work only where Windows' long path support is turned on. Keep the SDK and your projects in short paths, such as `C:\sdk` and `C:\code`.
+
+## Build from source
+
+Building `vex` needs Go 1.23 or newer, and building programs needs clang from LLVM-MinGW:
+
+```powershell
+winget install -e --id MartinStorsjo.LLVM-MinGW.UCRT
+git clone https://github.com/vex-language/vex-lang.git
+cd vex-lang
+go build -o bin\vex.exe .\cmd\vex
+```
+
+`./build.sh` also works from Git Bash. Then add `vex-lang\bin` to your `PATH` as above.
+
+## Troubleshooting
+
+### `vex` isn't recognized
+
+```text
+vex : The term 'vex' is not recognized as the name of a cmdlet, function, script file, or operable program.
+```
+
+The `PATH` change reaches only terminals opened after it. Open a new terminal, or restart the editor whose terminal you use. Check the folder with `$env:Path -split ';'`, and that it holds `vex.exe`.
+
+### SmartScreen or antivirus warnings
+
+Release builds of `vex.exe` are signed with Authenticode when the release has its signing keys. An unsigned build, such as one you built from source, may be held back by SmartScreen or scanned by antivirus software the first time it runs; programs you build yourself can be scanned too, which slows their first start.
+
+### No C compiler found
+
+```text
+vex: no C compiler found; install LLVM-MinGW (winget install MartinStorsjo.LLVM-MinGW.UCRT) or set $CC
+```
+
+With the SDK, check that the `toolchain` folder is still next to `bin`: `vex` finds the compiler relative to `vex.exe`. Without the SDK, install LLVM-MinGW as the message says, or point `CC` at a clang you have. `vex doctor -v` shows which compiler was chosen.
+
+## See also
+
+- [Install](/docs/install)
+- [The vex command](/docs/tools/cli)
+- [vex:os](/docs/stdlib/os)
+- [C interop](/docs/projects/c-interop)
