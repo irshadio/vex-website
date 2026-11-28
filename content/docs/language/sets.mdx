@@ -1,0 +1,218 @@
+---
+title: Sets
+description: Creating sets from list literals, inserting and removing items, union, intersection, subtracting and subsets, item types, iteration order, equality, reference semantics, copying and JSON.
+---
+
+A set, written `Set<T>`, holds values without repeats, as in Swift. It answers "is this value in here?" quickly, whatever its size. Sets keep their items in the order they were first added, and like lists and maps they are shared references.
+
+## Creating sets
+
+A list literal makes a set wherever a set is expected. `Set<T>()` makes an empty one, and `Set(list)` makes one from a list, dropping repeats:
+
+```vex title="create.vx"
+fn main() {
+    let primes: Set<int> = [2, 3, 5, 7]
+    let empty = Set<string>()
+    let ids = Set([3, 1, 3])
+    println(primes, empty, ids)
+    println(primes.len, primes.isEmpty, primes.contains(4))
+}
+```
+
+```text title="Output"
+[2, 3, 5, 7] [] [3, 1]
+4 false false
+```
+
+- A set prints like a list, in the order its items were added.
+- A literal needs the set type written, on a `let`, a parameter or a field. Without one, `[2, 3]` is a list.
+- A value written twice in one literal is an error, as a repeated key in a map literal is: `value "a" is already in this set on line 2`. `Set(list)` drops repeats instead, since the list may come from anywhere.
+
+## Inserting and removing
+
+`insert` and `remove` change the set in place, and give whether they changed it. That makes "first time seen" a single test:
+
+```vex title="insert.vx"
+fn main() {
+    var visitors = Set<string>()
+    for name in ["ann", "bob", "ann", "cat", "bob"] {
+        if visitors.insert(name) {
+            println("welcome, {name}")
+        }
+    }
+    println(visitors, visitors.len)
+    println(visitors.remove("bob"), visitors.remove("zoe"))
+    visitors.insert("bob")
+    println(visitors)
+}
+```
+
+```text title="Output"
+welcome, ann
+welcome, bob
+welcome, cat
+["ann", "bob", "cat"] 3
+true false
+["ann", "cat", "bob"]
+```
+
+Removing an item and inserting it again moves it to the end, as `bob` shows.
+
+## Combining sets
+
+`union`, `intersection` and `subtracting` make new sets, and `isSubset(of:)` asks whether every item is in another. Each takes a set or a list of the same items:
+
+```vex title="combine.vx"
+fn main() {
+    let primes: Set<int> = [2, 3, 5, 7]
+    let odds: Set<int> = [1, 3, 5, 7, 9]
+    println(primes.union(odds))
+    println(primes.intersection(odds), primes.subtracting(odds))
+    println(primes.intersection([3, 4, 5]), primes.subtracting([2]))
+    println(Set([3, 5]).isSubset(of: primes), odds.isSubset(of: [1, 3]))
+    println(primes == [7, 5, 3, 2], primes == odds)
+}
+```
+
+```text title="Output"
+[2, 3, 5, 7, 1, 9]
+[3, 5, 7] [2]
+[3, 5] [3, 5, 7]
+true false
+true false
+```
+
+- The new sets keep the order of the set the method is called on, and `union` adds the new items after.
+- Two sets are `==` when they hold the same items, whatever their order. A list literal compared with a set is read as a set, so `primes == [7, 5, 3, 2]` is `true`.
+
+## Set members
+
+| Member | Result | Description |
+|---|---|---|
+| `s.len` | `int` | Number of items. A property. |
+| `s.isEmpty` | `bool` | Whether the set has no items. A property. |
+| `s.contains(x)` | `bool` | Whether `x` is in the set. |
+| `s.insert(x)` | `bool` | Adds `x`; `false` when it was already there. |
+| `s.remove(x)` | `bool` | Removes `x`; `false` when it wasn't there. |
+| `s.union(other)` | `Set<T>` | The items of both. |
+| `s.intersection(other)` | `Set<T>` | The items in both. |
+| `s.subtracting(other)` | `Set<T>` | The items of `s` that aren't in `other`. |
+| `s.isSubset(of: other)` | `bool` | Whether every item of `s` is in `other`. |
+| `s.toList()` | `[T]` | A new list of the items, in order. |
+| `s.copy()` | `Set<T>` | A new set with the same items. |
+
+`other` is a set or a list of the same item type.
+
+## Item types and looping
+
+Items can be any type a [map key](/docs/language/maps#key-and-value-types) can be: `int`, `string`, `bool`, `Bytes`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable`. `for` visits the items in order; to visit them in another order, sort `toList()`:
+
+```vex title="items.vx"
+enum Tag { red, green, blue }
+
+struct Point: Hashable {
+    x: int
+    y: int
+}
+
+fn main() {
+    let tags: Set<Tag> = [.red, .blue]
+    let points: Set<Point> = [Point(x: 0, y: 0), Point(x: 1, y: 2)]
+    let pairs: Set<(int, int)> = [(1, 2), (2, 1)]
+    println(tags.contains(.green), points.contains(Point(x: 1, y: 2)), pairs.len)
+
+    for t in tags {
+        print(t, "")
+    }
+    println()
+    let sorted = points.toList().sorted(by: fn(a, b) => a.x > b.x)
+    println(sorted)
+}
+```
+
+```text title="Output"
+false true 2
+Tag.red Tag.blue 
+[Point(x: 1, y: 2), Point(x: 0, y: 0)]
+```
+
+A `float` set is an error, `float can't be in a set`, with the hint `use int, string, bool, Bytes, a record of those, or a struct or enum that lists Hashable`. A loop sees the items that were there when it started.
+
+## Sets are shared references
+
+Assigning a set or passing it to a function doesn't copy it. `copy()` makes a separate one:
+
+```vex title="shared.vx"
+fn addAll(s: Set<int>, xs: [int]) {
+    for x in xs {
+        s.insert(x)
+    }
+}
+
+fn main() {
+    let a: Set<int> = [1, 2]
+    let b = a
+    addAll(b, [3])
+    let c = a.copy()
+    c.insert(99)
+    println(a, b, c, a === b, a == c)
+}
+```
+
+```text title="Output"
+[1, 2, 3] [1, 2, 3] [1, 2, 3, 99] true false
+```
+
+A [constant](/docs/language/constants) set can't change: `vowels.insert("i")` gives `can't change a constant set: 'vowels' is constant`, with the hint `change a copy instead: var mine = vowels.copy()`.
+
+## Sets in JSON
+
+A set is Codable when its items are, and is written as a JSON list:
+
+```vex title="json.vx"
+import "vex:json"
+
+struct Post: Codable {
+    title: string
+    tags: Set<string>
+}
+
+fn main() throws {
+    let post = Post(title: "Hi", tags: ["vex", "news"])
+    let text = json.encode(post)
+    println(text)
+    let back: Post = try json.decode(text)
+    println(back.tags.contains("vex"), back)
+}
+```
+
+```text title="Output"
+{"title":"Hi","tags":["vex","news"]}
+true Post(title: "Hi", tags: ["vex", "news"])
+```
+
+See [vex:json](/docs/stdlib/json).
+
+## Rules and edge cases
+
+- A set holds one item type, and each value at most once.
+- Items are compared with `==` and hashed, which is why they need a key type.
+- `===` tells whether two names refer to the same set.
+- A set sent to another [isolate](/docs/concurrency/isolates) is copied.
+- A struct, enum or interface called `Set` hides the built-in one in its module.
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Dart | Go |
+|---|---|---|---|---|---|
+| Type | `Set<T>` | `Set<T>` | `MutableSet<T>` | `Set<T>` | `map[T]struct{}` |
+| Literal | `let s: Set<int> = [1, 2]` | `let s: Set = [1, 2]` | `mutableSetOf(1, 2)` | `{1, 2}` | none |
+| Order | insertion | unordered | insertion | insertion | random |
+| Semantics | reference | value | reference | reference | reference |
+
+## See also
+
+- [Lists](/docs/language/lists)
+- [Maps](/docs/language/maps)
+- [Equality and hashing](/docs/language/structs#equatable-and-hashable)
+- [Built-ins](/docs/stdlib/built-ins)

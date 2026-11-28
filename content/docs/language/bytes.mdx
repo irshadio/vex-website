@@ -1,0 +1,183 @@
+---
+title: Bytes
+description: The Bytes type for binary data, creating it from lists, hex and strings, reading and changing bytes, slicing, looping, UTF-8 and hex conversion, reference semantics, map keys, JSON and files.
+---
+
+`Bytes` holds binary data, such as file contents, network packets, hashes and keys, one byte per element, like Swift's `Data` or Dart's `Uint8List`. Each byte reads as an `int` from 0 to 255. Like lists, `Bytes` are shared references that can change in place.
+
+## Creating bytes
+
+```vex title="create.vx"
+fn main() {
+    let empty = Bytes()
+    let zeros = Bytes(count: 4)
+    let magic = Bytes([0x89, 0x50, 0x4e, 0x47])
+    let text = "Hello".toBytes()
+    let key = Bytes.fromHex("48690aff")
+    println(empty, zeros)
+    println(magic, text)
+    println(key ?? Bytes(), Bytes.fromHex("4g") == nil)
+}
+```
+
+```text title="Output"
+Bytes(0 bytes) Bytes(4 bytes: 00 00 00 00)
+Bytes(4 bytes: 89 50 4e 47) Bytes(5 bytes: 48 65 6c 6c 6f)
+Bytes(4 bytes: 48 69 0a ff) true
+```
+
+| Written | Gives |
+|---|---|
+| `Bytes()` | Empty bytes |
+| `Bytes(count: n)` | `n` zero bytes |
+| `Bytes([0x89, 0x50])` | The bytes in the list |
+| `s.toBytes()` | The UTF-8 bytes of the string `s` |
+| `Bytes.fromHex(text)` | A `Bytes?`, `nil` unless the text is pairs of hex digits |
+
+Printing shows the length and up to the first 32 bytes in hex, followed by `...` when there are more.
+
+## Reading and changing bytes
+
+`b[i]` reads and sets one byte, `push` and `append` add to the end, and a [range](/docs/language/lists#slicing) gives a copy of part of the bytes. `for` visits each byte as an `int`:
+
+```vex title="change.vx"
+fn main() {
+    var packet = Bytes()
+    packet.push(0x01)
+    packet.append("hi".toBytes())
+    packet[0] = 0x02
+    println(packet.len, packet[1], packet[1..], packet.isEmpty)
+
+    var sum = 0
+    for byte in packet {
+        sum += byte
+    }
+    println(sum, packet.toList(), packet.toHex())
+
+    let data = "héllo".toBytes()
+    println(data.len, data.decodeUtf8() ?? "binary")
+    println(Bytes([0xff, 0xfe]).decodeUtf8() ?? "binary")
+}
+```
+
+```text title="Output"
+3 104 Bytes(2 bytes: 68 69) false
+211 [2, 104, 105] 026869
+6 héllo
+binary
+```
+
+`"héllo"` has five characters but six bytes, since `é` takes two in UTF-8. `decodeUtf8()` gives `nil` for bytes that aren't valid UTF-8, so text from outside the program is checked before it is used.
+
+| Member | Result | Description |
+|---|---|---|
+| `b.len` | `int` | Number of bytes. A property. |
+| `b.isEmpty` | `bool` | Whether there are no bytes. A property. |
+| `b[i]`, `b[i] = x` | `int` | Reads or changes one byte. |
+| `b[a..b]` and the other [slices](/docs/language/lists#slicing) | `Bytes` | New `Bytes` with a copy of those bytes. |
+| `b.push(x)` | nothing | Adds a byte to the end. |
+| `b.append(other)` | nothing | Adds every byte of `other` to the end. |
+| `b.copy()` | `Bytes` | Separate `Bytes` with the same bytes. |
+| `b.toList()` | `[int]` | The bytes as a list. |
+| `b.toHex()` | `string` | Two lowercase hex digits a byte. |
+| `b.decodeUtf8()` | `string?` | The bytes as text, or `nil` when they aren't valid UTF-8. |
+
+## Bytes are shared references
+
+Assigning `Bytes` or passing them to a function shares them, as with lists: `let` stops the name being reassigned, not the bytes being changed. Two `Bytes` are `==` when they hold the same bytes, and `===` tells whether they are the same object:
+
+```vex title="shared.vx"
+fn fill(buffer: Bytes) {
+    buffer.push(0xff)
+}
+
+fn main() {
+    let a = Bytes([1, 2])
+    let b = a
+    fill(b)
+    let c = a.copy()
+    c[0] = 9
+    println(a, c)
+    println(a === b, a == Bytes([1, 2, 255]), a == c)
+
+    let names = ["ok".toBytes(): "greeting"]
+    println(names["ok".toBytes()] ?? "?")
+}
+```
+
+```text title="Output"
+Bytes(3 bytes: 01 02 ff) Bytes(3 bytes: 09 02 ff)
+true true false
+greeting
+```
+
+`Bytes` can be [map keys](/docs/language/maps#key-and-value-types) and [set](/docs/language/sets) items. Don't change `Bytes` while they are a key.
+
+## Out of range
+
+Storing a value outside 0 to 255 stops the program, with `push`, `b[i] = x` or `Bytes([...])`, and so does an index out of range:
+
+```vex title="notbyte.vx"
+fn main() {
+    let b = Bytes([1, 2])
+    b.push(300)
+}
+```
+
+```text title="Output"
+error: 300 is not a byte; a byte is 0 to 255
+ --> notbyte.vx:3
+```
+
+An index past the end gives `index 3 is out of range for Bytes of length 1`.
+
+## JSON, isolates and files
+
+`Bytes` are Codable, and JSON holds them as a base64 string:
+
+```vex title="json.vx"
+import "vex:json"
+
+struct Message: Codable {
+    id: int
+    body: Bytes
+}
+
+fn main() throws {
+    let text = json.encode(Message(id: 1, body: "hi!".toBytes()))
+    println(text)
+    let back: Message = try json.decode(text)
+    println(back.body.decodeUtf8() ?? "")
+}
+```
+
+```text title="Output"
+{"id":1,"body":"aGkh"}
+hi!
+```
+
+- `Bytes` sent to another [isolate](/docs/concurrency/isolates) are copied.
+- [`vex:fs`](/docs/stdlib/fs) reads and writes them with `fs.readBytes(path)`, `fs.writeBytes(path, data)` and `fs.appendBytes(path, data)`.
+
+## Rules and edge cases
+
+- Each element is an `int` from 0 to 255; there is no separate byte type.
+- Slices copy: changing a slice doesn't change the bytes it came from.
+- `Bytes` print with at most 32 bytes shown, so a large buffer doesn't flood the output. Use `toHex()` for all of them.
+- A struct, enum or interface called `Bytes` hides the built-in one in its module.
+
+## Comparison
+
+| | Vex | Swift | Kotlin | Dart | Go |
+|---|---|---|---|---|---|
+| Type | `Bytes` | `Data` | `ByteArray` | `Uint8List` | `[]byte` |
+| Element | `int`, 0 to 255 | `UInt8` | `Byte`, -128 to 127 | `int`, 0 to 255 | `byte` |
+| Grows | yes | yes | no | no | with `append` |
+| Semantics | reference | value | reference | reference | slice header |
+
+## See also
+
+- [Strings](/docs/language/strings)
+- [Lists](/docs/language/lists)
+- [vex:fs](/docs/stdlib/fs)
+- [vex:json](/docs/stdlib/json)

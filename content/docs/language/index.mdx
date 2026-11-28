@@ -3,7 +3,7 @@ title: Language guide
 description: The design principles behind Vex, how this guide is organized, the complete keyword list, and a map of every language page.
 ---
 
-This guide describes the Vex language as the compiler implements it today, version `0.1.0-dev`. It goes from the basics (variables, types, control flow) through functions and collections to structs, enums, pattern matching, error handling, generics and interfaces, and ends with the memory model. Each page explains a feature, shows complete programs with their real output, and lists the exact rules and error messages for the cases you'll want to look up.
+This guide describes the Vex language as the compiler implements it today, version `0.1.0-dev`. It goes from the basics (variables, types, control flow) through functions and collections (lists, maps, sets and bytes) to structs, enums, pattern matching, error handling, generics, interfaces and extensions, and ends with the memory model. Each page explains a feature, shows complete programs with their real output, and lists the exact rules and error messages for the cases you'll want to look up.
 
 If you're new to Vex, read the [Language tour](/docs/tour) first for a quick overview, then come back here for the details.
 
@@ -83,10 +83,11 @@ These words have a special meaning only in certain places, and are ordinary name
 | `get`, `set` | Start a getter or setter in a struct, interface or extension | [Structs](/docs/language/structs) |
 | `didSet` | A block after a field that runs after each assignment | [Structs](/docs/language/structs) |
 | `oldValue` | The previous value inside `didSet` | [Structs](/docs/language/structs) |
-| `operator` | Define an operator in a struct | [Structs](/docs/language/structs) |
-| `extension` | Add members to an existing type or interface, at the top level | [Extensions](/docs/language/extensions) |
+| `operator` | Define an operator in a struct or enum | [Structs](/docs/language/structs#operators), [Enums](/docs/language/enums#operators) |
+| `extension` | Add members to an existing type or interface, at the top level; `extension type` declares a distinct wrapper type | [Extensions](/docs/language/extensions) |
+| `sealed` | `sealed interface`: an interface only its own module can implement | [Interfaces](/docs/language/interfaces#sealed-interfaces) |
 | `export` | `export fn`: a function callable from C | [C interop](/docs/projects/c-interop) |
-| `type` | `extern type`: a C pointer type | [C interop](/docs/projects/c-interop) |
+| `type` | `extern type`: a C pointer type; `extension type`: a distinct type that wraps one value | [C interop](/docs/projects/c-interop), [Extension types](/docs/language/extensions#extension-types) |
 | `new` | `Type.new`: a constructor as a function value | [Closures](/docs/language/closures#tear-offs) |
 | `self` | The current value inside a method; can't be declared as a name | [Structs](/docs/language/structs) |
 | `Self` | The type that implements an interface, in its requirements; a struct's or enum's own type, in its methods | [Interfaces](/docs/language/interfaces#static-requirements-and-self) |
@@ -105,8 +106,8 @@ The built-in type names (`int`, `float`, `bool`, `string`), the built-in functio
 
 <Cards>
   <Card title="Basics" href="/docs/language/basics" description="Program structure, main, let and var, top-level variables, inference, names, scope, line breaks and comments." />
-  <Card title="Types" href="/docs/language/types" description="int, float, bool, string, collections, optionals, function types, conversions, type aliases and type tests." />
-  <Card title="Strings" href="/docs/language/strings" description="Literals, escapes, interpolation, multi-line and raw strings, Unicode and string methods." />
+  <Card title="Types" href="/docs/language/types" description="int, float, bool, string, collections, Bytes, optionals, function types, conversions, type aliases and type tests." />
+  <Card title="Strings" href="/docs/language/strings" description="Literals, escapes, interpolation and format specs, multi-line and raw strings, grapheme clusters, Unicode case mapping and string methods." />
   <Card title="Operators" href="/docs/language/operators" description="Arithmetic, overflow, comparison and identity, logic, assignment, ranges, ?? and the precedence table." />
   <Card title="Control flow" href="/docs/language/control-flow" description="if, if as a value, for, while, repeat-while, break and continue with named loops, guard, defer, and a first look at match." />
 </Cards>
@@ -122,8 +123,10 @@ The built-in type names (`int`, `float`, `bool`, `string`), the built-in functio
 ### Collections
 
 <Cards>
-  <Card title="Lists" href="/docs/language/lists" description="Indexing, every list member, looping, collection if, for and spread, copying." />
-  <Card title="Maps" href="/docs/language/maps" description="Keys and values, custom keys, missing keys, adding and removing, iteration order." />
+  <Card title="Lists" href="/docs/language/lists" description="Indexing, every list member, looping, collection if, for and spread, null-aware elements, copying and converting." />
+  <Card title="Maps" href="/docs/language/maps" description="Keys and values, custom keys, missing keys, adding and removing, getOrPut and update, iteration order." />
+  <Card title="Sets" href="/docs/language/sets" description="Set<T> from list literals, insert and remove, union, intersection, subtracting and subsets." />
+  <Card title="Bytes" href="/docs/language/bytes" description="Binary data: bytes from lists, hex and strings, slicing, UTF-8 and hex conversion, JSON." />
   <Card title="Records" href="/docs/language/records" description="Grouping values without a type, destructuring, equality and immutability." />
 </Cards>
 
@@ -131,9 +134,9 @@ The built-in type names (`int`, `float`, `bool`, `string`), the built-in functio
 
 <Cards>
   <Card title="Structs" href="/docs/language/structs" description="Fields, let fields, defaults, init blocks, copy, private(set), methods, toString, equality and hashing, properties, operators and reference semantics." />
-  <Card title="Enums" href="/docs/language/enums" description="Cases with values, methods, toString, the .case shorthand and match." />
+  <Card title="Enums" href="/docs/language/enums" description="Cases with values, methods, raw values, allCases, operators, toString, the .case shorthand and match." />
   <Card title="Patterns" href="/docs/language/patterns" description="Matching and taking apart values in match, if case, let and for, type patterns included." />
-  <Card title="Optionals" href="/docs/language/optionals" description="T?, nil, if let, guard let, while let, ?. and ??." />
+  <Card title="Optionals" href="/docs/language/optionals" description="T?, nil, if let, guard let, while let, ?., ?[ ] and ??." />
   <Card title="Errors" href="/docs/language/errors" description="throws, throw, try, catch, try?, typed errors and panics." />
 </Cards>
 
@@ -141,8 +144,8 @@ The built-in type names (`int`, `float`, `bool`, `string`), the built-in functio
 
 <Cards>
   <Card title="Generics" href="/docs/language/generics" description="Generic functions, structs, enums and methods, constraints and specialization." />
-  <Card title="Interfaces" href="/docs/language/interfaces" description="Required methods and properties, static requirements and Self, defaults, conformance and interfaces as types." />
-  <Card title="Extensions" href="/docs/language/extensions" description="Adding methods, getters and static members to existing types and interfaces, built-in ones included." />
+  <Card title="Interfaces" href="/docs/language/interfaces" description="Required methods and properties, static requirements and Self, defaults, conformance, interfaces as types and sealed interfaces." />
+  <Card title="Extensions" href="/docs/language/extensions" description="Adding methods, getters and static members to existing types and interfaces, built-in ones included, and extension types." />
   <Card title="Memory" href="/docs/language/memory" description="Values and references, the garbage collector, and cycles." />
 </Cards>
 

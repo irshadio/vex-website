@@ -1,6 +1,6 @@
 ---
 title: Maps
-description: Creating maps, key and value rules, structs, enums and records as keys, reading missing keys, adding, replacing and removing entries, every map member, iteration order, equality, reference semantics and copying.
+description: Creating maps, key and value rules, structs, enums and records as keys, reading missing keys, adding, replacing and removing entries, getOrPut, update, filter and mapValues, every map member, iteration order, equality, reference semantics, copying and null-aware entries.
 ---
 
 A map, written `[K: V]`, stores values under unique keys. Reading a key gives an optional, since the key may be missing, so a missing key can never crash your program. Maps keep their entries in the order the keys were first added, and like lists they are shared references.
@@ -30,7 +30,7 @@ fn main() {
 
 ### Key and value types
 
-Keys can be `int`, `string`, `bool`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable`. These are the types with a reliable equality and hash. Other key types are errors:
+Keys can be `int`, `string`, `bool`, [`Bytes`](/docs/language/bytes), an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable`. These are the types with a reliable equality and hash. Other key types are errors:
 
 ```vex title="badkey.vx"
 struct Point {
@@ -54,7 +54,7 @@ error: float can't be a map key
  --> badkey.vx:7:20
   |
 7 |     let byFloat = [1.5: "x"]
-  |                    ^^^ use int, string, bool, a record of those, or a struct or enum that lists Hashable
+  |                    ^^^ use int, string, bool, Bytes, a record of those, or a struct or enum that lists Hashable
 
 2 errors
 ```
@@ -211,6 +211,8 @@ fn main() {
 ["the": 2, "cat": 1, "and": 1, "hat": 1]
 ```
 
+When the key is known to be there, `m.update(k) { it + 1 }` changes it in place; see [Helpers](#helpers).
+
 ### Values that are lists or structs
 
 When the values are lists, maps or structs, `m[key]` gives a reference to the stored object, wrapped in an optional. Change it through `?.`, or take it out with `??` and put it back:
@@ -232,18 +234,69 @@ fn main() {
 [2: ["ox", "be", "up"], 3: ["cat", "dog"]]
 ```
 
-`groups[2].push("up")` without the `?` is an error: `can't read 'push' from a [string]?: it may be nil`.
+`groups[2].push("up")` without the `?` is an error: `can't read 'push' from a [string]?: it may be nil`. `getOrPut`, below, does the same in one line.
+
+## Helpers
+
+These members read or change entries without spelling out the missing-key case:
+
+```vex title="helpers.vx"
+fn main() {
+    let words = ["apple", "avocado", "banana", "cherry", "blueberry"]
+    var groups: [string: [string]] = [:]
+    for w in words {
+        groups.getOrPut(w.substring(0, 1)) { [] }.push(w)
+    }
+    println(groups)
+
+    var stock = ["apple": 3, "pear": 0]
+    println(stock.update("apple") { it - 1 }, stock.update("plum") { it - 1 })
+    println(stock, stock.isEmpty)
+
+    let inStock = stock.filter { name, n in n > 0 }
+    let labels = stock.mapValues { "{it} left" }
+    println(inStock, labels)
+    for e in stock.entries {
+        println(e.key, e.value)
+    }
+}
+```
+
+```text title="Output"
+["a": ["apple", "avocado"], "b": ["banana", "blueberry"], "c": ["cherry"]]
+2 nil
+["apple": 2, "pear": 0] false
+["apple": 2] ["apple": "2 left", "pear": "0 left"]
+apple 2
+pear 0
+```
+
+| Member | What it does |
+|---|---|
+| `m.getOrPut(key) { value }` | The value of `key`. When it is missing, runs the block, stores its result under `key` and returns it |
+| `m.update(key) { old in new }` | Replaces the value of `key` with what the block returns and gives the new value, as an optional. A missing key stays missing, the block doesn't run, and the result is `nil` |
+| `m.filter { k, v in ... }` | A new map of the entries the function accepts |
+| `m.mapValues { v in ... }` | A new map with the same keys, in the same order, and what the function returns as values. The function can't return an optional |
+| `m.entries` | The entries as a list of `({K key, V value})` records, in order |
+
+- `getOrPut` and `update` change the map, so they can't be used on a [constant](/docs/language/constants) map. `filter`, `mapValues` and `entries` leave it as it is.
+- `filter` and `mapValues` visit the entries there were at the start, as a `for` loop does.
+- `update` never adds a key. To count with it, add the key when the result is `nil`: `if m.update(k, fn(n) => n + 1) == nil { m[k] = 1 }`. In an `if` condition the function goes in the parentheses, since a `{` there starts the body.
 
 ## Map members
 
 | Member | Result | Description |
 |---|---|---|
 | `m.len` | `int` | Number of entries. A property: no `()`. |
+| `m.isEmpty` | `bool` | Whether the map has no entries. A property. |
 | `m.keys` | `[K]` | A new list of the keys, in order. A property. |
 | `m.values` | `[V]` | A new list of the values, in order. A property. |
 | `m.contains(key)` | `bool` | Whether the key is present. |
 | `m.remove(key)` | `V?` | Removes the entry; returns its value or `nil`. |
 | `m.copy()` | `[K: V]` | A new map with the same entries. |
+| `m.entries` | `[({K key, V value})]` | A new list of the entries, in order. A property. |
+| `m.getOrPut(key) { ... }`, `m.update(key) { ... }` | `V`, `V?` | Read and change one entry; see [Helpers](#helpers). |
+| `m.filter(f)`, `m.mapValues(f)` | `[K: V]`, `[K: U]` | New maps; see [Helpers](#helpers). |
 | `m[key]` | `V?` | The value, or `nil`. |
 | `m[key] = value` | | Adds or replaces an entry. |
 
@@ -386,11 +439,33 @@ fn main() {
 ["theme": "light", "lang": "fr", "log": "all"] [1: 1, 2: 4, 3: 9]
 ```
 
+### Null-aware entries
+
+`?` before a key leaves the entry out when the key is `nil`, and `?` before a value leaves it out when the value is `nil`, as with [null-aware list elements](/docs/language/lists#null-aware-elements):
+
+```vex title="nullkeys.vx"
+fn main() {
+    let text = "vex"
+    let langKey: string? = nil
+    let page: string? = "2"
+    let sort: string? = nil
+    let query = ["q": text, ?langKey: "en", "page": ?page, "sort": ?sort]
+    println(query)
+}
+```
+
+```text title="Output"
+["q": "vex", "page": "2"]
+```
+
+When the key of `?k: v` is `nil`, `v` isn't evaluated. The key and value types are the types inside the optionals.
+
 ## Rules and edge cases
 
-- Keys: `int`, `string`, `bool`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable`.
+- Keys: `int`, `string`, `bool`, `Bytes`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable`.
 - Values: anything but an optional.
-- Reading always gives an optional; writing never fails.
+- Reading always gives an optional; writing never fails. `m?[k]` reads from an optional map (see [Optionals](/docs/language/optionals#optional-indexing)).
+- A map of struct values converts to a map of an interface they implement by copying, as [lists do](/docs/language/lists#converting-lists).
 - `==` compares entries whatever their order, and `===` compares identity. Maps have no other operators.
 - An empty map prints as `[:]`.
 

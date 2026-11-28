@@ -19,6 +19,9 @@ What you do need to know is which values are **shared** and which behave as **va
 | structs | a shared reference | yes: fields can always be changed |
 | lists `[T]` | a shared reference | yes |
 | maps `[K: V]` | a shared reference | yes |
+| sets `Set<T>` | a shared reference | yes |
+| `Bytes` | a shared reference | yes |
+| extension types | like the value they wrap | no: make a new one |
 | closures | a shared reference to the function and what it captured | captured `var`s can change |
 | interface values | a shared reference to the struct inside | through the struct's methods |
 
@@ -234,6 +237,8 @@ fn main() {
 ```text title="Output"
 error: can't change a constant list; change a copy made with .copy()
  --> const_runtime.vx:4
+  at add (const_runtime.vx:4)
+  at main (const_runtime.vx:8)
 ```
 
 Since constants never change, every [isolate](/docs/concurrency/isolates) shares the same copy. See [Constants](/docs/language/constants).
@@ -305,7 +310,8 @@ Vex uses a tracing garbage collector, like Go, Dart and Kotlin/Native, rather th
 
 - **Cycles are freed.** A parent that holds its children while each child holds its parent, or a button whose `onTap` closure refers back to the screen holding the button, is freed as a whole once nothing outside refers to it. You don't need `weak` references to avoid leaks.
 - **Freeing isn't immediate.** Unreachable memory is reclaimed at the next collection, not the moment the last reference goes away.
-- **Collections pause the program briefly.** A collection runs when the heap has grown to twice the size of what was live after the previous one, and never below 4 MB.
+- **Collections pause the program briefly.** The collector is generational: most collections are *minor* ones that stop at objects which survived an earlier collection, so long-lived data isn't traced again each time. A minor collection runs once the new objects reach the size of the heap after the last collection, and never below 4 MB; a *major* one, which traces everything, runs when the old objects have doubled.
+- **Memory goes back to the system.** Empty pages are given back after a major collection, so a program that builds a large structure and drops it shrinks again.
 - **Allocation is cheap.** Small objects come from a free list for their size, so creating many short-lived objects is fast.
 
 This program builds 20,000 rings of ten nodes each, every ring a cycle, and drops each one right away:
@@ -344,17 +350,17 @@ Setting `VEX_GC_STATS=1` prints a summary to standard error when the program end
 ```sh
 $ VEX_GC_STATS=1 vex run rings.vx
 done
-gc: 2 collections, 11875 KB allocated, 4096 KB peak heap, 3683 KB live
+gc: 2 collections, 11875 KB allocated, 4096 KB peak heap, 3683 KB live, 4160 KB from the system, 4160 KB at most, 0 KB given back
 ```
 
 About 12 MB was allocated in total, but the heap never grew past 4 MB, because the rings were collected as the program went.
 
 | Variable | Effect |
 |---|---|
-| `VEX_GC_STATS=1` | prints collections, total bytes allocated, the peak heap and the live heap at exit |
-| `VEX_GC_STRESS=N` | collects every `N` allocations (`1` collects on every one); useful for testing the runtime |
+| `VEX_GC_STATS=1` | prints collections, total bytes allocated, the peak heap and the live heap at exit, and the memory held from the system then, the most it held, and how much was given back |
+| `VEX_GC_STRESS=N` | collects every `N` allocations (`1` collects on every one, and every fourth collection is major); useful for testing the runtime |
 
-The collector is conservative today: a number on the stack that happens to look like an address can keep an object alive a little longer. It never frees an object that is still in use. See [Memory design](/docs/internals/memory) for how the collector works and what is planned.
+Objects are scanned precisely, by the layout of their fields, so a number stored in a struct or list never keeps an object alive. The stacks are scanned conservatively: a number on the stack that happens to look like an address can keep an object alive a little longer. It never frees an object that is still in use. See [Memory design](/docs/internals/memory) for how the collector works.
 
 ## Resources
 
