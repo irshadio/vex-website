@@ -3,7 +3,7 @@ export type Channel = 'stable' | 'beta';
 /// A platform that release builds are published for.
 export interface Platform {
   id: string;
-  os: 'macos' | 'linux';
+  os: 'macos' | 'linux' | 'windows';
   arch: 'arm64' | 'x64';
   label: string;
   detail: string;
@@ -13,7 +13,7 @@ export const platforms: Platform[] = [
   { id: 'macos-arm64', os: 'macos', arch: 'arm64', label: 'macOS', detail: 'Apple silicon' },
   { id: 'macos-x64', os: 'macos', arch: 'x64', label: 'macOS', detail: 'Intel' },
   { id: 'linux-x64', os: 'linux', arch: 'x64', label: 'Linux', detail: 'x64' },
-  { id: 'linux-arm64', os: 'linux', arch: 'arm64', label: 'Linux', detail: 'ARM64' },
+  { id: 'windows-x64', os: 'windows', arch: 'x64', label: 'Windows', detail: 'x64' },
 ];
 
 /// One downloadable file of a release.
@@ -43,8 +43,8 @@ interface GitHubRelease {
 
 export const releasesApi = 'https://api.github.com/repos/vex-language/vex-lang/releases?per_page=30';
 
-// Archives are named vex-<version>-<os>-<arch>.tar.gz, for example vex-0.2.0-macos-arm64.tar.gz.
-const assetPattern = /^vex-.+-(macos|linux)-(arm64|x64)\.tar\.gz$/;
+// SDK archives are named vex-sdk-<version>-<os>-<arch>, as .zip on Windows and .tar.xz elsewhere.
+const assetPattern = /^vex-sdk-.+-(macos|linux|windows)-(arm64|x64)\.(?:zip|tar\.xz)$/;
 
 function toRelease(r: GitHubRelease): Release {
   const assets: Record<string, Asset> = {};
@@ -77,6 +77,7 @@ export function detectPlatform(): string | null {
   if (typeof navigator === 'undefined') return null;
   const ua = navigator.userAgent;
   if (/Mac/i.test(ua) && !/iPhone|iPad/i.test(ua)) return 'macos-arm64';
-  if (/Linux/i.test(ua) && !/Android/i.test(ua)) return /aarch64|arm64/i.test(ua) ? 'linux-arm64' : 'linux-x64';
+  if (/Windows/i.test(ua)) return 'windows-x64';
+  if (/Linux/i.test(ua) && !/Android/i.test(ua) && !/aarch64|arm64/i.test(ua)) return 'linux-x64';
   return null;
 }
