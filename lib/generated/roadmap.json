@@ -263,7 +263,7 @@
     "number": 2,
     "title": "Language for apps",
     "version": "v0.2",
-    "goal": "the compiler, `vex` and programs built with it run on Windows 10 and 11 (x86-64 and arm64), using clang from LLVM-MinGW so no Visual Studio is needed.",
+    "goal": "wrapping a large C library is mostly generated, not written by hand, and the native packages for the UI framework (Firebase, payments, maps) can be built on it. New syntax in these tasks is approved before it is built.",
     "sections": [
       {
         "title": "Done",
@@ -828,6 +828,59 @@
             "size": "S"
           }
         ]
+      },
+      {
+        "title": "C interop, next steps",
+        "tasks": [
+          {
+            "id": "V-188",
+            "text": "`extern struct`: C structs passed and returned by value in extern calls, with C field layout, nested structs and fixed-size arrays",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-189",
+            "text": "C memory: a pointer type for C-owned buffers with typed reads and writes, `Bytes` passed to C as a pointer and length without a copy, and C strings borrowed or adopted without a copy",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-190",
+            "text": "Releasing C resources: an `extern type` can name its release function, so the collector frees unreachable handles, alongside explicit `close()` with `defer`",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-191",
+            "text": "C enums, unions, bitfields and `#define` constants",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-192",
+            "text": "Variadic C functions such as `printf` and `open`, using C's default argument promotions",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-193",
+            "text": "Callbacks, next steps: struct, `Bytes` and pointer parameters, and callbacks that C calls from its own threads, queued onto the isolate that owns them",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-194",
+            "text": "`vex bind c`: generates Vex declarations from C headers through clang's AST, filtered by name prefix, and a `bind` entry in the `[c]` section of `package.toml` that regenerates them on build",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-195",
+            "text": "C interop guide with worked SQLite and libcurl wrappers, built and run in CI",
+            "status": "todo",
+            "size": "S"
+          }
+        ]
       }
     ]
   },
@@ -1055,6 +1108,84 @@
           {
             "id": "V-741",
             "text": "Demo gallery app: animations, canvas, shaders and 3D on both platforms, compared with Flutter for size and frame rate",
+            "status": "todo",
+            "size": "M"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "number": 9,
+    "title": "Devices and IoT",
+    "version": "v0.9",
+    "goal": "Vex programs on single-board computers such as the Raspberry Pi, talking to sensors and networks, then a first program on a microcontroller. Builds on the C interop steps (V-188 to V-195). New syntax in these tasks is approved before it is built.",
+    "sections": [
+      {
+        "title": "Linux boards",
+        "tasks": [
+          {
+            "id": "V-800",
+            "text": "Cross builds: `vex build --target linux-arm64` and `linux-armv7` from any host, using the SDK's clang and musl",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-801",
+            "text": "Async tasks and generators on 32-bit ARM: the stack switch for armv7, with the collector's register scan",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-802",
+            "text": "SDK archive for Linux arm64, tested on a Raspberry Pi in CI",
+            "status": "todo",
+            "size": "S"
+          },
+          {
+            "id": "V-803",
+            "text": "`vex:gpio`: digital pins, edge events as streams, and PWM through the Linux character device",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-804",
+            "text": "I²C, SPI and serial ports in the standard library or first-party packages",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-805",
+            "text": "MQTT client package with TLS, reconnects and a stream of messages",
+            "status": "todo",
+            "size": "M"
+          },
+          {
+            "id": "V-806",
+            "text": "`vex deploy`: copy a build to a board over SSH and run it, streaming its output",
+            "status": "todo",
+            "size": "S"
+          }
+        ]
+      },
+      {
+        "title": "Microcontrollers",
+        "tasks": [
+          {
+            "id": "V-810",
+            "text": "Spike: a freestanding runtime (no OS, no threads, a fixed heap set at build time) that blinks an LED and reads a sensor on an RP2040 or ESP32-C3; measures flash and RAM use and decides the next tasks",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-811",
+            "text": "Memory-mapped registers and interrupt handlers, if the spike shows the runtime fits",
+            "status": "todo",
+            "size": "L"
+          },
+          {
+            "id": "V-812",
+            "text": "`vex flash` and a serial monitor for supported boards",
             "status": "todo",
             "size": "M"
           }
