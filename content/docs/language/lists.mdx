@@ -1,6 +1,6 @@
 ---
 title: Lists
-description: Creating lists, indexing, every list member including sorting, searching and changing lists in place, looping, ranges as values, slicing with ranges, collection if, for and spread, reference semantics, copying, and adding your own members.
+description: Creating lists, indexing, every list member including sorting, searching and changing lists in place, looping, ranges as values, slicing with ranges, collection if, for and spread, null-aware elements, reference semantics, copying, converting between element types, and adding your own members.
 ---
 
 A list, written `[T]`, is an ordered, growable sequence of values of one type. Lists are the main collection in Vex: they back loops, sorting, `filter` and `map`, builder blocks and list patterns. Lists are shared references, so passing one to a function lets the function change it.
@@ -105,6 +105,7 @@ Use `push` to add elements, and check `i < xs.len` before indexing when the inde
 | `xs.join(separator)` | `string` | The elements as text, with `separator` between them. The separator may be left out. |
 | `xs.slice(from, to)` | `[T]` | A new list of the elements from index `from` up to, not including, `to`. The same as `xs[from..to]` (see [Slicing](#slicing)). |
 | `xs.copy()` | `[T]` | A new list with the same elements. |
+| `xs.cast<U>()` | `[U]` | A new list with each element converted to `U`. See [Converting lists](#converting-lists). |
 
 `push`, `pop`, `insert`, `remove`, `removeWhere`, `clear` and `sort` change the list. Every other member leaves it as it is and returns something new.
 
@@ -191,7 +192,7 @@ fn main() {
 ```
 
 - Sorting is stable: elements the order treats as equal keep their order. Above, `test` stays before `plan` and `write` before `ship`.
-- Without `by:`, the elements must be ordered by `<`: numbers, strings, enums whose cases carry no values, and structs that define `operator <`. Strings compare code point by code point, so `"Fig"` sorts before `"apple"`.
+- Without `by:`, the elements must be ordered by `<`: numbers, strings, enums whose cases carry no values, and structs and enums that define `operator <`. Strings compare code point by code point, so `"Fig"` sorts before `"apple"`.
 - On any other element type, `sort()` is a compile error, `sort can't be used on a list of Task`, with the hint `pass the order: sort(by: fn(a, b) => ...)`.
 
 A struct that defines `operator <` sorts without `by:`, and so does an enum whose cases carry no values, in the order the cases are declared:
@@ -609,6 +610,48 @@ fn main() {
 
 For a deep copy of nested lists, copy each inner list: `grid.map(fn(row) => row.copy())`. When a list is sent to another [isolate](/docs/concurrency/isolates), it's copied deeply.
 
+### Converting lists
+
+A list can be used where a list of another element type is expected when every element converts on its own: a `[Circle]` as a `[Shape]` when `Circle` implements `Shape`, or an `[int]` as an `[int?]`. The list is copied with each element converted, so the copy and the original change separately; otherwise a `Square` pushed onto the `[Shape]` would land in the `[Circle]`. `cast<T>()` makes the same copy where no type is written:
+
+```vex title="convert.vx"
+interface Shape {
+    fn area() -> float
+}
+
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.0 * radius * radius
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+}
+
+fn total(shapes: [Shape]) -> float => shapes.map(fn(s) => s.area()).sum()
+
+fn main() {
+    let circles = [Circle(radius: 1), Circle(radius: 2)]
+    println(total(circles))
+    var shapes = circles.cast<Shape>()
+    shapes.push(Square(side: 2))
+    println(shapes.len, circles.len)
+    let counts = [1, 2]
+    let maybe: [int?] = counts
+    println(maybe)
+}
+```
+
+```text title="Output"
+15.0
+3 2
+[1, 2]
+```
+
+- Nested lists convert the same way, as `[[Circle]]` to `[[Shape]]`, and so do the values of [maps](/docs/language/maps): a `[string: Circle]` is copied as a `[string: Shape]`. Keys must have the same type.
+- `cast<T>()` only goes where the elements convert on their own. A `[Shape]` can't become a `[Circle]`, since it may hold other shapes: `can't cast a list of Shape to a list of Circle`, with the hint `test each element with as? Circle` (see [Type tests](/docs/language/types#type-tests)).
+
 ## Collection if, for and spread
 
 Inside a list literal, `if` and `for` produce elements and `...` adds every element of another list, as in Dart:
@@ -666,6 +709,40 @@ fn main() {
 - A [constant](/docs/language/constants) list can't use `if`, `for` or `...`.
 
 The same forms work in [maps](/docs/language/maps#collection-if-for-and-spread) and in builder blocks (see [Closures](/docs/language/closures#builder-blocks)).
+
+### Null-aware elements
+
+`?x` adds an optional `x` only when it isn't `nil`, as in Dart:
+
+```vex title="nullaware.vx"
+struct User {
+    name: string
+    nickname: string? = nil
+}
+
+fn main() {
+    let primary = "admin"
+    let secondary: string? = nil
+    let user: User? = User(name: "Ann", nickname: "annie")
+    let tags = [primary, ?secondary, ?user?.nickname]
+    println(tags)
+
+    let b: int? = 2
+    let c: int? = nil
+    let opts: [int?] = [?b, ?c, nil]
+    println(opts)
+}
+```
+
+```text title="Output"
+["admin", "annie"]
+[2, nil]
+```
+
+- The element type is the type inside the optional, so `[a, ?b]` with `b: int?` is an `[int]`. In an `[int?]`, `?b` still leaves out `nil`, while a plain `nil` element stays.
+- `?x` works after `if` and `for` too: `[if ok ?c, for n in 0..3 ?find(n)]`.
+- `?x` on a value that can't be `nil` is an error, `'?' needs an optional value, found int`, with the hint `a isn't optional, so drop the ?`.
+- Maps have the same form for keys and values: see [Maps](/docs/language/maps#null-aware-entries).
 
 ## Taking lists apart with patterns
 
