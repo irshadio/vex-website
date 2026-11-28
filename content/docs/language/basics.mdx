@@ -477,12 +477,29 @@ One consequence: a `return` at the end of a line returns nothing, so keep the re
 ```vex
 // A line comment runs to the end of the line.
 
-/// A doc comment describes the declaration after it.
+/// Returns the area of a rectangle.
 fn area(width: int, height: int) -> int => width * height
 
 /* A block comment can span lines.
    /* Block comments nest, */ so you can comment out code that has them. */
 ```
+
+A `///` doc comment on the lines right above a declaration documents it: a type, case, field, method, property, function, constant, type alias or extension. A `///` comment at the top of a file, set apart from the first declaration by a blank line, documents the module. Doc comments are Markdown, as in Dart, and `[Name]` in square brackets refers to another declaration:
+
+```vex
+/// Flat shapes and their areas.
+
+/// A circle. Its [area] grows with the square of [radius].
+pub struct Circle {
+    /// The distance from the centre to the edge.
+    pub radius: float
+
+    /// Returns the area, in square units.
+    pub fn area() -> float => 3.14159 * radius * radius
+}
+```
+
+`vex doc` turns them into API documentation; see [The vex command](/docs/tools/cli).
 
 ## Values and references
 
@@ -525,7 +542,7 @@ Use `.copy()` on a list or map when you need an independent one. [Memory](/docs/
 - `main` can't take parameters (`main can't take parameters`) or return a value (`main can't return a value`).
 - Every `let` and `var` needs a value.
 - Functions, structs, enums and type aliases can't be declared inside a function. Store a [closure](/docs/language/closures) in a variable instead of a nested function.
-- The compiler doesn't warn about unused variables or about a `var` that is never changed.
+- A local variable that is never used gets a warning, `'total' is never used`, with the hint `use it, remove it, or name it _total`; a name that starts with `_` says it is meant to be unused. An `import` the file never uses gets a warning too. A `var` that is never changed doesn't.
 - `x++` and `x--` don't exist; write `x += 1`.
 - Writing `count := 0` gives `missing 'let' or 'var' before 'count'`.
 
