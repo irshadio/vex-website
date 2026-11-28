@@ -684,7 +684,7 @@ true false
 
 Where the type is known, a case can be written with a leading dot: `let x: json.Json = .integer(value: 3)`.
 
-`Json` is Codable, so it can be a field of a Codable struct, holding whatever the JSON has there, and `encode` writes it as it is:
+`Json` is Codable, so it can be a field of a Codable struct, holding whatever the JSON has there. `encode` writes it as it is, and `decode` reads it back as it is:
 
 ```vex title="field.vx"
 import "vex:json"
@@ -694,21 +694,21 @@ struct Message: Codable {
     payload: json.Json = json.Json.null
 }
 
-fn main() {
+fn main() throws {
     let m = Message(kind: "point", payload: json.Json.list(items: [json.Json.integer(value: 1), json.Json.integer(value: 2)]))
-    println(json.encode(m))
+    let text = json.encode(m)
+    println(text)
     println(m)
+    let back: Message = try json.decode(text)
+    println(back.payload == m.payload, back.payload)
 }
 ```
 
 ```text title="Output"
 {"kind":"point","payload":[1,2]}
 Message(kind: "point", payload: [1,2])
+true [1,2]
 ```
-
-<Callout type="warn" title="Known issue">
-Reading a `Json` back with `decode` or `fromJson`, on its own or as a field, doesn't work in the current compiler: decoding the JSON above as a `Message` fails with `payload: expected a case of Json, found a list`. Until it is fixed, read the document with [`parse`](#parse), take the known part with [`fromJson`](#fromjson), and keep the free-form part with `get`.
-</Callout>
 
 ## Between the two
 
@@ -772,7 +772,6 @@ expected an object, found a string
 - Text is read and written whole. There is no streaming reader or writer.
 - Keys are always the field names, and enum cases always use the forms above. There are no options to rename keys, skip fields or change the case form; write a [custom conversion](#custom-conversion) instead.
 - Numbers are 64-bit: an `int` holds whole numbers up to `int.max`, and larger ones are read as floats, losing digits past about 16.
-- Reading a `Json` with `decode` or `fromJson` fails in the current compiler; see the [known issue](#json) above.
 
 ## See also
 
